@@ -134,6 +134,7 @@ deploy/docker-compose.override.yml
 vite.config.js
 docs/*
 !docs/custom-bps-tickets.md
+!docs/custom-prism.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
@@ -160,5 +161,7 @@ issues/
 
 # Vitest / Vite cache at repo root
 .vite/
+prism-adapter/__pycache__/
+prism-adapter/.venv/
 # 本地闭源插件开发目录及构建产物不进入 Sub2API 仓库
 /plugins/

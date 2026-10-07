@@ -34,6 +34,37 @@ func TestDeriveAuditAction(t *testing.T) {
 	}
 }
 
+func TestPrismAdminAuditOmitsPrivateBodies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	handler := func(c *gin.Context) {
+		var body map[string]any
+		require.NoError(t, c.ShouldBindJSON(&body))
+		require.NotEmpty(t, body)
+		c.Status(200)
+	}
+	router.PUT("/api/v1/admin/prism/settings", handler)
+	router.POST("/api/v1/admin/prism/accounts/:id/test", handler)
+	for _, req := range []*http.Request{
+		httptest.NewRequest(http.MethodPut, "/api/v1/admin/prism/settings", strings.NewReader(`{"api_key":"private-bridge-secret"}`)),
+		httptest.NewRequest(http.MethodPost, "/api/v1/admin/prism/accounts/7/test", strings.NewReader(`{"prompt":"private prompt"}`)),
+	} {
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	auditService.Stop()
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	require.Len(t, repository.logs, 2)
+	for _, entry := range repository.logs {
+		require.Equal(t, "<credential-bearing body omitted>", entry.RequestBody)
+	}
+}
+
 func TestMihomoSubscriptionCredentialsAreOmittedFromAudit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repository := &auditCaptureRepository{}

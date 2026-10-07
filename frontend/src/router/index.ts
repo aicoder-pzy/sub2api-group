@@ -520,6 +520,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresAdmin: true, title: 'BPS / Tickets', titleKey: 'nav.bpsTickets' }
   },
   {
+    path: '/admin/prism',
+    name: 'AdminPrism',
+    component: () => import('@/views/admin/PrismView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Prism administrator tests', titleKey: 'nav.prismAdmin' }
+  },
+  {
     path: '/admin/accounts',
     name: 'AdminAccounts',
     component: () => import('@/views/admin/AccountsView.vue'),

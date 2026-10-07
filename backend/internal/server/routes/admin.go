@@ -45,6 +45,10 @@ func RegisterAdminRoutes(
 
 		// 账号管理
 		registerAccountRoutes(admin, h, stepUpAuth)
+		admin.GET("/prism", h.Admin.Account.GetPrismAdmin)
+		admin.PUT("/prism/settings", h.Admin.Account.SavePrismAdmin)
+		admin.POST("/prism/health", h.Admin.Account.CheckPrismAdmin)
+		admin.POST("/prism/accounts/:id/test", h.Admin.Account.TestPrismAdmin)
 		admin.GET("/bps-tickets", h.Admin.Account.GetBPSTickets)
 		admin.PUT("/bps-tickets/settings", h.Admin.Account.SaveBPSTicketSettings)
 		admin.PUT("/bps-tickets/accounts/:id", h.Admin.Account.SaveBPSTicketAccount)
