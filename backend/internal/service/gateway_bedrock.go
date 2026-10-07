@@ -145,6 +145,9 @@ func (s *GatewayService) forwardBedrock(
 	if reqStream {
 		streamResult, err := s.handleBedrockStreamingResponse(ctx, resp, c, account, startTime, reqModel)
 		if err != nil {
+			if fastestFailoverAttemptFromContext(ctx) != nil {
+				return partialStreamUsageResult(c, resp, streamResult, reqModel, mappedModel, startTime, err), err
+			}
 			return nil, err
 		}
 		usage = streamResult.usage
@@ -200,7 +203,7 @@ func (s *GatewayService) executeBedrockUpstream(
 			return nil, err
 		}
 
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
+		resp, err = doFastestFailoverUpstream(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()

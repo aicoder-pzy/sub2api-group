@@ -1,16 +1,19 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -39,9 +42,9 @@ func fastestFailoverAttemptFromContext(ctx context.Context) *fastestFailoverAtte
 	return attempt
 }
 
-func (s *OpenAIGatewayService) beginFastestFailoverAttempt(ctx context.Context, account *Account) (context.Context, *fastestFailoverAttempt) {
+func beginFastestFailoverAttempt(ctx context.Context, account *Account) (context.Context, *fastestFailoverAttempt) {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
-	if group == nil || group.AccountSchedulingMode != AccountSchedulingModeFastestFailover || account == nil || account.Platform != PlatformOpenAI || fastestFailoverAttemptFromContext(ctx) != nil {
+	if group == nil || group.AccountSchedulingMode != AccountSchedulingModeFastestFailover || account == nil || fastestFailoverAttemptFromContext(ctx) != nil {
 		return ctx, nil
 	}
 	attempt := &fastestFailoverAttempt{firstTimeout: fastestFailoverFirstOutputTimeout, idleTimeout: fastestFailoverStreamIdleTimeout}
@@ -162,7 +165,7 @@ func (body *fastestFailoverReadCloser) Read(buffer []byte) (int, error) {
 	return count, err
 }
 
-func (s *OpenAIGatewayService) finishFastestFailoverAttempt(ctx context.Context, c *gin.Context, account *Account, body []byte, attempt *fastestFailoverAttempt, forwardErr error) error {
+func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c *gin.Context, account *Account, body []byte, attempt *fastestFailoverAttempt, forwardErr error) error {
 	if attempt == nil {
 		return forwardErr
 	}
@@ -183,12 +186,12 @@ func (s *OpenAIGatewayService) finishFastestFailoverAttempt(ctx context.Context,
 	}
 	model := gjson.GetBytes(body, "model").String()
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, model)
-	if s.accountRepo != nil && modelKey != "" && account.GetModelRateLimitRemainingTimeWithContext(ctx, model) < fastestFailoverTimeoutCooldown {
+	if repo != nil && modelKey != "" && account.GetModelRateLimitRemainingTimeWithContext(ctx, model) < fastestFailoverTimeoutCooldown {
 		updateCtx, release := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-		err := s.accountRepo.SetModelRateLimit(updateCtx, account.ID, modelKey, time.Now().Add(fastestFailoverTimeoutCooldown), "fastest_failover_timeout")
+		err := repo.SetModelRateLimit(updateCtx, account.ID, modelKey, time.Now().Add(fastestFailoverTimeoutCooldown), "fastest_failover_timeout")
 		release()
 		if err != nil {
-			logger.LegacyPrintf("service.openai_gateway", "fastest failover timeout cooldown failed: account=%d model=%s error=%v", account.ID, modelKey, err)
+			logger.LegacyPrintf("service.account_scheduling", "fastest failover timeout cooldown failed: account=%d model=%s error=%v", account.ID, modelKey, err)
 		}
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -196,9 +199,132 @@ func (s *OpenAIGatewayService) finishFastestFailoverAttempt(ctx context.Context,
 		UpstreamStatusCode: http.StatusGatewayTimeout, Kind: "fastest_failover_timeout",
 		Message: "Upstream response timed out; account model cooling down",
 	})
-	logger.LegacyPrintf("service.openai_gateway", "fastest failover timeout: account=%d model=%s output_started=%t cooldown=%s", account.ID, modelKey, outputStarted, fastestFailoverTimeoutCooldown)
+	logger.LegacyPrintf("service.account_scheduling", "fastest failover timeout: account=%d model=%s output_started=%t cooldown=%s", account.ID, modelKey, outputStarted, fastestFailoverTimeoutCooldown)
 	return &UpstreamFailoverError{
 		StatusCode:   http.StatusGatewayTimeout,
 		ResponseBody: []byte(`{"error":{"type":"upstream_timeout","message":"Upstream response timed out"}}`),
+	}
+}
+
+// Bind after streaming contexts have been detached, so the attempt still cancels
+// both header waits and body reads. Retries share the original first-output deadline.
+func doFastestFailoverUpstream(upstream HTTPUpstream, request *http.Request, proxyURL string, accountID int64, concurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
+	attempt := fastestFailoverAttemptFromContext(request.Context())
+	if attempt != nil {
+		request = request.WithContext(attempt.bind(request.Context()))
+	}
+	response, err := upstream.DoWithTLS(request, proxyURL, accountID, concurrency, profile)
+	if attempt != nil && response != nil && response.Body != nil {
+		response.Request = request
+		response.Body = attempt.wrapBody(response.Body)
+	}
+	return response, err
+}
+
+// Hold protocol preludes until meaningful output, keeping the handler's normal
+// written-byte guard usable. Usage is still parsed immediately by the caller.
+// This writer is local to a stream; it never replaces Gin's response writer.
+type fastestFailoverStreamWriter struct {
+	writer  gin.ResponseWriter
+	attempt *fastestFailoverAttempt
+	pending bytes.Buffer
+	started bool
+	err     error
+}
+
+func newFastestFailoverStreamWriter(writer gin.ResponseWriter, resp *http.Response) *fastestFailoverStreamWriter {
+	attempt := fastestFailoverAttemptFromResponse(resp)
+	return &fastestFailoverStreamWriter{writer: writer, attempt: attempt, started: attempt == nil}
+}
+
+func (w *fastestFailoverStreamWriter) observeAnthropic(data string) {
+	if w.attempt != nil && !w.started && anthropicEventStartsOutput(data) {
+		w.started = true
+		w.attempt.progress(true)
+	}
+}
+
+func (w *fastestFailoverStreamWriter) Write(data []byte) (int, error) {
+	if w.attempt != nil {
+		w.attempt.mutex.Lock()
+		timedOut := w.attempt.timedOut
+		w.attempt.mutex.Unlock()
+		if timedOut {
+			return 0, context.DeadlineExceeded
+		}
+	}
+	if !w.started {
+		// Bound memory even if a broken upstream floods empty events.
+		if w.pending.Len()+len(data) > 1024*1024 {
+			w.err = w.incompletePreludeError()
+			return 0, w.err
+		}
+		return w.pending.Write(data)
+	}
+	if w.pending.Len() > 0 {
+		if _, err := w.pending.WriteTo(w.writer); err != nil {
+			return 0, err
+		}
+	}
+	return w.writer.Write(data)
+}
+
+func (w *fastestFailoverStreamWriter) Flush() {
+	if w.started {
+		w.writer.Flush()
+	}
+}
+
+func (w *fastestFailoverStreamWriter) incompletePreludeError() error {
+	if w.started {
+		return nil
+	}
+	return &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: gatewayTransportFailoverBody}
+}
+
+func anthropicEventStartsOutput(data string) bool {
+	data = strings.TrimSpace(data)
+	if data == "" {
+		return false
+	}
+	if data == "[DONE]" {
+		return true
+	}
+	event := gjson.Parse(data)
+	switch event.Get("type").String() {
+	case "ping":
+		return false
+	case "message_start":
+		return len(event.Get("message.content").Array()) > 0
+	case "content_block_start":
+		block := event.Get("content_block")
+		switch block.Get("type").String() {
+		case "text":
+			return block.Get("text").String() != ""
+		case "thinking":
+			return block.Get("thinking").String() != "" || block.Get("signature").String() != ""
+		default:
+			return true // Tool starts and unknown content must not be replayed.
+		}
+	case "content_block_delta":
+		delta := event.Get("delta")
+		switch delta.Get("type").String() {
+		case "text_delta":
+			return delta.Get("text").String() != ""
+		case "thinking_delta":
+			return delta.Get("thinking").String() != ""
+		case "signature_delta":
+			return delta.Get("signature").String() != ""
+		case "input_json_delta":
+			return delta.Get("partial_json").String() != ""
+		default:
+			return true
+		}
+	case "content_block_stop":
+		return false
+	case "message_delta":
+		return event.Get("delta.stop_reason").String() != ""
+	default:
+		return true // Includes terminal events and errors; never discard them.
 	}
 }

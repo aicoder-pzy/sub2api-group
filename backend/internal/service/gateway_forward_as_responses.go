@@ -34,7 +34,15 @@ func (s *GatewayService) ForwardAsResponses(
 	account *Account,
 	body []byte,
 	parsed *ParsedRequest,
-) (*ForwardResult, error) {
+) (resultOut *ForwardResult, errorOut error) {
+	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account)
+	defer func(requestBody []byte) {
+		errorOut = finishFastestFailoverAttempt(ctx, s.accountRepo, c, account, requestBody, timeoutAttempt, errorOut)
+		var failoverErr *UpstreamFailoverError
+		if timeoutAttempt != nil && !timeoutAttempt.outputStarted && errors.As(errorOut, &failoverErr) {
+			resultOut = nil
+		}
+	}(body)
 	startTime := time.Now()
 
 	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngress(body)
@@ -146,7 +154,7 @@ func (s *GatewayService) ForwardAsResponses(
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, forwardedBody, mappedModel)
 
 	// 11. Send request
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := doFastestFailoverUpstream(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
@@ -454,6 +462,11 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	}
 
 	if err := scanner.Err(); err != nil {
+		if fastestFailoverAttemptFromResponse(resp) != nil {
+			return &ForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header,
+				Usage: usage, Model: originalModel, UpstreamModel: mappedModel,
+				ReasoningEffort: reasoningEffort, Duration: time.Since(startTime)}, err
+		}
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn("forward_as_responses buffered: read error",
 				zap.Error(err),
@@ -545,6 +558,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
+	w := newFastestFailoverStreamWriter(c.Writer, resp)
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -569,7 +583,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	// processEvent handles a single parsed Anthropic SSE event.
 	processEvent := func(event *apicompat.AnthropicStreamEvent) bool {
-		if firstChunk {
+		if firstChunk && w.started {
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
@@ -612,7 +626,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			}
 			for _, restored := range payloads {
 				eventType := gjson.GetBytes(restored, "type").String()
-				if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", eventType, restored); err != nil {
+				if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, restored); err != nil {
 					logger.L().Info("forward_as_responses stream: client disconnected",
 						zap.String("request_id", requestID),
 					)
@@ -621,7 +635,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			}
 		}
 		if len(events) > 0 {
-			c.Writer.Flush()
+			w.Flush()
 		}
 		return false
 	}
@@ -634,9 +648,9 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 					continue
 				}
 				out := string(reverseToolNamesIfPresent(c, []byte(sse)))
-				fmt.Fprint(c.Writer, out) //nolint:errcheck
+				fmt.Fprint(w, out) //nolint:errcheck
 			}
-			c.Writer.Flush()
+			w.Flush()
 		}
 		return resultWithUsage(), nil
 	}
@@ -669,12 +683,19 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			continue
 		}
 
+		w.observeAnthropic(payload)
 		if processEvent(&event) {
-			return resultWithUsage(), nil
+			return resultWithUsage(), w.err
 		}
 	}
 
+	if err := w.incompletePreludeError(); err != nil {
+		return nil, err
+	}
 	if err := scanner.Err(); err != nil {
+		if w.attempt != nil {
+			return resultWithUsage(), err
+		}
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn("forward_as_responses stream: read error",
 				zap.Error(err),

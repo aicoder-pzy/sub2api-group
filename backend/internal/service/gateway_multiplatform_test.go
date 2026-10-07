@@ -3653,3 +3653,42 @@ func TestFastestFailoverGatewayPreferencePreservesAvailability(t *testing.T) {
 		})
 	}
 }
+
+func TestFastestFailoverGatewayTimeoutSkipsStalePreferredAccount(t *testing.T) {
+	for _, groupID := range []int64{7, 42} {
+		for _, routed := range []bool{false, true} {
+			for _, mixed := range []bool{false, true} {
+				group := &Group{ID: groupID, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true,
+					AccountSchedulingMode: AccountSchedulingModeFastestFailover, ModelRoutingEnabled: routed,
+					ModelRouting: map[string][]int64{"model-a": {1, 2}, "model-b": {1, 2}},
+				}
+				ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+				primary := Account{ID: 1, Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Status: StatusActive,
+					Schedulable: true, GroupIDs: []int64{groupID}, Extra: map[string]any{"scheduling_preferred": true}}
+				backup := primary
+				backup.ID, backup.Extra = 2, nil
+				stale := primary
+				stale.Extra = map[string]any{"scheduling_preferred": true}
+				repo := &schedulingTimeoutRepo{schedulerTestOpenAIAccountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, backup}}}
+				require.NoError(t, repo.SetModelRateLimit(ctx, primary.ID, "model-a", time.Now().Add(fastestFailoverTimeoutCooldown)))
+				cache := &schedulerTestGatewayCache{sessionBindings: make(map[string]int64)}
+				rememberGroupModelSchedulingAccount(ctx, cache, &groupID, "model-a", primary.ID)
+				svc := &GatewayService{accountRepo: repo, cache: cache, cfg: &config.Config{},
+					groupRepo: &mockGroupRepoForGateway{groups: map[int64]*Group{groupID: group}},
+					schedulerSnapshot: &SchedulerSnapshotService{cache: &openAISnapshotCacheStub{
+						snapshotAccounts: []*Account{&stale, &backup}, accountsByID: map[int64]*Account{1: &stale, 2: &backup},
+					}},
+				}
+				selectAccount := svc.selectAccountForModelWithPlatform
+				if mixed {
+					selectAccount = svc.selectAccountWithMixedScheduling
+				}
+				for model, want := range map[string]int64{"model-a": 2, "model-b": 1} {
+					selected, err := selectAccount(ctx, &groupID, "", model, nil, PlatformAnthropic)
+					require.NoError(t, err)
+					require.Equal(t, want, selected.ID, "group=%d routed=%t mixed=%t model=%s", groupID, routed, mixed, model)
+				}
+			}
+		}
+	}
+}

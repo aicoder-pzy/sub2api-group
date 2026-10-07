@@ -30,7 +30,8 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 	startTime time.Time,
 	model string,
 ) (*streamingResult, error) {
-	w := c.Writer
+	streamWriter := newFastestFailoverStreamWriter(c.Writer, resp)
+	var w io.Writer = streamWriter
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
@@ -108,12 +109,18 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 		select {
 		case ev, ok := <-events:
 			if !ok {
+				if err := streamWriter.incompletePreludeError(); err != nil {
+					return nil, err
+				}
 				if !clientDisconnected {
 					flusher.Flush()
 				}
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 			}
 			if ev.err != nil {
+				if streamWriter.attempt != nil {
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, ev.err
+				}
 				if clientDisconnected {
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, nil
 				}
@@ -129,7 +136,8 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 				continue
 			}
 
-			if firstTokenMs == nil {
+			streamWriter.observeAnthropic(string(sseData))
+			if firstTokenMs == nil && streamWriter.started {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 			}
@@ -152,6 +160,9 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 				} else {
 					_, writeErr = fmt.Fprintf(w, "data: %s\n\n", sseData)
 				}
+				if streamWriter.err != nil {
+					return nil, streamWriter.err
+				}
 				if writeErr != nil {
 					clientDisconnected = true
 					logger.LegacyPrintf("service.gateway", "[Bedrock] Client disconnected during streaming, continue draining for usage: account=%d", account.ID)
@@ -171,6 +182,9 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 			logger.LegacyPrintf("service.gateway", "[Bedrock] Stream data interval timeout: account=%d model=%s interval=%s", account.ID, model, streamInterval)
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, model)
+			}
+			if streamWriter.attempt != nil {
+				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, context.DeadlineExceeded
 			}
 			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
 		}

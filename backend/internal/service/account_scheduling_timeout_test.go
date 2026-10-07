@@ -238,10 +238,10 @@ func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 func TestFastestFailoverTimeoutOptInAndTimer(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 1, Platform: PlatformOpenAI}
-	ctx, attempt := svc.beginFastestFailoverAttempt(context.Background(), account)
+	ctx, attempt := beginFastestFailoverAttempt(context.Background(), account)
 	require.Nil(t, attempt)
 	ctx = context.WithValue(ctx, ctxkey.Group, &Group{AccountSchedulingMode: AccountSchedulingModeFastestFailover})
-	ctx, attempt = svc.beginFastestFailoverAttempt(ctx, account)
+	ctx, attempt = beginFastestFailoverAttempt(ctx, account)
 	require.Equal(t, 60*time.Second, attempt.firstTimeout)
 	require.Equal(t, 120*time.Second, attempt.idleTimeout)
 	attempt.firstTimeout = 20 * time.Millisecond
@@ -252,7 +252,7 @@ func TestFastestFailoverTimeoutOptInAndTimer(t *testing.T) {
 		t.Fatal("deadline did not cancel upstream")
 	}
 	require.ErrorIs(t, bound.Err(), context.Canceled)
-	_ = svc.finishFastestFailoverAttempt(ctx, nil, account, nil, attempt, nil)
+	_ = finishFastestFailoverAttempt(ctx, svc.accountRepo, nil, account, nil, attempt, nil)
 }
 
 func TestFastestFailoverTimeoutOutputSwitchesToIdle(t *testing.T) {
@@ -322,14 +322,14 @@ func TestFastestFailoverTimeoutDoesNotCoolHealthyOrCanceledRequests(t *testing.T
 			defer cancel()
 			ctx = context.WithValue(ctx, ctxkey.Group, &Group{AccountSchedulingMode: AccountSchedulingModeFastestFailover})
 			account := &Account{ID: 1, Platform: PlatformOpenAI}
-			ctx, attempt := svc.beginFastestFailoverAttempt(ctx, account)
+			ctx, attempt := beginFastestFailoverAttempt(ctx, account)
 			bound := attempt.bind(ctx)
 			var forwardErr error
 			if canceled {
 				cancel()
 				forwardErr = context.DeadlineExceeded
 			}
-			err := svc.finishFastestFailoverAttempt(ctx, nil, account, []byte(`{"model":"model-a"}`), attempt, forwardErr)
+			err := finishFastestFailoverAttempt(ctx, svc.accountRepo, nil, account, []byte(`{"model":"model-a"}`), attempt, forwardErr)
 			require.Equal(t, forwardErr, err)
 			require.Empty(t, repo.cooledModel)
 			require.ErrorIs(t, bound.Err(), context.Canceled)

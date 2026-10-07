@@ -19,9 +19,9 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (resultOut *OpenAIForwardResult, errorOut error) {
-	ctx, timeoutAttempt := s.beginFastestFailoverAttempt(ctx, account)
+	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account)
 	defer func(requestBody []byte) {
-		errorOut = s.finishFastestFailoverAttempt(ctx, c, account, requestBody, timeoutAttempt, errorOut)
+		errorOut = finishFastestFailoverAttempt(ctx, s.accountRepo, c, account, requestBody, timeoutAttempt, errorOut)
 	}(body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)

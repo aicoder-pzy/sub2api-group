@@ -32,7 +32,15 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	account *Account,
 	body []byte,
 	parsed *ParsedRequest,
-) (*ForwardResult, error) {
+) (resultOut *ForwardResult, errorOut error) {
+	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account)
+	defer func(requestBody []byte) {
+		errorOut = finishFastestFailoverAttempt(ctx, s.accountRepo, c, account, requestBody, timeoutAttempt, errorOut)
+		var failoverErr *UpstreamFailoverError
+		if timeoutAttempt != nil && !timeoutAttempt.outputStarted && errors.As(errorOut, &failoverErr) {
+			resultOut = nil
+		}
+	}(body)
 	startTime := time.Now()
 
 	// 1. Parse Chat Completions request
@@ -135,7 +143,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, forwardedBody, mappedModel)
 
 	// 11. Send request
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := doFastestFailoverUpstream(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
@@ -294,6 +302,11 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	}
 
 	if err := scanner.Err(); err != nil {
+		if fastestFailoverAttemptFromResponse(resp) != nil {
+			return &ForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header,
+				Usage: usage, Model: originalModel, UpstreamModel: mappedModel,
+				ReasoningEffort: reasoningEffort, Duration: time.Since(startTime)}, err
+		}
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn("forward_as_cc buffered: read error",
 				zap.Error(err),
@@ -381,6 +394,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
+	w := newFastestFailoverStreamWriter(c.Writer, resp)
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -411,7 +425,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		// Reverse tool name mapping: fake → real, per-chunk bytes.Replace.
 		// c 可能持有请求侧注入的 ToolNameRewrite；无则仅做静态前缀还原。
 		out := string(reverseToolNamesIfPresent(c, []byte(sse)))
-		if _, err := fmt.Fprint(c.Writer, out); err != nil {
+		if _, err := fmt.Fprint(w, out); err != nil {
 			return true // client disconnected
 		}
 		return false
@@ -427,7 +441,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		if event.Type == "ping" {
 			return false
 		}
-		if firstChunk {
+		if firstChunk && w.started {
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
@@ -457,7 +471,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 				}
 			}
 		}
-		c.Writer.Flush()
+		w.Flush()
 		return false
 	}
 
@@ -485,12 +499,19 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		// The intermediate Responses converter synthesizes usage even when absent.
 		ccState.IncludeUsage = ccState.IncludeUsage || anthropicChatStreamHasUsage(&event, payload)
 
+		w.observeAnthropic(payload)
 		if processAnthropicEvent(&event) {
-			return resultWithUsage(), nil
+			return resultWithUsage(), w.err
 		}
 	}
 
+	if err := w.incompletePreludeError(); err != nil {
+		return nil, err
+	}
 	if err := scanner.Err(); err != nil {
+		if w.attempt != nil {
+			return resultWithUsage(), err
+		}
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn("forward_as_cc stream: read error",
 				zap.Error(err),
@@ -513,8 +534,8 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	}
 
 	// Write [DONE] marker
-	fmt.Fprint(c.Writer, "data: [DONE]\n\n") //nolint:errcheck
-	c.Writer.Flush()
+	fmt.Fprint(w, "data: [DONE]\n\n") //nolint:errcheck
+	w.Flush()
 
 	return resultWithUsage(), nil
 }

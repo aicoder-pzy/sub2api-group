@@ -723,7 +723,8 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		c.Header("x-request-id", v)
 	}
 
-	w := c.Writer
+	streamWriter := newFastestFailoverStreamWriter(c.Writer, resp)
+	var w io.Writer = streamWriter
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
@@ -1017,6 +1018,9 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		select {
 		case ev, ok := <-events:
 			if !ok {
+				if err := streamWriter.incompletePreludeError(); err != nil {
+					return nil, err
+				}
 				// 上游完成，返回结果
 				if !sawTerminalEvent {
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, fmt.Errorf("stream usage incomplete: missing terminal event")
@@ -1083,10 +1087,14 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					return nil, err
 				}
 
+				streamWriter.observeAnthropic(data)
 				for _, block := range outputBlocks {
 					if !clientDisconnected {
 						restored := reverseToolNamesIfPresent(c, []byte(block))
 						if _, werr := fmt.Fprint(w, string(restored)); werr != nil {
+							if streamWriter.err != nil {
+								return nil, streamWriter.err
+							}
 							clientDisconnected = true
 							logger.LegacyPrintf("service.gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 							// 不 break：客户端断开后仍需继续合并本事件及后续事件的 usage，
@@ -1099,7 +1107,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 						}
 					}
 					if data != "" {
-						if firstTokenMs == nil && data != "[DONE]" {
+						if firstTokenMs == nil && data != "[DONE]" && streamWriter.started {
 							ms := int(time.Since(startTime).Milliseconds())
 							firstTokenMs = &ms
 						}
@@ -1126,10 +1134,17 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 			}
+			if streamWriter.attempt != nil {
+				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, context.DeadlineExceeded
+			}
 			sendErrorEvent("stream_timeout", fmt.Sprintf("upstream stream idle for %s", streamInterval))
 			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
 
 		case <-keepaliveCh:
+			if !streamWriter.started {
+				resetKeepaliveTimer()
+				continue
+			}
 			if clientDisconnected {
 				continue
 			}

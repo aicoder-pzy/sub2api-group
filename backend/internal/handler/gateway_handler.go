@@ -1057,6 +1057,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
 					if c.Writer.Size() != writerSizeBeforeForward {
+						if result != nil {
+							submitForwardUsage(result)
+							upstreamServedSession = true
+						}
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
 					}
@@ -1100,8 +1104,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
 				// Forward 与错误一起返回的部分结果：流中断前上游已计量的 usage 照常入账，
-				// 避免上游已产生消耗的请求完全漏记（#5148）。failover 错误恒定 result=nil，
-				// 不会走到这里重复计费。
+				// 避免上游已产生消耗的请求完全漏记（#5148）。首输出前的 failover 保持 result=nil；
+				// 已输出后的 failover 在上方禁止重放的分支记录，不会重复计费。
 				if result != nil {
 					submitForwardUsage(result)
 					// 上游已接受并计量本次会话（流中断），会话槽保持既有语义
