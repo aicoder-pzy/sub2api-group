@@ -6,9 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /opt/prism
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt \
-    && python -m playwright install --with-deps --only-shell chromium \
+    && python -m playwright install --with-deps --no-shell chromium \
     && rm -rf /var/lib/apt/lists/* \
-    && chrome=$(find /ms-playwright -type f -name chrome-headless-shell | head -n 1) \
+    && chrome=$(find /ms-playwright -type f -name chrome | head -n 1) \
     && sandbox=$(find /ms-playwright -type f \( -name chrome_sandbox -o -name chrome-sandbox \) | head -n 1) \
     && test -n "$chrome" && test -n "$sandbox" \
     && chown root:root "$sandbox" && chmod 4755 "$sandbox" \
@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt \
     && useradd --uid 10001 --create-home prism \
     && install -d -o prism -g prism -m 0700 /var/lib/sub2api-prism
 COPY *.py ./
+COPY LICENSE* NOTICE.md ./
 ENV PRISM_ADAPTER_CHROME=/opt/prism/chrome \
     CHROME_DEVEL_SANDBOX=/opt/prism/chrome-sandbox \
     PRISM_ADAPTER_STATE_DIR=/var/lib/sub2api-prism \
