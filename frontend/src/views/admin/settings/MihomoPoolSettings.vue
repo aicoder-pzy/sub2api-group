@@ -28,10 +28,12 @@ const providerManaged = ref(true)
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 async function refresh() {
+	if (timer) clearTimeout(timer)
   try {
     const { data } = await apiClient.get<MihomoStatus>('/admin/system/mihomo')
     if (disposed) return
     status.value = data
+    if (timer) clearTimeout(timer)
     if (data.busy) timer = setTimeout(refresh, 2000)
   } catch (e) { error.value = e instanceof Error ? e.message : String(e) }
 }

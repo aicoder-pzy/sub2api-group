@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -296,4 +297,59 @@ func TestBPSTicketMintChecksStreamModelAndRoute(t *testing.T) {
 			}
 		})
 	}
+}
+
+type bpsTicketWorkerAccounts struct {
+	AccountRepository
+	accounts []Account
+}
+
+func (r bpsTicketWorkerAccounts) ListByPlatform(context.Context, string) ([]Account, error) {
+	return r.accounts, nil
+}
+
+type bpsTicketWorkerSettings struct {
+	SettingRepository
+	settings BPSTicketSettings
+}
+
+func (r bpsTicketWorkerSettings) GetValue(context.Context, string) (string, error) {
+	raw, err := json.Marshal(r.settings)
+	return string(raw), err
+}
+
+func TestBPSTicketWarmPoolContinuesDuringSlowProbeWithUnlimitedConcurrency(t *testing.T) {
+	a := bpsTestAccount()
+	a.Concurrency = 0
+	ac := a.BPSTicketConfig()
+	ac.AutoProbe = true
+	ac.ProxySource = "static"
+	a.Extra[bpsTicketAccountKey] = ac
+	cfg := DefaultBPSTicketSettings()
+	cfg.AutoProbeEnabled = true
+	started := make(chan struct{})
+	s := &OpenAIGatewayService{
+		accountRepo:    bpsTicketWorkerAccounts{accounts: []Account{*a}},
+		settingService: &SettingService{settingRepo: bpsTicketWorkerSettings{settings: cfg}},
+		httpUpstream: bpsTicketHTTPStub{send: func(req *http.Request, _ string) (*http.Response, error) {
+			close(started)
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		}},
+	}
+	manager := mihomo.New(t.TempDir())
+	t.Cleanup(func() { mihomo.WarmBPSPools(context.Background(), 0, 0); manager.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { defer close(done); s.runBPSTicketRound(ctx) }()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("background probe did not start")
+	}
+	s.runBPSWarmRound(ctx)
+	require.Equal(t, 1, manager.Status().BPSIPWarmPool.Target, "an unlimited account must still prewarm an exit while its probe is blocked")
+	cancel()
+	<-done
 }

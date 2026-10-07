@@ -23,6 +23,22 @@ func (s *OpenAIGatewayService) StartBPSTicketWorker() {
 	s.bpsTickets.done = make(chan struct{})
 	go func() {
 		defer close(s.bpsTickets.done)
+		// Slow paid probes must not block refreshing the two-minute proxy health leases.
+		warmDone := make(chan struct{})
+		go func() {
+			defer close(warmDone)
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					s.runBPSWarmRound(ctx)
+				}
+			}
+		}()
+		defer func() { <-warmDone }()
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -81,34 +97,6 @@ func (s *OpenAIGatewayService) runBPSTicketRound(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	managedTarget, staticTarget := 0, 0
-	for i := range accounts {
-		a := &accounts[i]
-		ac := a.BPSTicketConfig()
-		if !bpsEligible(a) || a.Status != StatusActive || !a.Schedulable || (!ac.BPS && !ac.AutoSwitch) {
-			continue
-		}
-		if ac.ProxySource == "mihomo" {
-			managedTarget += a.Concurrency
-		}
-		if ac.ProxySource == "static" {
-			staticTarget += a.Concurrency
-		}
-	}
-	urls := []string{}
-	if len(cfg.ProxyIDs) > 0 && s.settingService.proxyRepo != nil {
-		proxies, e := s.settingService.proxyRepo.ListByIDs(ctx, cfg.ProxyIDs)
-		if e != nil {
-			return
-		}
-		for _, p := range proxies {
-			if p.IsActive() && !p.IsExpired(time.Now()) {
-				urls = append(urls, p.URL())
-			}
-		}
-	}
-	mihomo.SetBPSStaticProxies(urls)
-	mihomo.WarmBPSPools(ctx, managedTarget, staticTarget)
 	// Bound parallel background jobs. Every account also has a shared manual/
 	// scheduled lock, preventing probes and mint rounds from overlapping.
 	sem := make(chan struct{}, 2)
@@ -134,6 +122,48 @@ func (s *OpenAIGatewayService) runBPSTicketRound(ctx context.Context) {
 		jobs.Add(1)
 		go func() { defer jobs.Done(); defer func() { <-sem }(); s.runBPSTicketAccount(ctx, &a, cfg) }()
 	}
+}
+
+func (s *OpenAIGatewayService) runBPSWarmRound(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cfg, err := s.GetBPSTicketSettings(ctx)
+	if err != nil {
+		return
+	}
+	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenAI)
+	if err != nil {
+		return
+	}
+	managedTarget, staticTarget := 0, 0
+	for i := range accounts {
+		a := &accounts[i]
+		ac := a.BPSTicketConfig()
+		if !bpsEligible(a) || a.Status != StatusActive || !a.Schedulable || (!ac.BPS && !ac.AutoSwitch) {
+			continue
+		}
+		// Account concurrency zero means unlimited, not a disabled pool.
+		if ac.ProxySource == "mihomo" {
+			managedTarget += max(1, a.Concurrency)
+		}
+		if ac.ProxySource == "static" {
+			staticTarget += max(1, a.Concurrency)
+		}
+	}
+	urls := []string{}
+	if len(cfg.ProxyIDs) > 0 && s.settingService.proxyRepo != nil {
+		proxies, err := s.settingService.proxyRepo.ListByIDs(ctx, cfg.ProxyIDs)
+		if err != nil {
+			return
+		}
+		for _, p := range proxies {
+			if p.IsActive() && !p.IsExpired(time.Now()) {
+				urls = append(urls, p.URL())
+			}
+		}
+	}
+	mihomo.SetBPSStaticProxies(urls)
+	mihomo.WarmBPSPools(ctx, managedTarget, staticTarget)
 }
 
 func (s *OpenAIGatewayService) runBPSTicketAccount(ctx context.Context, a *Account, cfg BPSTicketSettings) {
