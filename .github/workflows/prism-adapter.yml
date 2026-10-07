@@ -1,0 +1,73 @@
+name: Prism adapter
+
+on:
+  push:
+    branches: [custom, feat/prism-admin-integration]
+    paths: ['prism-adapter/**', 'deploy/docker-compose.prism.yml', '.github/workflows/prism-adapter.yml']
+  pull_request:
+    paths: ['prism-adapter/**', 'deploy/docker-compose.prism.yml', '.github/workflows/prism-adapter.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - name: Build adapter
+        uses: docker/build-push-action@v6
+        with:
+          context: prism-adapter
+          load: true
+          tags: prism-adapter:test
+          cache-from: type=gha,scope=prism-adapter
+          cache-to: type=gha,mode=max,scope=prism-adapter
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Linux adapter unit tests
+        run: docker run --rm prism-adapter:test python -m unittest discover -p 'test_*.py'
+      - name: Chromium sandbox smoke
+        run: |
+          docker run --rm --init --read-only --tmpfs /tmp:size=256m,mode=1777 \
+            --tmpfs /home/prism:size=64m,uid=10001,gid=10001,mode=0700 \
+            --shm-size=256m --memory=900m --memory-swap=900m --cpus=1 --pids-limit=256 \
+            --security-opt seccomp=prism-adapter/seccomp_profile.json \
+            prism-adapter:test python smoke_container.py
+      - name: Adapter process smoke
+        run: |
+          docker run -d --name prism --init --read-only --tmpfs /tmp:size=256m,mode=1777 \
+            --tmpfs /home/prism:size=64m,uid=10001,gid=10001,mode=0700 \
+            --tmpfs /var/lib/sub2api-prism:uid=10001,gid=10001,mode=0700 \
+            --security-opt seccomp=prism-adapter/seccomp_profile.json \
+            -e PRISM_ADAPTER_API_KEY=ci-fixture-key-not-a-secret-0000000000 prism-adapter:test
+          trap 'docker logs prism; docker rm -f prism' EXIT
+          for i in $(seq 1 15); do
+            if docker exec prism python -c "import urllib.request; assert b'\"ok\"' in urllib.request.urlopen('http://127.0.0.1:8319/health',timeout=2).read()"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/custom'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish verified adapter
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/custom'
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}-prism"
+          docker tag prism-adapter:test "$image:sha-$GITHUB_SHA"
+          docker tag prism-adapter:test "$image:custom"
+          docker push "$image:sha-$GITHUB_SHA"
+          docker push "$image:custom"
