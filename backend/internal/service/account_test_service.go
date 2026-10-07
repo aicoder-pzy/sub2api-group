@@ -3268,8 +3268,10 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 		}
 	}
 	if observer, ok := c.Get(schedulingProbeObserverKey); ok {
-		observer.(func(TestEvent))(event)
-		return
+		if observe, ok := observer.(func(TestEvent)); ok && observe != nil {
+			observe(event)
+			return
+		}
 	}
 	eventJSON, _ := json.Marshal(event)
 	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", eventJSON); err != nil {

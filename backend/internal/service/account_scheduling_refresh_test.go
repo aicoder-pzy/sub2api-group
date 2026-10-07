@@ -168,7 +168,9 @@ func TestSchedulingProbeFirstOutputDeadlineCancelsHTTP(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, anthropicTimeoutPrelude)
-		w.(http.Flusher).Flush()
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			t.Errorf("flush upstream prelude: %v", err)
+		}
 		<-r.Context().Done()
 		close(ended)
 	}))

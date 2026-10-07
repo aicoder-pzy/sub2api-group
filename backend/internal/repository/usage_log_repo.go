@@ -170,7 +170,9 @@ func newUsageLogRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *usage
 func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, groupID int64, model string, since time.Time) (map[int64]service.GroupModelAccountQuality, error) {
 	cacheKey := fmt.Sprintf("%d:%s:%d", groupID, model, since.Truncate(time.Minute).Unix())
 	if cached, ok := r.schedulingQuality.Get(cacheKey); ok {
-		return cached.(map[int64]service.GroupModelAccountQuality), nil
+		if quality, ok := cached.(map[int64]service.GroupModelAccountQuality); ok {
+			return quality, nil
+		}
 	}
 	rows, err := r.sql.QueryContext(ctx, `
 		WITH failure_requests AS (
