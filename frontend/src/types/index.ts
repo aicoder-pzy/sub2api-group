@@ -2443,6 +2443,12 @@ export interface ScheduledTestPlan {
   id: number
   account_id: number
   model_id: string
+  test_prompt: string
+  expected_answer: string
+  reasoning_effort: string
+  judge_group_id: number
+  judge_model_id: string
+  judge_prompt: string
   cron_expression: string
   enabled: boolean
   max_results: number
@@ -2459,6 +2465,9 @@ export interface ScheduledTestResult {
   status: string
   response_text: string
   error_message: string
+  quality_verdict?: 'correct' | 'incorrect' | 'unknown'
+  quality_reason?: string
+  judge_account_id?: number
   latency_ms: number
   started_at: string
   finished_at: string
@@ -2468,6 +2477,12 @@ export interface ScheduledTestResult {
 export interface CreateScheduledTestPlanRequest {
   account_id: number
   model_id: string
+  test_prompt?: string
+  expected_answer?: string
+  reasoning_effort?: string
+  judge_group_id?: number
+  judge_model_id?: string
+  judge_prompt?: string
   cron_expression: string
   enabled?: boolean
   max_results?: number
@@ -2476,6 +2491,12 @@ export interface CreateScheduledTestPlanRequest {
 
 export interface UpdateScheduledTestPlanRequest {
   model_id?: string
+  test_prompt?: string
+  expected_answer?: string
+  reasoning_effort?: string
+  judge_group_id?: number
+  judge_model_id?: string
+  judge_prompt?: string
   cron_expression?: string
   enabled?: boolean
   max_results?: number

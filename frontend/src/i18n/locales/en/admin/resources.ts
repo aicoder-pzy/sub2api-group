@@ -37,7 +37,35 @@ export default {
       maxResultsTooltipExample: 'For example, 100 means keeping at most the latest 100 test results. When the 101st result is saved, the oldest one is removed.',
       maxResultsTooltipRange: 'Recommended range: usually 20 to 200. Use 20-50 when you only care about recent health status, or 100-200 if you want a longer trend history.',
       autoRecover: 'Auto Recover',
-      autoRecoverHelp: 'Automatically recover account from error/rate-limited state on successful test'
+      autoRecoverHelp: 'Automatically recover account from error/rate-limited state on successful test',
+      qualityCheck: 'Answer quality check',
+      testPrompt: 'Test question',
+      expectedAnswer: 'Expected answer',
+      reasoningEffort: 'Reasoning effort',
+      judgeGroup: 'Judge account group',
+      judgeModel: 'Judge model',
+      judgePrompt: 'Judge instructions',
+      qualityHelp: 'Supports OpenAI text models. Set an expected answer to compare answers using another account in the judge group. Model calls consume quota. Clear the expected answer to disable quality checks. Results only reflect this question and do not automatically disable scheduling.',
+      defaultEffort: 'Model default',
+      judgeAccount: 'Judge account',
+      qualityCorrect: 'Answer correct',
+      qualityIncorrect: 'Possible quality degradation',
+      qualityUnknown: 'Unable to judge',
+      qualityReasons: {
+        judge_not_configured: 'Judge is not configured',
+        judge_input_too_large: 'Answer exceeds the judge input limit',
+        judge_unavailable: 'Judge service is unavailable',
+        judge_group_unavailable: 'Judge group is unavailable',
+        judge_model_not_allowed: 'Judge model is not allowed in the group',
+        judge_accounts_unavailable: 'Could not load judge accounts',
+        judge_no_available_account: 'No independent judge account is available',
+        judge_capacity_unavailable: 'Could not acquire judge concurrency slot',
+        judge_invalid_response: 'Judge returned an invalid judgment',
+        judge_request_failed: 'Judge request failed',
+        test_request_failed: 'Test request failed; answer quality is unknown',
+        test_empty_response: 'Test returned no text answer',
+        tested_account_unavailable: 'Tested account is unavailable'
+      }
     },
 
     // Proxies

@@ -108,6 +108,46 @@
             </div>
           </div>
         </div>
+        <div v-if="accountPlatform === 'openai'" class="mt-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3 dark:border-violet-900 dark:bg-violet-900/10">
+          <div class="mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t('admin.scheduledTests.qualityCheck') }}
+          </div>
+          <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.scheduledTests.qualityHelp') }}
+          </p>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+              {{ t('admin.scheduledTests.testPrompt') }}
+              <textarea v-model="newPlan.test_prompt" rows="3" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800" />
+            </label>
+            <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+              {{ t('admin.scheduledTests.expectedAnswer') }}
+              <textarea v-model="newPlan.expected_answer" rows="3" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800" />
+            </label>
+            <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+              {{ t('admin.scheduledTests.reasoningEffort') }}
+              <select v-model="newPlan.reasoning_effort" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800">
+                <option value="">{{ t('admin.scheduledTests.defaultEffort') }}</option>
+                <option v-for="effort in reasoningEfforts" :key="effort" :value="effort">{{ effort }}</option>
+              </select>
+            </label>
+            <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+              {{ t('admin.scheduledTests.judgeGroup') }}
+              <select v-model.number="newPlan.judge_group_id" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800">
+                <option :value="0">{{ t('admin.scheduledTests.judgeGroup') }}</option>
+                <option v-for="group in judgeGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+              </select>
+            </label>
+            <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+              {{ t('admin.scheduledTests.judgeModel') }}
+              <input v-model="newPlan.judge_model_id" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800" placeholder="gpt-4.1-mini" />
+            </label>
+            <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+              {{ t('admin.scheduledTests.judgePrompt') }}
+              <textarea v-model="newPlan.judge_prompt" rows="2" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800" />
+            </label>
+          </div>
+        </div>
         <div class="mt-3 flex justify-end gap-2">
           <button
             @click="showAddForm = false; resetNewPlan()"
@@ -117,7 +157,7 @@
           </button>
           <button
             @click="handleCreate"
-            :disabled="!newPlan.model_id || !newPlan.cron_expression || creating"
+            :disabled="!newPlan.model_id || !newPlan.cron_expression || creating || (!!newPlan.expected_answer.trim() && (!newPlan.test_prompt.trim() || !newPlan.judge_group_id || !newPlan.judge_model_id.trim()))"
             class="flex items-center gap-1.5 rounded-lg bg-primary-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Icon v-if="creating" name="refresh" size="sm" class="animate-spin" :stroke-width="2" />
@@ -318,6 +358,46 @@
                 </div>
               </div>
             </div>
+            <div v-if="accountPlatform === 'openai'" class="mt-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3 dark:border-violet-900 dark:bg-violet-900/10">
+              <div class="mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.scheduledTests.qualityCheck') }}
+              </div>
+              <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.scheduledTests.qualityHelp') }}
+              </p>
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  {{ t('admin.scheduledTests.testPrompt') }}
+                  <textarea v-model="editForm.test_prompt" rows="3" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800" />
+                </label>
+                <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  {{ t('admin.scheduledTests.expectedAnswer') }}
+                  <textarea v-model="editForm.expected_answer" rows="3" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800" />
+                </label>
+                <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  {{ t('admin.scheduledTests.reasoningEffort') }}
+                  <select v-model="editForm.reasoning_effort" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800">
+                    <option value="">{{ t('admin.scheduledTests.defaultEffort') }}</option>
+                    <option v-for="effort in reasoningEfforts" :key="effort" :value="effort">{{ effort }}</option>
+                  </select>
+                </label>
+                <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  {{ t('admin.scheduledTests.judgeGroup') }}
+                  <select v-model.number="editForm.judge_group_id" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800">
+                    <option :value="0">{{ t('admin.scheduledTests.judgeGroup') }}</option>
+                    <option v-for="group in judgeGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+                  </select>
+                </label>
+                <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  {{ t('admin.scheduledTests.judgeModel') }}
+                  <input v-model="editForm.judge_model_id" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800" placeholder="gpt-4.1-mini" />
+                </label>
+                <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  {{ t('admin.scheduledTests.judgePrompt') }}
+                  <textarea v-model="editForm.judge_prompt" rows="2" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-800" />
+                </label>
+              </div>
+            </div>
             <div class="mt-3 flex justify-end gap-2">
               <button
                 @click="cancelEdit"
@@ -327,7 +407,7 @@
               </button>
               <button
                 @click="handleEdit"
-                :disabled="!editForm.model_id || !editForm.cron_expression || updating"
+                :disabled="!editForm.model_id || !editForm.cron_expression || updating || (!!editForm.expected_answer.trim() && (!editForm.test_prompt.trim() || !editForm.judge_group_id || !editForm.judge_model_id.trim()))"
                 class="flex items-center gap-1.5 rounded-lg bg-primary-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Icon v-if="updating" name="refresh" size="sm" class="animate-spin" :stroke-width="2" />
@@ -372,7 +452,9 @@
                     <span
                       :class="[
                         'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-                        result.status === 'success'
+                        result.quality_verdict === 'unknown' || result.status === 'unknown'
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                          : result.status === 'success'
                           ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
                           : result.status === 'running'
                             ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
@@ -380,7 +462,9 @@
                       ]"
                     >
                       {{
-                        result.status === 'success'
+                        result.quality_verdict
+                          ? qualityLabel(result.quality_verdict)
+                          : result.status === 'success'
                           ? t('admin.scheduledTests.success')
                           : result.status === 'running'
                             ? t('admin.scheduledTests.running')
@@ -399,6 +483,11 @@
                     {{ formatDateTime(result.started_at) }}
                   </span>
                 </div>
+
+                <p v-if="result.quality_reason" class="mt-2 whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-400">
+                  {{ qualityReason(result.quality_reason) }}
+                  <span v-if="result.judge_account_id"> · {{ t('admin.scheduledTests.judgeAccount') }} #{{ result.judge_account_id }}</span>
+                </p>
 
                 <!-- Response / Error (collapsible) -->
                 <div v-if="result.error_message" class="mt-2">
@@ -419,9 +508,9 @@
                   <pre
                     v-if="expandedResultIds.has(result.id)"
                     class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-red-50 p-2 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-300"
-                  >{{ result.error_message }}</pre>
+                  >{{ result.error_message === 'answer_mismatch' ? t('admin.scheduledTests.qualityIncorrect') : result.error_message }}</pre>
                 </div>
-                <div v-else-if="result.response_text" class="mt-2">
+                <div v-if="result.response_text" class="mt-2">
                   <div
                     class="cursor-pointer text-xs font-medium text-gray-600 dark:text-gray-400"
                     @click="toggleResultDetail(result.id)"
@@ -475,14 +564,15 @@ import { Icon } from '@/components/icons'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime } from '@/utils/format'
-import type { ScheduledTestPlan, ScheduledTestResult } from '@/types'
+import type { AdminGroup, ScheduledTestPlan, ScheduledTestResult } from '@/types'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const appStore = useAppStore()
 
 const props = defineProps<{
   show: boolean
   accountId: number | null
+  accountPlatform?: string
   modelOptions: SelectOption[]
 }>()
 
@@ -503,28 +593,44 @@ const showDeleteConfirm = ref(false)
 const deletingPlan = ref<ScheduledTestPlan | null>(null)
 const editingPlanId = ref<number | null>(null)
 const updating = ref(false)
-const editForm = reactive({
-  model_id: '' as string,
-  cron_expression: '' as string,
-  max_results: '100' as string,
+const judgeGroups = ref<AdminGroup[]>([])
+const reasoningEfforts = ['minimal', 'low', 'medium', 'high', 'xhigh']
+const emptyPlan = () => ({
+  model_id: '',
+  cron_expression: '',
+  max_results: '100',
   enabled: true,
-  auto_recover: false
+  auto_recover: false,
+  test_prompt: '',
+  expected_answer: '',
+  reasoning_effort: '',
+  judge_group_id: 0,
+  judge_model_id: '',
+  judge_prompt: ''
+})
+const editForm = reactive(emptyPlan())
+const newPlan = reactive(emptyPlan())
+
+const qualityFields = (form: ReturnType<typeof emptyPlan>) => ({
+  test_prompt: form.test_prompt.trim(),
+  expected_answer: form.expected_answer.trim(),
+  reasoning_effort: form.reasoning_effort,
+  judge_group_id: form.expected_answer.trim() ? form.judge_group_id : 0,
+  judge_model_id: form.expected_answer.trim() ? form.judge_model_id.trim() : '',
+  judge_prompt: form.expected_answer.trim() ? form.judge_prompt.trim() : ''
 })
 
-const newPlan = reactive({
-  model_id: '' as string,
-  cron_expression: '' as string,
-  max_results: '100' as string,
-  enabled: true,
-  auto_recover: false
-})
+const qualityLabel = (verdict: string) => t(`admin.scheduledTests.${
+  verdict === 'correct' ? 'qualityCorrect' : verdict === 'incorrect' ? 'qualityIncorrect' : 'qualityUnknown'
+}`)
+
+const qualityReason = (reason: string) => {
+  const key = `admin.scheduledTests.qualityReasons.${reason}`
+  return te(key) ? t(key) : reason
+}
 
 const resetNewPlan = () => {
-  newPlan.model_id = ''
-  newPlan.cron_expression = ''
-  newPlan.max_results = '100'
-  newPlan.enabled = true
-  newPlan.auto_recover = false
+  Object.assign(newPlan, emptyPlan())
 }
 
 // Load plans when dialog opens
@@ -533,6 +639,12 @@ watch(
   async (visible) => {
     if (visible && props.accountId) {
       await loadPlans()
+      try {
+        judgeGroups.value = await adminAPI.groups.getAll('openai')
+      } catch (error: any) {
+        judgeGroups.value = []
+        appStore.showError(error?.message || 'Failed to load judge groups')
+      }
     } else {
       plans.value = []
       results.value = []
@@ -540,6 +652,8 @@ watch(
       expandedResultIds.clear()
       showAddForm.value = false
       showDeleteConfirm.value = false
+      editingPlanId.value = null
+      resetNewPlan()
     }
   }
 )
@@ -567,7 +681,8 @@ const handleCreate = async () => {
       cron_expression: newPlan.cron_expression,
       enabled: newPlan.enabled,
       max_results: maxResults,
-      auto_recover: newPlan.auto_recover
+      auto_recover: newPlan.auto_recover,
+      ...qualityFields(newPlan)
     })
     appStore.showSuccess(t('admin.scheduledTests.createSuccess'))
     showAddForm.value = false
@@ -600,6 +715,12 @@ const startEdit = (plan: ScheduledTestPlan) => {
   editForm.max_results = String(plan.max_results)
   editForm.enabled = plan.enabled
   editForm.auto_recover = plan.auto_recover
+  editForm.test_prompt = plan.test_prompt || ''
+  editForm.expected_answer = plan.expected_answer || ''
+  editForm.reasoning_effort = plan.reasoning_effort || ''
+  editForm.judge_group_id = plan.judge_group_id || 0
+  editForm.judge_model_id = plan.judge_model_id || ''
+  editForm.judge_prompt = plan.judge_prompt || ''
 }
 
 const cancelEdit = () => {
@@ -615,7 +736,8 @@ const handleEdit = async () => {
       cron_expression: editForm.cron_expression,
       max_results: Number(editForm.max_results) || 100,
       enabled: editForm.enabled,
-      auto_recover: editForm.auto_recover
+      auto_recover: editForm.auto_recover,
+      ...qualityFields(editForm)
     })
     const index = plans.value.findIndex((p) => p.id === editingPlanId.value)
     if (index !== -1) {

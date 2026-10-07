@@ -20,20 +20,32 @@ func NewScheduledTestHandler(scheduledTestSvc *service.ScheduledTestService) *Sc
 }
 
 type createScheduledTestPlanRequest struct {
-	AccountID      int64  `json:"account_id" binding:"required"`
-	ModelID        string `json:"model_id"`
-	CronExpression string `json:"cron_expression" binding:"required"`
-	Enabled        *bool  `json:"enabled"`
-	MaxResults     int    `json:"max_results"`
-	AutoRecover    *bool  `json:"auto_recover"`
+	AccountID       int64  `json:"account_id" binding:"required"`
+	ModelID         string `json:"model_id"`
+	TestPrompt      string `json:"test_prompt"`
+	ExpectedAnswer  string `json:"expected_answer"`
+	ReasoningEffort string `json:"reasoning_effort"`
+	JudgeGroupID    int64  `json:"judge_group_id"`
+	JudgeModelID    string `json:"judge_model_id"`
+	JudgePrompt     string `json:"judge_prompt"`
+	CronExpression  string `json:"cron_expression" binding:"required"`
+	Enabled         *bool  `json:"enabled"`
+	MaxResults      int    `json:"max_results"`
+	AutoRecover     *bool  `json:"auto_recover"`
 }
 
 type updateScheduledTestPlanRequest struct {
-	ModelID        string `json:"model_id"`
-	CronExpression string `json:"cron_expression"`
-	Enabled        *bool  `json:"enabled"`
-	MaxResults     int    `json:"max_results"`
-	AutoRecover    *bool  `json:"auto_recover"`
+	ModelID         string  `json:"model_id"`
+	TestPrompt      *string `json:"test_prompt"`
+	ExpectedAnswer  *string `json:"expected_answer"`
+	ReasoningEffort *string `json:"reasoning_effort"`
+	JudgeGroupID    *int64  `json:"judge_group_id"`
+	JudgeModelID    *string `json:"judge_model_id"`
+	JudgePrompt     *string `json:"judge_prompt"`
+	CronExpression  string  `json:"cron_expression"`
+	Enabled         *bool   `json:"enabled"`
+	MaxResults      int     `json:"max_results"`
+	AutoRecover     *bool   `json:"auto_recover"`
 }
 
 // ListByAccount GET /admin/accounts/:id/scheduled-test-plans
@@ -61,11 +73,17 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 	}
 
 	plan := &service.ScheduledTestPlan{
-		AccountID:      req.AccountID,
-		ModelID:        req.ModelID,
-		CronExpression: req.CronExpression,
-		Enabled:        true,
-		MaxResults:     req.MaxResults,
+		AccountID:       req.AccountID,
+		ModelID:         req.ModelID,
+		TestPrompt:      req.TestPrompt,
+		ExpectedAnswer:  req.ExpectedAnswer,
+		ReasoningEffort: req.ReasoningEffort,
+		JudgeGroupID:    req.JudgeGroupID,
+		JudgeModelID:    req.JudgeModelID,
+		JudgePrompt:     req.JudgePrompt,
+		CronExpression:  req.CronExpression,
+		Enabled:         true,
+		MaxResults:      req.MaxResults,
 	}
 	if req.Enabled != nil {
 		plan.Enabled = *req.Enabled
@@ -104,6 +122,24 @@ func (h *ScheduledTestHandler) Update(c *gin.Context) {
 
 	if req.ModelID != "" {
 		existing.ModelID = req.ModelID
+	}
+	if req.TestPrompt != nil {
+		existing.TestPrompt = *req.TestPrompt
+	}
+	if req.ExpectedAnswer != nil {
+		existing.ExpectedAnswer = *req.ExpectedAnswer
+	}
+	if req.ReasoningEffort != nil {
+		existing.ReasoningEffort = *req.ReasoningEffort
+	}
+	if req.JudgeGroupID != nil {
+		existing.JudgeGroupID = *req.JudgeGroupID
+	}
+	if req.JudgeModelID != nil {
+		existing.JudgeModelID = *req.JudgeModelID
+	}
+	if req.JudgePrompt != nil {
+		existing.JudgePrompt = *req.JudgePrompt
 	}
 	if req.CronExpression != "" {
 		existing.CronExpression = req.CronExpression

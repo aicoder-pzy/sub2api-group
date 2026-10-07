@@ -1,6 +1,10 @@
 package service
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+)
 
 func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 	s.pluginManager = manager
@@ -50,12 +54,16 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 		}
 	}
 	if useTLSFallback {
+		var profile *tlsfingerprint.Profile
+		if s.tlsFPProfileService != nil {
+			profile = s.tlsFPProfileService.ResolveTLSProfile(account)
+		}
 		return s.httpUpstream.DoWithTLS(
 			request,
 			proxyURL,
 			account.ID,
 			account.Concurrency,
-			s.tlsFPProfileService.ResolveTLSProfile(account),
+			profile,
 		)
 	}
 	return s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)

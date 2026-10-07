@@ -20,16 +20,16 @@ func NewScheduledTestPlanRepository(db *sql.DB) service.ScheduledTestPlanReposit
 
 func (r *scheduledTestPlanRepository) Create(ctx context.Context, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
 	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO scheduled_test_plans (account_id, model_id, cron_expression, enabled, max_results, auto_recover, next_run_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
-	`, plan.AccountID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.NextRunAt)
+		INSERT INTO scheduled_test_plans (account_id, model_id, test_prompt, expected_answer, reasoning_effort, judge_group_id, judge_model_id, judge_prompt, cron_expression, enabled, max_results, auto_recover, next_run_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+		RETURNING id, account_id, model_id, test_prompt, expected_answer, reasoning_effort, judge_group_id, judge_model_id, judge_prompt, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
+	`, plan.AccountID, plan.ModelID, plan.TestPrompt, plan.ExpectedAnswer, plan.ReasoningEffort, plan.JudgeGroupID, plan.JudgeModelID, plan.JudgePrompt, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.NextRunAt)
 	return scanPlan(row)
 }
 
 func (r *scheduledTestPlanRepository) GetByID(ctx context.Context, id int64) (*service.ScheduledTestPlan, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
+		SELECT id, account_id, model_id, test_prompt, expected_answer, reasoning_effort, judge_group_id, judge_model_id, judge_prompt, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
 		FROM scheduled_test_plans WHERE id = $1
 	`, id)
 	return scanPlan(row)
@@ -37,7 +37,7 @@ func (r *scheduledTestPlanRepository) GetByID(ctx context.Context, id int64) (*s
 
 func (r *scheduledTestPlanRepository) ListByAccountID(ctx context.Context, accountID int64) ([]*service.ScheduledTestPlan, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
+		SELECT id, account_id, model_id, test_prompt, expected_answer, reasoning_effort, judge_group_id, judge_model_id, judge_prompt, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
 		FROM scheduled_test_plans WHERE account_id = $1
 		ORDER BY created_at DESC
 	`, accountID)
@@ -50,7 +50,7 @@ func (r *scheduledTestPlanRepository) ListByAccountID(ctx context.Context, accou
 
 func (r *scheduledTestPlanRepository) ListDue(ctx context.Context, now time.Time) ([]*service.ScheduledTestPlan, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
+		SELECT id, account_id, model_id, test_prompt, expected_answer, reasoning_effort, judge_group_id, judge_model_id, judge_prompt, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
 		FROM scheduled_test_plans
 		WHERE enabled = true AND next_run_at <= $1
 		ORDER BY next_run_at ASC
@@ -65,10 +65,10 @@ func (r *scheduledTestPlanRepository) ListDue(ctx context.Context, now time.Time
 func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
 	row := r.db.QueryRowContext(ctx, `
 		UPDATE scheduled_test_plans
-		SET model_id = $2, cron_expression = $3, enabled = $4, max_results = $5, auto_recover = $6, next_run_at = $7, updated_at = NOW()
+		SET model_id = $2, test_prompt = $3, expected_answer = $4, reasoning_effort = $5, judge_group_id = $6, judge_model_id = $7, judge_prompt = $8, cron_expression = $9, enabled = $10, max_results = $11, auto_recover = $12, next_run_at = $13, updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
-	`, plan.ID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.NextRunAt)
+		RETURNING id, account_id, model_id, test_prompt, expected_answer, reasoning_effort, judge_group_id, judge_model_id, judge_prompt, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
+	`, plan.ID, plan.ModelID, plan.TestPrompt, plan.ExpectedAnswer, plan.ReasoningEffort, plan.JudgeGroupID, plan.JudgeModelID, plan.JudgePrompt, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.NextRunAt)
 	return scanPlan(row)
 }
 
@@ -96,14 +96,14 @@ func NewScheduledTestResultRepository(db *sql.DB) service.ScheduledTestResultRep
 
 func (r *scheduledTestResultRepository) Create(ctx context.Context, result *service.ScheduledTestResult) (*service.ScheduledTestResult, error) {
 	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO scheduled_test_results (plan_id, status, response_text, error_message, latency_ms, started_at, finished_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-		RETURNING id, plan_id, status, response_text, error_message, latency_ms, started_at, finished_at, created_at
-	`, result.PlanID, result.Status, result.ResponseText, result.ErrorMessage, result.LatencyMs, result.StartedAt, result.FinishedAt)
+		INSERT INTO scheduled_test_results (plan_id, status, response_text, error_message, quality_verdict, quality_reason, judge_account_id, latency_ms, started_at, finished_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+		RETURNING id, plan_id, status, response_text, error_message, quality_verdict, quality_reason, judge_account_id, latency_ms, started_at, finished_at, created_at
+	`, result.PlanID, result.Status, result.ResponseText, result.ErrorMessage, result.QualityVerdict, result.QualityReason, result.JudgeAccountID, result.LatencyMs, result.StartedAt, result.FinishedAt)
 
 	out := &service.ScheduledTestResult{}
 	if err := row.Scan(
-		&out.ID, &out.PlanID, &out.Status, &out.ResponseText, &out.ErrorMessage,
+		&out.ID, &out.PlanID, &out.Status, &out.ResponseText, &out.ErrorMessage, &out.QualityVerdict, &out.QualityReason, &out.JudgeAccountID,
 		&out.LatencyMs, &out.StartedAt, &out.FinishedAt, &out.CreatedAt,
 	); err != nil {
 		return nil, err
@@ -113,7 +113,7 @@ func (r *scheduledTestResultRepository) Create(ctx context.Context, result *serv
 
 func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID int64, limit int) ([]*service.ScheduledTestResult, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, plan_id, status, response_text, error_message, latency_ms, started_at, finished_at, created_at
+		SELECT id, plan_id, status, response_text, error_message, quality_verdict, quality_reason, judge_account_id, latency_ms, started_at, finished_at, created_at
 		FROM scheduled_test_results
 		WHERE plan_id = $1
 		ORDER BY created_at DESC
@@ -128,7 +128,7 @@ func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID
 	for rows.Next() {
 		r := &service.ScheduledTestResult{}
 		if err := rows.Scan(
-			&r.ID, &r.PlanID, &r.Status, &r.ResponseText, &r.ErrorMessage,
+			&r.ID, &r.PlanID, &r.Status, &r.ResponseText, &r.ErrorMessage, &r.QualityVerdict, &r.QualityReason, &r.JudgeAccountID,
 			&r.LatencyMs, &r.StartedAt, &r.FinishedAt, &r.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -162,7 +162,8 @@ type scannable interface {
 func scanPlan(row scannable) (*service.ScheduledTestPlan, error) {
 	p := &service.ScheduledTestPlan{}
 	if err := row.Scan(
-		&p.ID, &p.AccountID, &p.ModelID, &p.CronExpression, &p.Enabled, &p.MaxResults, &p.AutoRecover,
+		&p.ID, &p.AccountID, &p.ModelID, &p.TestPrompt, &p.ExpectedAnswer, &p.ReasoningEffort,
+		&p.JudgeGroupID, &p.JudgeModelID, &p.JudgePrompt, &p.CronExpression, &p.Enabled, &p.MaxResults, &p.AutoRecover,
 		&p.LastRunAt, &p.NextRunAt, &p.CreatedAt, &p.UpdatedAt,
 	); err != nil {
 		return nil, err

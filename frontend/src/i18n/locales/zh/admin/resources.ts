@@ -37,7 +37,35 @@ export default {
       maxResultsTooltipExample: '例如填写 100，表示最多保存最近 100 次测试结果；第 101 次结果写入后，最早的一条会被清理。',
       maxResultsTooltipRange: '推荐填写范围：一般可填 20 到 200。只关注近期可用性时可填 20-50；需要回看较长时间的波动趋势时可填 100-200。',
       autoRecover: '自动恢复',
-      autoRecoverHelp: '测试成功后自动恢复异常状态的账号'
+      autoRecoverHelp: '测试成功后自动恢复异常状态的账号',
+      qualityCheck: '答案质量检测',
+      testPrompt: '测试题目',
+      expectedAnswer: '预期答案',
+      reasoningEffort: '推理强度',
+      judgeGroup: '判题账号分组',
+      judgeModel: '判题模型',
+      judgePrompt: '判题说明',
+      qualityHelp: '支持 OpenAI 文本模型。填写预期答案后，由判题分组的其他账号比较答案；会产生模型调用费用。留空预期答案可关闭质量检测。检测结果仅代表该题表现，不会自动关闭调度。',
+      defaultEffort: '模型默认',
+      judgeAccount: '判题账号',
+      qualityCorrect: '答案正确',
+      qualityIncorrect: '可能存在降智',
+      qualityUnknown: '无法判断',
+      qualityReasons: {
+        judge_not_configured: '未配置判题器',
+        judge_input_too_large: '回答超过判题长度限制',
+        judge_unavailable: '判题服务不可用',
+        judge_group_unavailable: '判题分组不可用',
+        judge_model_not_allowed: '判题分组不允许该模型',
+        judge_accounts_unavailable: '无法读取判题账号',
+        judge_no_available_account: '没有独立且可用的判题账号',
+        judge_capacity_unavailable: '无法获取判题并发槽',
+        judge_invalid_response: '判题模型未返回有效的判题结果',
+        judge_request_failed: '判题请求失败',
+        test_request_failed: '测试请求失败，无法判断答案质量',
+        test_empty_response: '测试未返回文本答案',
+        tested_account_unavailable: '被测账号不可用'
+      }
     },
 
     // Proxies Management

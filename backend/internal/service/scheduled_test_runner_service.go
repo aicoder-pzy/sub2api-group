@@ -17,12 +17,14 @@ type ScheduledTestRunnerService struct {
 	planRepo       ScheduledTestPlanRepository
 	scheduledSvc   *ScheduledTestService
 	accountTestSvc *AccountTestService
+	qualityJudge   *ScheduledTestQualityJudge
 	rateLimitSvc   *RateLimitService
 	cfg            *config.Config
 
 	cron      *cron.Cron
 	startOnce sync.Once
 	stopOnce  sync.Once
+	runMu     sync.Mutex
 }
 
 // NewScheduledTestRunnerService creates a new runner.
@@ -30,6 +32,7 @@ func NewScheduledTestRunnerService(
 	planRepo ScheduledTestPlanRepository,
 	scheduledSvc *ScheduledTestService,
 	accountTestSvc *AccountTestService,
+	qualityJudge *ScheduledTestQualityJudge,
 	rateLimitSvc *RateLimitService,
 	cfg *config.Config,
 ) *ScheduledTestRunnerService {
@@ -37,6 +40,7 @@ func NewScheduledTestRunnerService(
 		planRepo:       planRepo,
 		scheduledSvc:   scheduledSvc,
 		accountTestSvc: accountTestSvc,
+		qualityJudge:   qualityJudge,
 		rateLimitSvc:   rateLimitSvc,
 		cfg:            cfg,
 	}
@@ -85,6 +89,10 @@ func (s *ScheduledTestRunnerService) Stop() {
 }
 
 func (s *ScheduledTestRunnerService) runScheduled() {
+	if !s.runMu.TryLock() {
+		return
+	}
+	defer s.runMu.Unlock()
 	// Delay 10s so execution lands at ~:10 of each minute instead of :00.
 	time.Sleep(10 * time.Second)
 
@@ -120,18 +128,45 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 }
 
 func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
-	result, err := s.accountTestSvc.RunTestBackground(ctx, plan.AccountID, plan.ModelID)
+	startedAt := time.Now()
+	var result *ScheduledTestResult
+	var err error
+	if plan.ExpectedAnswer != "" {
+		if s.qualityJudge == nil {
+			err = context.Canceled
+		} else {
+			result, err = s.qualityJudge.Test(ctx, plan)
+		}
+	} else {
+		result, err = s.accountTestSvc.RunTestBackground(ctx, plan.AccountID, plan.ModelID, AccountTestOptions{
+			Prompt: plan.TestPrompt, ReasoningEffort: plan.ReasoningEffort,
+		})
+	}
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d RunTestBackground error: %v", plan.ID, err)
+		result = &ScheduledTestResult{Status: "failed", ErrorMessage: err.Error(), StartedAt: startedAt, FinishedAt: time.Now()}
+	}
+	if plan.ExpectedAnswer != "" {
+		var judgment *ScheduledTestQualityJudgment
+		if result.Status != "success" {
+			judgment = &ScheduledTestQualityJudgment{Verdict: "unknown", Reason: "test_request_failed"}
+		} else if s.qualityJudge != nil {
+			judgment = s.qualityJudge.Judge(ctx, plan.AccountID, plan, result.ResponseText)
+		}
+		applyScheduledTestJudgment(result, judgment)
+		result.FinishedAt = time.Now()
+	}
+	// Preserve timeout results even if the model request exhausted the run context.
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+
+	if err := s.scheduledSvc.SaveResult(persistCtx, plan.ID, plan.MaxResults, result); err != nil {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d SaveResult error: %v", plan.ID, err)
 		return
 	}
 
-	if err := s.scheduledSvc.SaveResult(ctx, plan.ID, plan.MaxResults, result); err != nil {
-		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d SaveResult error: %v", plan.ID, err)
-	}
-
 	// Auto-recover account if test succeeded and auto_recover is enabled.
-	if result.Status == "success" && plan.AutoRecover {
+	if result.Status == "success" && plan.AutoRecover && ctx.Err() == nil {
 		s.tryRecoverAccount(ctx, plan.AccountID, plan.ID)
 	}
 
@@ -141,7 +176,7 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 		return
 	}
 
-	if err := s.planRepo.UpdateAfterRun(ctx, plan.ID, time.Now(), nextRun); err != nil {
+	if err := s.planRepo.UpdateAfterRun(persistCtx, plan.ID, time.Now(), nextRun); err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d UpdateAfterRun error: %v", plan.ID, err)
 	}
 }

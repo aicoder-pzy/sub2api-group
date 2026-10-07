@@ -65,11 +65,14 @@ type TestEvent struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// AccountTestOptions carries optional media for admin connectivity tests.
+// AccountTestOptions carries optional inputs for admin and scheduled tests.
 // ImageDataURL / AudioDataURL are full data URLs (data:<mime>;base64,...).
 type AccountTestOptions struct {
-	ImageDataURL string
-	AudioDataURL string
+	ImageDataURL    string
+	AudioDataURL    string
+	Prompt          string
+	ReasoningEffort string
+	QualityCheck    bool
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -367,6 +370,11 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	if testOpts.QualityCheck {
+		if err := validateScheduledQualityAccount(account, modelID); err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
+		}
+	}
 
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
@@ -388,7 +396,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		case APIProtocolAdaptive:
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
 		case APIProtocolResponses:
-			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
+			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), testOpts.ReasoningEffort)
 		case APIProtocolChatCompletions:
 			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
 		case APIProtocolAnthropic:
@@ -397,7 +405,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.IsOpenAI() {
-		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
+		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), testOpts.ReasoningEffort)
 	}
 
 	if account.IsGemini() {
@@ -784,9 +792,13 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 }
 
 // testOpenAIAccountConnection tests an OpenAI account's connection
-func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string) error {
+func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string, reasoningEfforts ...string) error {
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
+	reasoningEffort := ""
+	if len(reasoningEfforts) > 0 {
+		reasoningEffort = reasoningEfforts[0]
+	}
 
 	// Default to openai.DefaultTestModel for OpenAI testing
 	testModelID := modelID
@@ -857,7 +869,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 		}
 		if !openai_compat.ShouldUseResponsesAPI(account.Extra) {
-			return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
+			return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken, reasoningEffort)
 		}
 		apiURL = buildOpenAIResponsesURLForPlatform(credentialAccount.Platform, normalizedBaseURL)
 	} else {
@@ -877,7 +889,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if isOAuth {
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
-	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt, reasoningEffort)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -960,7 +972,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 				return s.sendErrorAndEnd(c, fmt.Sprintf("Agent Identity task recovery failed: %s", err.Error()))
 			}
 			c.Request = c.Request.WithContext(markAgentIdentityTaskRecoveryTried(ctx))
-			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode)
+			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode, reasoningEffort)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
@@ -2109,6 +2121,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	prompt string,
 	normalizedBaseURL string,
 	authToken string,
+	reasoningEfforts ...string,
 ) error {
 	ctx := c.Request.Context()
 	apiURL := buildOpenAIChatCompletionsURL(normalizedBaseURL)
@@ -2120,6 +2133,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Flush()
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	if len(reasoningEfforts) > 0 && reasoningEfforts[0] != "" {
+		payload["reasoning_effort"] = reasoningEfforts[0]
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2762,7 +2778,12 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 }
 
 // createOpenAITestPayload creates a test payload for OpenAI Responses API
-func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
+
+func createOpenAITestPayload(modelID string, isOAuth bool, options ...string) map[string]any {
+	prompt := "hi"
+	if len(options) > 0 && strings.TrimSpace(options[0]) != "" {
+		prompt = options[0]
+	}
 	payload := map[string]any{
 		"model": modelID,
 		"input": []map[string]any{
@@ -2771,7 +2792,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": "hi",
+						"text": prompt,
 					},
 				},
 			},
@@ -2782,6 +2803,12 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 	// OAuth accounts using ChatGPT internal API require store: false
 	if isOAuth {
 		payload["store"] = false
+	}
+	if len(options) > 1 {
+		switch strings.ToLower(strings.TrimSpace(options[1])) {
+		case "minimal", "low", "medium", "high", "xhigh":
+			payload["reasoning"] = map[string]string{"effort": strings.ToLower(strings.TrimSpace(options[1]))}
+		}
 	}
 
 	// All accounts require instructions for Responses API
@@ -2896,6 +2923,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		if jsonStr == "[DONE]" {
+			if _, probing := c.Get(schedulingProbeObserverKey); probing && !seenFinish {
+				return s.sendErrorAndEnd(c, "Chat Completions stream ended before finish_reason")
+			}
 			s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
@@ -2935,6 +2965,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 				}
 			}
 			if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
+				if _, probing := c.Get(schedulingProbeObserverKey); probing && finishReason != "stop" {
+					return s.sendErrorAndEnd(c, "Chat Completions response did not finish normally: "+finishReason)
+				}
 				seenFinish = true
 			}
 		}
@@ -2987,6 +3020,13 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			if _, probing := c.Get(schedulingProbeObserverKey); probing {
+				if response, ok := data["response"].(map[string]any); ok {
+					if status, _ := response["status"].(string); status != "" && status != "completed" {
+						return s.sendErrorAndEnd(c, "OpenAI response did not complete: "+status)
+					}
+				}
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":
@@ -3290,18 +3330,52 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 
 // RunTestBackground executes an account test in-memory (no real HTTP client),
 // capturing SSE output via httptest.NewRecorder, then parses the result.
-func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
+func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string, options ...AccountTestOptions) (*ScheduledTestResult, error) {
 	startedAt := time.Now()
+	testOpts := firstAccountTestOptions(options)
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
 	ginCtx.Request = (&http.Request{}).WithContext(ctx)
+	var qualityText strings.Builder
+	var qualityError string
+	var qualityComplete bool
+	if testOpts.QualityCheck {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		ginCtx.Request = ginCtx.Request.WithContext(ctx)
+		// Reuse the probe observer so truncated streams cannot become a wrong-answer verdict.
+		ginCtx.Set(schedulingProbeObserverKey, func(event TestEvent) {
+			switch event.Type {
+			case "content":
+				if qualityText.Len()+len(event.Text) > 64000 {
+					qualityError = "Test response exceeds 64000 bytes"
+					cancel()
+				} else if qualityError == "" {
+					qualityText.WriteString(event.Text)
+				}
+			case "test_complete":
+				qualityComplete = event.Success
+			case "error":
+				if qualityError == "" {
+					qualityError = event.Error
+				}
+			}
+		})
+	}
 
-	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
+	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, testOpts.Prompt, AccountTestModeDefault, testOpts)
 
 	finishedAt := time.Now()
 	body := w.Body.String()
 	responseText, errMsg := parseTestSSEOutput(body)
+	if testOpts.QualityCheck {
+		responseText, errMsg = qualityText.String(), qualityError
+		if errMsg == "" && (!qualityComplete || ctx.Err() != nil || strings.TrimSpace(responseText) == "") {
+			errMsg = "Test returned no completed text response"
+		}
+	}
 
 	status := "success"
 	if testErr != nil || errMsg != "" {
