@@ -514,6 +514,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/bps-tickets',
+    name: 'AdminBPSTickets',
+    component: () => import('@/views/admin/BPSTicketsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'BPS / Tickets', titleKey: 'nav.bpsTickets' }
+  },
+  {
     path: '/admin/accounts',
     name: 'AdminAccounts',
     component: () => import('@/views/admin/AccountsView.vue'),

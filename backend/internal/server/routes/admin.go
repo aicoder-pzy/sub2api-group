@@ -45,6 +45,14 @@ func RegisterAdminRoutes(
 
 		// 账号管理
 		registerAccountRoutes(admin, h, stepUpAuth)
+		admin.GET("/bps-tickets", h.Admin.Account.GetBPSTickets)
+		admin.PUT("/bps-tickets/settings", h.Admin.Account.SaveBPSTicketSettings)
+		admin.PUT("/bps-tickets/accounts/:id", h.Admin.Account.SaveBPSTicketAccount)
+		admin.POST("/bps-tickets/accounts/:id/probe", h.Admin.Account.ProbeBPSTicket)
+		admin.POST("/bps-tickets/accounts/:id/harvest", h.Admin.Account.HarvestBPSTicket)
+		admin.GET("/system/mihomo", h.Admin.System.GetMihomo)
+		admin.POST("/system/mihomo", h.Admin.System.ManageMihomo)
+		admin.PUT("/system/mihomo/download-mode", h.Admin.System.SetMihomoDownloadMode)
 
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)

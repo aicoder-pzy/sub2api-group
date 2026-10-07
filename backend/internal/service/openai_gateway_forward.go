@@ -19,6 +19,8 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (resultOut *OpenAIForwardResult, errorOut error) {
+	defer func(raw []byte) { stampBPSForwardResult(c, account, raw, resultOut) }(body)
+	ctx = withBPSRequestScope(ctx, c, body)
 	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account, s.settingService)
 	defer func(requestBody []byte) {
 		errorOut = finishFastestFailoverAttempt(ctx, s.accountRepo, c, account, requestBody, timeoutAttempt, errorOut)

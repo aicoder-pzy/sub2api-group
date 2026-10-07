@@ -3,7 +3,10 @@ package admin
 import (
 	"context"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +21,7 @@ import (
 
 // SystemHandler handles system-related operations
 type SystemHandler struct {
+	kernel    *mihomo.Manager
 	updateSvc systemUpdateService
 	lockSvc   *service.SystemOperationLockService
 }
@@ -53,7 +57,12 @@ type systemUpdateService interface {
 
 // NewSystemHandler creates a new SystemHandler
 func NewSystemHandler(updateSvc systemUpdateService, lockSvc *service.SystemOperationLockService) *SystemHandler {
+	dir := os.Getenv("DATA_DIR")
+	if dir == "" {
+		dir = "./data"
+	}
 	return &SystemHandler{
+		kernel:    mihomo.New(filepath.Join(dir, "mihomo")),
 		updateSvc: updateSvc,
 		lockSvc:   lockSvc,
 	}

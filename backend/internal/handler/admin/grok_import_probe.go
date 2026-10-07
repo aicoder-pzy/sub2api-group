@@ -212,6 +212,7 @@ func ProvideAccountHandler(
 	tokenCacheInvalidator service.TokenCacheInvalidator,
 	grokQuotaService *service.GrokQuotaService,
 	schedulingGateway *service.GatewayService,
+	groupModelSchedulingReader service.GroupModelSchedulingBindingsReader,
 ) *AccountHandler {
 	handler := NewAccountHandler(
 		adminService,
@@ -232,5 +233,6 @@ func ProvideAccountHandler(
 	handler.grokImportProber = grokQuotaService
 	handler.cfg = cfg
 	handler.schedulingGateway = schedulingGateway
+	handler.SetGroupModelSchedulingReader(groupModelSchedulingReader)
 	return handler
 }
