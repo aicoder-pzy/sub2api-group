@@ -117,6 +117,8 @@ type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[i
 
 // SettingService 系统设置服务
 type SettingService struct {
+	modelAccountRoutingMu       sync.Mutex
+	modelAccountRoutingCache    *cachedModelAccountRouting
 	fastestFailoverMu           sync.Mutex
 	fastestFailoverCache        *cachedFastestFailoverSettings
 	directAccessMu              sync.Mutex

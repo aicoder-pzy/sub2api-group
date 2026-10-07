@@ -1291,6 +1291,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			filterStats.exclude("excluded")
 			continue
 		}
+		if !s.IsModelAccountAllowed(ctx, requestedModel, acc.ID) {
+			filterStats.exclude("model_account_not_allowed")
+			continue
+		}
 		// Scheduler snapshots can be temporarily stale (bucket rebuild is throttled);
 		// re-check schedulability here so recently rate-limited/overloaded accounts
 		// are not selected again before the bucket is rebuilt.
@@ -1593,6 +1597,9 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccountBeforeProfit(
 	if account == nil {
 		return nil
 	}
+	if !s.IsModelAccountAllowed(ctx, requestedModel, account.ID) {
+		return nil
+	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 
 	fresh := account
@@ -1649,6 +1656,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 
 func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ctx context.Context, account *Account, groupID *int64, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) *Account {
 	if account == nil {
+		return nil
+	}
+	if !s.IsModelAccountAllowed(ctx, requestedModel, account.ID) {
 		return nil
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)

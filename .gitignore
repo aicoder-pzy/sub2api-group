@@ -135,6 +135,7 @@ vite.config.js
 docs/*
 !docs/custom-bps-tickets.md
 !docs/custom-prism.md
+!docs/custom-model-account-routing.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md

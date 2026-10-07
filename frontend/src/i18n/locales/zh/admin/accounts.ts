@@ -1,5 +1,26 @@
 export default {
     accounts: {
+      modelRouting: {
+        title: '模型调度',
+        scope: '全局配置 · 精确模型名',
+        fallback: '无可用白名单账号：拒绝请求',
+        add: '新增模型',
+        newModel: '新模型',
+        model: '模型 ID',
+        modelPlaceholder: 'gpt-6-astra',
+        remove: '删除模型限制',
+        accounts: '允许调用的账号',
+        removeAccount: '移除账号',
+        blocked: '白名单为空：禁止此模型调用',
+        count: '{count} 个允许账号',
+        search: '搜索所有账号',
+        available: '可调度',
+        unavailable: '不可调度',
+        noAccounts: '未找到账号',
+        total: '共 {count} 个账号',
+        unrestricted: '未配置模型限制',
+        invalidModel: '模型 ID 不能为空、重复或包含空白和通配符。'
+      },
       refreshScheduling: {
         title: '更新调度',
         selectGroup: '请先筛选一个启用“最快故障切换”的分组',

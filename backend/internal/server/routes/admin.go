@@ -606,6 +606,8 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		adminSettings.GET("/panel-rate-limit", h.Admin.Setting.GetPanelRateLimitSettings)
 		adminSettings.GET("/fastest-failover", h.Admin.Setting.GetFastestFailoverSettings)
 		adminSettings.PUT("/fastest-failover", h.Admin.Setting.UpdateFastestFailoverSettings)
+		adminSettings.GET("/model-account-routing", h.Admin.Setting.GetModelAccountRouting)
+		adminSettings.PUT("/model-account-routing", h.Admin.Setting.UpdateModelAccountRouting)
 		adminSettings.GET("/direct-access", h.Admin.Setting.GetDirectAccessSettings)
 		adminSettings.PUT("/direct-access", h.Admin.Setting.UpdateDirectAccessSettings)
 		adminSettings.PUT("/panel-rate-limit", h.Admin.Setting.UpdatePanelRateLimitSettings)

@@ -5,6 +5,25 @@
 
 import { apiClient } from "../client";
 
+export interface ModelAccountRoutingRule {
+  model: string
+  account_ids: number[]
+}
+
+export interface ModelAccountRoutingSettings {
+  rules: ModelAccountRoutingRule[]
+}
+
+export async function getModelAccountRouting(): Promise<ModelAccountRoutingSettings> {
+  const { data } = await apiClient.get<ModelAccountRoutingSettings>('/admin/settings/model-account-routing')
+  return data
+}
+
+export async function updateModelAccountRouting(settings: ModelAccountRoutingSettings): Promise<ModelAccountRoutingSettings> {
+  const { data } = await apiClient.put<ModelAccountRoutingSettings>('/admin/settings/model-account-routing', settings)
+  return data
+}
+
 export interface FastestFailoverSettings {
   first_output_timeout_seconds: number
   stream_idle_timeout_seconds: number

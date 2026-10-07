@@ -192,6 +192,9 @@
           @toggle-schedulable="handleBulkToggleSchedulable"
         >
           <template #before-edit-filtered>
+            <button type="button" class="btn btn-secondary btn-sm" @click="showModelAccountRouting = true">
+              <Icon name="filter" size="sm" />{{ t('admin.accounts.modelRouting.title') }}
+            </button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="!schedulingGroup" :title="t('admin.accounts.refreshScheduling.selectGroup')" @click="showRefreshScheduling = true">
               {{ t('admin.accounts.refreshScheduling.title') }}
             </button>
@@ -481,6 +484,7 @@
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <RefreshSchedulingDialog v-if="showRefreshScheduling && schedulingGroup" :group="schedulingGroup" @close="showRefreshScheduling = false" @updated="handleManualRefresh" />
+    <ModelAccountRoutingDialog v-if="showModelAccountRouting" :selected-ids="selIds" @close="showModelAccountRouting = false" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
@@ -535,6 +539,7 @@ import AccountTableActions from '@/components/admin/account/AccountTableActions.
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import RefreshSchedulingDialog from '@/components/admin/account/RefreshSchedulingDialog.vue'
+import ModelAccountRoutingDialog from '@/components/admin/account/ModelAccountRoutingDialog.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
@@ -571,6 +576,7 @@ const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
 const groupsByID = computed(() => new Map(groups.value.map(group => [group.id, group])))
 const showRefreshScheduling = ref(false)
+const showModelAccountRouting = ref(false)
 const schedulingGroup = computed(() => {
   const group = groupsByID.value.get(Number(params.group))
   return group?.account_scheduling_mode === 'fastest_failover' && group.status === 'active' ? group : undefined

@@ -550,6 +550,9 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 			return 0, nil, "", nil
 		}
 	}
+	if !s.IsModelAccountAllowed(ctx, requestedModel, accountID) {
+		return 0, nil, "", nil
+	}
 
 	account, err := s.getSchedulableAccount(ctx, accountID)
 	if err != nil || account == nil {

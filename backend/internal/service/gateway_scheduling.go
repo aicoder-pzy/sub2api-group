@@ -1161,6 +1161,9 @@ func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Conte
 	if account == nil {
 		return false
 	}
+	if !s.settingService.IsModelAccountAllowed(ctx, requestedModel, account.ID) {
+		return false
+	}
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
 	if group != nil && group.AccountSchedulingMode == AccountSchedulingModeFastestFailover && s.accountRepo != nil {
 		// Candidate snapshots can predate a timeout on another in-flight request.

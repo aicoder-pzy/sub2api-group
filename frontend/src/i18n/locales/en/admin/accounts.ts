@@ -1,5 +1,26 @@
 export default {
     accounts: {
+      modelRouting: {
+        title: 'Model Scheduling',
+        scope: 'Global settings · Exact model IDs',
+        fallback: 'No available allowlisted account: reject request',
+        add: 'Add Model',
+        newModel: 'New Model',
+        model: 'Model ID',
+        modelPlaceholder: 'gpt-6-astra',
+        remove: 'Delete Model Restriction',
+        accounts: 'Allowed Accounts',
+        removeAccount: 'Remove Account',
+        blocked: 'Empty allowlist: model requests are blocked',
+        count: '{count} allowed accounts',
+        search: 'Search All Accounts',
+        available: 'Schedulable',
+        unavailable: 'Unavailable',
+        noAccounts: 'No accounts found',
+        total: '{count} accounts',
+        unrestricted: 'No model restrictions configured',
+        invalidModel: 'Model IDs must be nonempty, unique, and contain no whitespace or wildcards.'
+      },
       refreshScheduling: {
         title: 'Update scheduling',
         selectGroup: 'Filter by a group using fastest failover first',

@@ -27,3 +27,25 @@ func (h *SettingHandler) UpdateFastestFailoverSettings(c *gin.Context) {
 	}
 	response.Success(c, settings)
 }
+
+func (h *SettingHandler) GetModelAccountRouting(c *gin.Context) {
+	settings, err := h.settingService.GetModelAccountRouting(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+func (h *SettingHandler) UpdateModelAccountRouting(c *gin.Context) {
+	var settings service.ModelAccountRoutingSettings
+	if err := c.ShouldBindJSON(&settings); err != nil {
+		response.BadRequest(c, "Invalid model account routing settings")
+		return
+	}
+	if err := h.settingService.SetModelAccountRouting(c.Request.Context(), settings); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
