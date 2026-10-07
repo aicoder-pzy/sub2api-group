@@ -3353,7 +3353,7 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 					qualityError = "Test response exceeds 64000 bytes"
 					cancel()
 				} else if qualityError == "" {
-					qualityText.WriteString(event.Text)
+					_, _ = qualityText.WriteString(event.Text)
 				}
 			case "test_complete":
 				qualityComplete = event.Success
