@@ -347,7 +347,7 @@ func (s *OpenAIGatewayService) mintBPSTicket(ctx context.Context, a *Account, to
 	return &codexTicketCredential{state: state, cookies: cookies, expires: expires}, 200, nil
 }
 
-func (s *OpenAIGatewayService) doTicketUpstream(req *http.Request, proxy string, a *Account, model string, cfg BPSTicketSettings) (*http.Response, bool, error) {
+func (s *OpenAIGatewayService) doTicketUpstream(req *http.Request, a *Account, model string, cfg BPSTicketSettings) (*http.Response, bool, error) {
 	key := codexTicketKey(a, model)
 	s.bpsTickets.mu.Lock()
 	ticket := s.bpsTickets.tickets[key]
@@ -372,6 +372,7 @@ func (s *OpenAIGatewayService) doTicketUpstream(req *http.Request, proxy string,
 			return unavailable("Ticket route expired or target changed")
 		}
 	}
+	proxy := ""
 	release := func() {}
 	if ticket.node != "" {
 		var err error
@@ -388,8 +389,6 @@ func (s *OpenAIGatewayService) doTicketUpstream(req *http.Request, proxy string,
 		if sha256.Sum256([]byte(proxy)) != ticket.proxyDigest {
 			return unavailable("Ticket proxy configuration changed; mint a fresh ticket")
 		}
-	} else {
-		proxy = ""
 	}
 	req = req.Clone(WithHTTPUpstreamRedirectsDisabled(req.Context()))
 	req.Close = true

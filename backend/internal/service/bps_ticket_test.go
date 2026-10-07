@@ -198,7 +198,7 @@ func TestBPSTicketRateLimitKeepsNativeRouteUsable(t *testing.T) {
 		return req
 	}
 	for i := 0; i < 2; i++ {
-		resp, handled, err := s.routeBPSTicketHTTP(request("gpt-6-astra"), "", a)
+		resp, handled, err := s.routeBPSTicketHTTP(request("gpt-6-astra"), a)
 		require.True(t, handled)
 		require.NoError(t, err)
 		require.Equal(t, 503, resp.StatusCode)
@@ -208,7 +208,7 @@ func TestBPSTicketRateLimitKeepsNativeRouteUsable(t *testing.T) {
 		require.NotContains(t, string(raw), "sensitive upstream")
 	}
 	require.Equal(t, 1, calls, "a BPS cooldown must not hit upstream again")
-	_, handled, err := s.routeBPSTicketHTTP(request("gpt-5.6-sol"), "", a)
+	_, handled, err := s.routeBPSTicketHTTP(request("gpt-5.6-sol"), a)
 	require.NoError(t, err)
 	require.False(t, handled, "another model must retain its native route")
 }
@@ -250,19 +250,19 @@ func TestBPSTicketFailClosedAndScopedCredential(t *testing.T) {
 		r, _ := http.NewRequest("POST", chatgptCodexURL, strings.NewReader(`{"model":"gpt-6-astra","input":"OK","stream":true}`))
 		return r
 	}
-	resp, handled, err := s.routeBPSTicketHTTP(request(), "", a)
+	resp, handled, err := s.routeBPSTicketHTTP(request(), a)
 	require.NoError(t, err)
 	require.True(t, handled)
 	require.Equal(t, 503, resp.StatusCode)
 	_ = resp.Body.Close()
 	s.bpsTickets.tickets = map[string]*codexTicketCredential{key: {state: state, cookies: bpsTestCookies(), expires: time.Now().Add(time.Minute)}}
-	resp, handled, err = s.routeBPSTicketHTTP(request(), "", a)
+	resp, handled, err = s.routeBPSTicketHTTP(request(), a)
 	require.NoError(t, err)
 	require.True(t, handled)
 	require.Equal(t, 200, resp.StatusCode)
 	_ = resp.Body.Close()
 	a.Credentials["access_token"] = "rotated"
-	resp, _, err = s.routeBPSTicketHTTP(request(), "", a)
+	resp, _, err = s.routeBPSTicketHTTP(request(), a)
 	require.NoError(t, err)
 	require.Equal(t, 503, resp.StatusCode)
 	_ = resp.Body.Close()

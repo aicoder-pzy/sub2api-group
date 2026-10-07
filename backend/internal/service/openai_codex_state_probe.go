@@ -88,19 +88,19 @@ type openAICodexStateShot struct {
 	detail    string
 }
 
-// ProbeOpenAICodexState 用两发极小请求判断账号是否降智：
+// ProbeOpenAICodexState 用两发极小请求观察票据续接是否异常：
 //  1. 裸发（不带门票、不带 Cookie）打一张新票，取门票头 S1 和路由 Cookie（__cflb/__oailb）；
-//  2. 带上 S1 和这两枚 Cookie 续接一发：响应头回了与 S1 不同的新门票 → 降智；没回或回原票 → 满血。
+//  2. 带上 S1 和这两枚 Cookie 续接一发：有效 780 票据变化 → 疑似异常；没回或回原票 → 未见异常。
 //
 // 只读：不写门票库、不改账号 Extra、不影响调度；走账号自己的代理，不占用打票节点池。
-// 两发必须都是 HTTP 200 且回复流完整结束才下结论，否则一律判「无法判断」，避免误报降智。
+// 两发必须都是 HTTP 200、回复流完整结束且路由不变，否则一律判「无法判断」。
 // 返回值永不为 nil。model 为空时用 gpt-6-astra，并按账号模型映射转成上游模型名。
 func (s *OpenAIGatewayService) ProbeOpenAICodexState(ctx context.Context, account *Account, model string) *OpenAICodexStateProbeResult {
 	return s.probeOpenAICodexState(ctx, account, model, false)
 }
 
-// ignoreBPS 只给「降智后开 BPS」质量规则用：规则开了 BPS 后仍要探直连门票通道，
-// 才能知道账号何时恢复满血。探针本身不经过 BPS，只是跳过「走 BPS 不适用」的拦截。
+// ignoreBPS 让手动和定时检测在启用 BPS 后仍检查原生票据通道，
+// 以便评估是否撤销自动 BPS。探针本身不经过 BPS。
 func (s *OpenAIGatewayService) probeOpenAICodexState(ctx context.Context, account *Account, model string, ignoreBPS bool) *OpenAICodexStateProbeResult {
 	started := time.Now()
 	result := &OpenAICodexStateProbeResult{Verdict: OpenAICodexStateInconclusive, StartedAt: started}
@@ -154,7 +154,7 @@ func (s *OpenAIGatewayService) probeOpenAICodexState(ctx context.Context, accoun
 	return result
 }
 
-// The account probe and gateway borrowing share the same two-shot verdict.
+// The manual and scheduled account probes share the same two-shot verdict.
 func runOpenAICodexStateProbe(ctx context.Context, result *OpenAICodexStateProbeResult, seed string, fire func(string, string) (openAICodexStateShot, error)) {
 	mint, err := fire("", seed)
 	result.MintStatus = mint.status
@@ -251,12 +251,12 @@ func openAICodexStateVerdictReason(verdict OpenAICodexStateVerdict) string {
 	case OpenAICodexStateHealthy:
 		return "未见异常：本次完整续接未返回不同的新票据。"
 	default:
-		return "未取得有效的门票续接探测结果，无法判断账号是否降智。"
+		return "未取得有效的门票续接探测结果，无法判断票据状态。"
 	}
 }
 
 // openAICodexStateProbeUnsupportedReason 返回空串表示该账号可以跑探针。
-// 凭证影子账号可以跑：令牌和 chatgpt-account-id 都会解析到母账号。
+// 凭证影子账号不单独运行探针。
 func openAICodexStateProbeUnsupportedReason(account *Account, requestedModel string, ignoreBPS bool) string {
 	switch {
 	case account == nil:
@@ -279,8 +279,8 @@ func openAICodexStateProbeUnsupportedReason(account *Account, requestedModel str
 // turnState / cookie 为空时就是裸发打票。
 //
 // 这里刻意不带 x-openai-internal-codex-responses-lite 头、也不复用打票（harvest）的请求体：
-// 「续接回新票 = 降智」这条判据只在这种完整请求（门票长度 780）上实测验证过，
-// lite 形态（292/332 长度的票）上没有验证。每发用新的 session_id，也与验证时一致。
+// 票据变化仅作为完整请求（长度 780）的经验信号，不能证明模型能力变化，
+// 也不适用于 lite 票型（292/332）。每发使用新的 session_id。
 func (s *OpenAIGatewayService) fireOpenAICodexStateShot(ctx context.Context, account *Account, token, model, proxy, turnState, cookie string) (openAICodexStateShot, error) {
 
 	headers := make(http.Header)
@@ -494,6 +494,3 @@ func openAICodexStateStreamErrorPayload(data []byte) []byte {
 	}
 	return nil
 }
-
-// ProbeOpenAICodexState 按账号 ID 跑一次门票探针。同一账号同一时刻只允许一次探针，
-// 避免并发的两发互相干扰门票判据。

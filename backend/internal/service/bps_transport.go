@@ -301,7 +301,7 @@ func (s *OpenAIGatewayService) uploadBPSImage(ctx context.Context, a *Account, h
 	return result.FileID, nil
 }
 
-func (s *OpenAIGatewayService) routeBPSTicketHTTP(req *http.Request, proxy string, a *Account) (*http.Response, bool, error) {
+func (s *OpenAIGatewayService) routeBPSTicketHTTP(req *http.Request, a *Account) (*http.Response, bool, error) {
 	if !bpsTicketEligible(a) || !a.bpsTicketNeedsHTTP() || req.URL == nil || !strings.EqualFold(req.URL.Hostname(), "chatgpt.com") || !strings.HasPrefix(req.URL.Path, "/backend-api/codex/responses") {
 		return nil, false, nil
 	}
@@ -333,7 +333,7 @@ func (s *OpenAIGatewayService) routeBPSTicketHTTP(req *http.Request, proxy strin
 	if !cfg.HarvestEnabled {
 		return nil, false, nil
 	}
-	return s.doTicketUpstream(req, proxy, a, model, cfg)
+	return s.doTicketUpstream(req, a, model, cfg)
 }
 
 func (s *OpenAIGatewayService) bpsTicketRuntimeSettings(ctx context.Context) (BPSTicketSettings, error) {

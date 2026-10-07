@@ -33,28 +33,6 @@ func codex780GatewayAllowed(actual, target string) bool {
 	return actual != "" && (target == "any" || actual == target)
 }
 
-func codex780CookieGateway(cookies []string) string {
-	for _, cookie := range cookies {
-		name, value, _ := strings.Cut(cookie, "=")
-		if name != "__oailb" {
-			continue
-		}
-		parts := strings.Split(value, ".")
-		if len(parts) != 3 {
-			return ""
-		}
-		raw, err := base64.RawURLEncoding.DecodeString(parts[1])
-		if err != nil {
-			return ""
-		}
-		match := codex780GatewayRE.FindSubmatch(raw)
-		if len(match) == 2 {
-			return string(match[1])
-		}
-	}
-	return ""
-}
-
 // Only the two LB cookies are retained. JWT claims are routing hints, not verified identity.
 func codex780Route(cookies []string, target string, now time.Time) ([]string, time.Time, error) {
 	target = normalizeCodex780Gateway(target)

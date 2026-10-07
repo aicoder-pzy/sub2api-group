@@ -18,7 +18,7 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 			}
 		}()
 	}
-	if response, handled, err := s.routeBPSTicketHTTP(request, proxyURL, account); handled {
+	if response, handled, err := s.routeBPSTicketHTTP(request, account); handled {
 		return response, err
 	}
 	if s.pluginManager != nil {
@@ -39,7 +39,7 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	useTLSFallback bool,
 ) (*http.Response, error) {
 	if s.openaiGatewayService != nil {
-		if response, handled, err := s.openaiGatewayService.routeBPSTicketHTTP(request, proxyURL, account); handled {
+		if response, handled, err := s.openaiGatewayService.routeBPSTicketHTTP(request, account); handled {
 			return response, err
 		}
 	}
