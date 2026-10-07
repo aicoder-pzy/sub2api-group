@@ -188,7 +188,7 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 	}
 	var failoverErr *UpstreamFailoverError
 	upstreamTimeout := errors.As(forwardErr, &failoverErr) && (failoverErr.StatusCode == http.StatusGatewayTimeout || failoverErr.StatusCode == http.StatusRequestTimeout)
-	if !timedOut && !(ctx.Err() == nil && (upstreamTimeout || errors.Is(forwardErr, context.DeadlineExceeded))) {
+	if !timedOut && (ctx.Err() != nil || (!upstreamTimeout && !errors.Is(forwardErr, context.DeadlineExceeded))) {
 		return forwardErr
 	}
 	cooldown := attempt.cooldown

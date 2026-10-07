@@ -81,7 +81,9 @@ func TestRefreshGroupSchedulingActiveProbesAndAtomicBinding(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
 				fmt.Fprint(w, anthropicTimeoutPrelude)
-				w.(http.Flusher).Flush()
+				if err := http.NewResponseController(w).Flush(); err != nil {
+					t.Errorf("flush upstream prelude: %v", err)
+				}
 				if r.Header.Get("X-Test-Account") == "1" {
 					time.Sleep(40 * time.Millisecond)
 				}

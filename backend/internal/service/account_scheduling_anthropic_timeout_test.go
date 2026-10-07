@@ -76,7 +76,7 @@ func schedulingBedrockFrames(sse string) string {
 		copy(frame[12:], headers)
 		copy(frame[12+len(headers):], payload)
 		binary.BigEndian.PutUint32(frame[len(frame)-4:], crc32.ChecksumIEEE(frame[:len(frame)-4]))
-		frames.Write(frame)
+		_, _ = frames.Write(frame)
 	}
 	return frames.String()
 }
@@ -192,7 +192,9 @@ func TestFastestFailoverAnthropicCancelsDetachedHTTP(t *testing.T) {
 				if headers {
 					w.Header().Set("Content-Type", "text/event-stream")
 					fmt.Fprint(w, anthropicTimeoutPrelude)
-					w.(http.Flusher).Flush()
+					if err := http.NewResponseController(w).Flush(); err != nil {
+						t.Errorf("flush upstream prelude: %v", err)
+					}
 				}
 				<-r.Context().Done()
 				close(canceled)
@@ -202,7 +204,7 @@ func TestFastestFailoverAnthropicCancelsDetachedHTTP(t *testing.T) {
 			account := newAnthropicAPIKeyAccountForTest()
 			ctx, attempt := beginFastestFailoverAttempt(ctx, account)
 			attempt.firstTimeout = 100 * time.Millisecond
-			defer finishFastestFailoverAttempt(ctx, nil, nil, account, nil, attempt, nil)
+			defer func() { _ = finishFastestFailoverAttempt(ctx, nil, nil, account, nil, attempt, nil) }()
 			detached, release := detachStreamUpstreamContext(ctx, true)
 			defer release()
 			req, err := http.NewRequestWithContext(detached, http.MethodGet, server.URL, nil)
@@ -211,7 +213,7 @@ func TestFastestFailoverAnthropicCancelsDetachedHTTP(t *testing.T) {
 			if headers {
 				require.NoError(t, err)
 				_, err = io.ReadAll(resp.Body)
-				resp.Body.Close()
+				require.NoError(t, resp.Body.Close())
 			}
 			require.Error(t, err)
 			select {

@@ -83,7 +83,7 @@ docker pull ghcr.io/aicoder-pzy/sub2api-group:custom
 源码与镜像发布不会自动重启生产服务。服务器上的 `0.2.14-fastest.9` 是此前本地构建部署的版本。
 
 镜像页面：[GitHub Packages](https://github.com/aicoder-pzy/sub2api-group/pkgs/container/sub2api-group)。
-GHCR 新建镜像默认可能为私有；公开后可匿名拉取，私有时需先用有 `read:packages` 权限的令牌登录 `ghcr.io`。
+2026-10-07 首次构建和发布成功，镜像已公开，服务器可匿名读取 GHCR 镜像清单，无需登录。
 Actions 构建失败时可在该次运行页面使用 **Re-run jobs** 重试。
 
 ## 后续同步官方更新
