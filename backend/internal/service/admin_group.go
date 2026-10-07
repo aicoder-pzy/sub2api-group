@@ -369,7 +369,8 @@ func normalizeCreateGroupInputForSimpleMode(input *CreateGroupInput) {
 	}
 	*input = CreateGroupInput{
 		Name: input.Name, Description: input.Description, Platform: input.Platform,
-		RateMultiplier: 1, SubscriptionType: SubscriptionTypeStandard,
+		AccountSchedulingMode: input.AccountSchedulingMode,
+		RateMultiplier:        1, SubscriptionType: SubscriptionTypeStandard,
 	}
 }
 
@@ -377,7 +378,7 @@ func normalizeUpdateGroupInputForSimpleMode(input *UpdateGroupInput) {
 	if input == nil {
 		return
 	}
-	*input = UpdateGroupInput{Name: input.Name, Description: input.Description}
+	*input = UpdateGroupInput{Name: input.Name, Description: input.Description, AccountSchedulingMode: input.AccountSchedulingMode}
 }
 
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
@@ -389,6 +390,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 	if input.RateMultiplier <= 0 {
 		return nil, errors.New("rate_multiplier must be > 0")
+	}
+	accountSchedulingMode, err := normalizeAccountSchedulingMode(input.AccountSchedulingMode)
+	if err != nil {
+		return nil, infraerrors.BadRequest("INVALID_ACCOUNT_SCHEDULING_MODE", err.Error())
 	}
 
 	platform := NormalizeGroupPlatform(input.Platform)
@@ -559,6 +564,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	group := &Group{
+		AccountSchedulingMode:           accountSchedulingMode,
 		Name:                            input.Name,
 		Description:                     input.Description,
 		Platform:                        platform,
@@ -774,6 +780,13 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.Platform != "" {
 		group.Platform = input.Platform
+	}
+	if input.AccountSchedulingMode != nil {
+		mode, modeErr := normalizeAccountSchedulingMode(*input.AccountSchedulingMode)
+		if modeErr != nil {
+			return nil, infraerrors.BadRequest("INVALID_ACCOUNT_SCHEDULING_MODE", modeErr.Error())
+		}
+		group.AccountSchedulingMode = mode
 	}
 	if input.RateMultiplier != nil {
 		if *input.RateMultiplier <= 0 {

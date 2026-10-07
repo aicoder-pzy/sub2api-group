@@ -233,6 +233,7 @@ type AdminBoundAuthIdentityChannel struct {
 }
 
 type CreateGroupInput struct {
+	AccountSchedulingMode     string
 	Name                      string
 	Description               string
 	Platform                  string
@@ -313,6 +314,7 @@ type CreateGroupInput struct {
 }
 
 type UpdateGroupInput struct {
+	AccountSchedulingMode     *string
 	Name                      string
 	Description               *string
 	Platform                  string

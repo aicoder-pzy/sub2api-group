@@ -273,6 +273,8 @@ func (s *OpenAIGatewayService) scanCCStream(
 	emit func(*apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
+	firstOutputReady := fastestFailoverAttemptFromResponse(resp) == nil
+	var pendingChunks []*apicompat.ChatCompletionsChunk
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 	for scanner.Scan() {
@@ -308,6 +310,18 @@ func (s *OpenAIGatewayService) scanCCStream(
 			)
 			continue
 		}
+		if !firstOutputReady {
+			if !fastestFailoverChatChunkStartsOutput(&chunk) {
+				pendingChunks = append(pendingChunks, &chunk)
+				continue
+			}
+			firstOutputReady = true
+			markFastestFailoverResponseOutput(resp)
+			for _, pending := range pendingChunks {
+				emit(pending)
+			}
+			pendingChunks = nil
+		}
 		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
@@ -323,6 +337,11 @@ func (s *OpenAIGatewayService) scanCCStream(
 			)
 		}
 		st.Err = err
+	}
+	if st.Err == nil {
+		for _, pending := range pendingChunks {
+			emit(pending)
+		}
 	}
 	return st
 }
@@ -343,7 +362,8 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 ) (*apicompat.ChatCompletionsResponse, OpenAIUsage, error) {
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
-		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
+		timeoutFailover := errors.Is(err, context.DeadlineExceeded) && fastestFailoverAttemptFromResponse(resp) != nil
+		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) && !timeoutFailover {
 			writeError(c, http.StatusBadGateway, "api_error", "Failed to read upstream response")
 		}
 		return nil, OpenAIUsage{}, fmt.Errorf("read upstream body: %w", err)

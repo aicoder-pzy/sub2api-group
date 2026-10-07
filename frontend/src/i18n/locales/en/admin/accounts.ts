@@ -94,6 +94,10 @@ export default {
       schedulable: 'Schedulable',
       schedulableHint: 'Enable to include this account in API request scheduling',
       schedulableEnabled: 'Scheduling enabled',
+      activeScheduler: 'Currently selected',
+      schedulingPreferred: 'Prefer account',
+      schedulingPreferredHint: 'For fastest failover: an available account supporting the model takes precedence over faster or cheaper accounts. Among preferred accounts, lower priority numbers win. Enabling may replace the current binding.',
+      activeSchedulerHint: 'This account is currently pinned for one or more models in the selected group.',
       schedulableDisabled: 'Scheduling disabled',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       priorityQuick: {

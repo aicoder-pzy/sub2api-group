@@ -538,6 +538,8 @@ export default {
       cacheCreation5mTokens: 'Cache Write',
       cacheCreation1hTokens: 'Cache Write',
       cacheReadTokens: 'Cache Read Tokens',
+      cacheHitRate: 'Cache hit rate',
+      cacheHitRateHint: 'Cache read / (uncached input + cache creation + cache read), based on upstream usage',
       failedToLoad: 'Failed to load usage records',
       billingType: 'Billing Type',
       allBillingTypes: 'All Billing Types',

@@ -3283,6 +3283,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	}
 	if rows > 0 && contextTx == nil {
 		shouldSync := false
+		if _, changed := updates.Extra["scheduling_preferred"]; changed {
+			shouldSync = true
+		}
 		if updates.Status != nil && (*updates.Status == service.StatusError || *updates.Status == service.StatusDisabled) {
 			shouldSync = true
 		}

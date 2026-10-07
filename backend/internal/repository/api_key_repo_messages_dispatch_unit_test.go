@@ -16,6 +16,7 @@ func TestGroupEntityToService_PreservesMessagesDispatchModelConfig(t *testing.T)
 		Platform:              service.PlatformOpenAI,
 		Status:                service.StatusActive,
 		SubscriptionType:      service.SubscriptionTypeStandard,
+		AccountSchedulingMode: service.AccountSchedulingModeFastestFailover,
 		RateMultiplier:        1,
 		AllowMessagesDispatch: true,
 		DefaultMappedModel:    "gpt-5.4",
@@ -36,6 +37,7 @@ func TestGroupEntityToService_PreservesMessagesDispatchModelConfig(t *testing.T)
 	require.NotNil(t, got)
 	require.Equal(t, group.MessagesDispatchModelConfig, got.MessagesDispatchModelConfig)
 	require.Equal(t, group.VideoModelPrices, got.VideoModelPrices)
+	require.Equal(t, group.AccountSchedulingMode, got.AccountSchedulingMode)
 }
 
 func TestAPIKeyRepository_GetByKeyForAuth_PreservesMessagesDispatchModelConfig_SQLite(t *testing.T) {
@@ -48,6 +50,7 @@ func TestAPIKeyRepository_GetByKeyForAuth_PreservesMessagesDispatchModelConfig_S
 		SetPlatform(service.PlatformOpenAI).
 		SetStatus(service.StatusActive).
 		SetSubscriptionType(service.SubscriptionTypeStandard).
+		SetAccountSchedulingMode(service.AccountSchedulingModeFastestFailover).
 		SetRateMultiplier(1).
 		SetAllowMessagesDispatch(true).
 		SetDefaultMappedModel("gpt-5.4").
@@ -76,4 +79,5 @@ func TestAPIKeyRepository_GetByKeyForAuth_PreservesMessagesDispatchModelConfig_S
 	require.Equal(t, key.Name, got.Name)
 	require.NotNil(t, got.Group)
 	require.Equal(t, group.MessagesDispatchModelConfig, got.Group.MessagesDispatchModelConfig)
+	require.Equal(t, service.AccountSchedulingModeFastestFailover, got.Group.AccountSchedulingMode)
 }

@@ -3,9 +3,11 @@ package repository
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +25,10 @@ type gatewayCache struct {
 }
 
 func NewGatewayCache(rdb *redis.Client) service.GatewayCache {
+	return &gatewayCache{rdb: rdb}
+}
+
+func NewGroupModelSchedulingBindingsReader(rdb *redis.Client) service.GroupModelSchedulingBindingsReader {
 	return &gatewayCache{rdb: rdb}
 }
 
@@ -46,6 +52,42 @@ func (c *gatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, s
 		return 0, err
 	}
 	return accountID, nil
+}
+
+func (c *gatewayCache) ListGroupModelSchedulingBindings(ctx context.Context, groupID int64) ([]service.GroupModelSchedulingBinding, error) {
+	if c == nil || c.rdb == nil || groupID <= 0 {
+		return nil, nil
+	}
+	prefix := buildSessionKey(groupID, service.GroupModelSchedulingKeyPrefix)
+	pattern := prefix + "*"
+	bindings := make([]service.GroupModelSchedulingBinding, 0)
+	iter := c.rdb.Scan(ctx, 0, pattern, 100).Iterator()
+	for iter.Next(ctx) {
+		key := iter.Val()
+		encoded := strings.TrimPrefix(key, prefix)
+		if encoded == key || encoded == "" {
+			continue
+		}
+		modelBytes, err := base64.RawURLEncoding.DecodeString(encoded)
+		if err != nil || len(modelBytes) == 0 {
+			continue
+		}
+		accountID, err := c.rdb.Get(ctx, key).Int64()
+		if err != nil || accountID <= 0 {
+			continue
+		}
+		bindings = append(bindings, service.GroupModelSchedulingBinding{Model: string(modelBytes), AccountID: accountID})
+	}
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(bindings, func(i, j int) bool {
+		if bindings[i].AccountID != bindings[j].AccountID {
+			return bindings[i].AccountID < bindings[j].AccountID
+		}
+		return bindings[i].Model < bindings[j].Model
+	})
+	return bindings, nil
 }
 
 func (c *gatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {

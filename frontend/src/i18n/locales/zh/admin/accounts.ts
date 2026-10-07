@@ -92,6 +92,10 @@ export default {
       schedulable: '参与调度',
       schedulableHint: '开启后账号参与API请求调度',
       schedulableEnabled: '调度已开启',
+      activeScheduler: '当前调度',
+      schedulingPreferred: '优先调度',
+      schedulingPreferredHint: '仅用于最快账号故障切换：模型支持且账号可用时，优先于更快或低倍率的账号；多个账号开启时，优先级数字越小越优先。开启后可接管当前绑定。',
+      activeSchedulerHint: '当前分组中，正在按模型持续使用此账号。',
       schedulableDisabled: '调度已关闭',
       failedToToggleSchedulable: '切换调度状态失败',
       priorityQuick: {

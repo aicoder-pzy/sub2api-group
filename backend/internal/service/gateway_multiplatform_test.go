@@ -3586,3 +3586,70 @@ func TestGatewayService_SelectAccountForModelWithPlatform_RoutedOpenAIGroup(t *t
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID, "routed account must win over the higher-priority unrouted one")
 }
+
+func TestFastestFailoverGatewayPreferencePreservesAvailability(t *testing.T) {
+	for _, scenario := range []struct {
+		name   string
+		mixed  bool
+		routed bool
+	}{
+		{name: "platform"},
+		{name: "platform_routed", routed: true},
+		{name: "mixed", mixed: true},
+		{name: "mixed_routed", mixed: true, routed: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			ctx := context.Background()
+			groupID := int64(104)
+			model := "claude-sonnet-4-5"
+			expensive, cheap := 2.0, 0.5
+			group := &Group{
+				ID: groupID, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true,
+				AccountSchedulingMode: AccountSchedulingModeFastestFailover,
+				ModelRoutingEnabled:   scenario.routed, ModelRouting: map[string][]int64{model: {1, 2, 3, 4}},
+			}
+			repo := &mockAccountRepoForPlatform{accounts: []Account{
+				{ID: 1, Priority: 10, RateMultiplier: &expensive},
+				{ID: 2, Priority: 20, RateMultiplier: &cheap},
+				{ID: 3, Priority: 1, Extra: map[string]any{"scheduling_preferred": true}},
+				{ID: 4, Priority: 1, Extra: map[string]any{"scheduling_preferred": true}},
+			}}
+			for index := range repo.accounts {
+				account := &repo.accounts[index]
+				account.Platform = PlatformAnthropic
+				account.Type = AccountTypeAPIKey
+				account.Status = StatusActive
+				account.Schedulable = true
+				account.GroupIDs = []int64{groupID}
+				account.Credentials = map[string]any{"model_mapping": map[string]any{model: model}}
+			}
+			repo.accounts[2].Credentials = map[string]any{"model_mapping": map[string]any{"other-model": "other-model"}}
+			repo.accounts[3].Schedulable = false
+			svc := &GatewayService{
+				accountRepo: repo, groupRepo: &mockGroupRepoForGateway{groups: map[int64]*Group{groupID: group}},
+				cache: &accountSchedulingCacheStub{bindings: make(map[string]int64)}, cfg: testConfig(),
+				usageLogRepo: accountSchedulingLatencyStub{latencies: map[string]map[int64]float64{model: {1: 1000, 2: 100}}},
+			}
+			selectAccount := svc.selectAccountForModelWithPlatform
+			if scenario.mixed {
+				selectAccount = svc.selectAccountWithMixedScheduling
+			}
+			for _, request := range []struct {
+				preferred bool
+				excluded  map[int64]struct{}
+				want      int64
+			}{
+				{want: 2},
+				{preferred: true, want: 1},
+				{preferred: true, excluded: map[int64]struct{}{1: {}}, want: 2},
+				{want: 2},
+			} {
+				repo.accounts[0].Extra = map[string]any{"scheduling_preferred": request.preferred}
+				account, err := selectAccount(ctx, &groupID, "", model, request.excluded, PlatformAnthropic)
+				require.NoError(t, err)
+				require.NotNil(t, account)
+				require.Equal(t, request.want, account.ID)
+			}
+		})
+	}
+}

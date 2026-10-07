@@ -686,6 +686,7 @@ type PricingConfig struct {
 }
 
 type ServerConfig struct {
+	DirectAccessHost         string    `mapstructure:"direct_access_host"`
 	Host                     string    `mapstructure:"host"`
 	Port                     int       `mapstructure:"port"`
 	Mode                     string    `mapstructure:"mode"`                  // debug/release
@@ -2038,6 +2039,7 @@ func setDefaults() {
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")
+	viper.SetDefault("server.direct_access_host", "")
 	viper.SetDefault("server.port", 8080)
 	viper.SetDefault("server.mode", "release")
 	viper.SetDefault("server.enable_server_timing", false)

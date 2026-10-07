@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -148,6 +149,7 @@ type usageLogRepository struct {
 	bestEffortBatchOnce sync.Once
 	bestEffortBatchCh   chan usageLogBestEffortRequest
 	bestEffortRecent    *gocache.Cache
+	schedulingQuality   *gocache.Cache
 }
 
 func NewUsageLogRepository(client *dbent.Client, sqlDB *sql.DB) service.UsageLogRepository {
@@ -161,7 +163,82 @@ func newUsageLogRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *usage
 		repo.db = db
 	}
 	repo.bestEffortRecent = gocache.New(usageLogBestEffortRecentTTL, time.Minute)
+	repo.schedulingQuality = gocache.New(30*time.Second, 5*time.Minute)
 	return repo
+}
+
+func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, groupID int64, model string, since time.Time) (map[int64]service.GroupModelAccountQuality, error) {
+	cacheKey := fmt.Sprintf("%d:%s:%d", groupID, model, since.Truncate(time.Minute).Unix())
+	if cached, ok := r.schedulingQuality.Get(cacheKey); ok {
+		return cached.(map[int64]service.GroupModelAccountQuality), nil
+	}
+	rows, err := r.sql.QueryContext(ctx, `
+		WITH failure_requests AS (
+			SELECT DISTINCT
+				COALESCE(NULLIF((event->>'account_id')::bigint, 0), errors.account_id) AS account_id,
+				COALESCE(NULLIF(errors.request_id, ''), 'error:' || errors.id::text) AS request_key
+			FROM ops_error_logs errors
+			LEFT JOIN LATERAL jsonb_array_elements(
+				CASE WHEN jsonb_typeof(errors.upstream_errors) = 'array'
+				     THEN errors.upstream_errors ELSE '[]'::jsonb END
+			) event ON true
+			WHERE errors.group_id = $1
+			  AND COALESCE(NULLIF(BTRIM(errors.requested_model), ''), errors.model) = $2
+			  AND errors.created_at >= $3
+			  AND errors.error_phase IN ('upstream', 'account_auth')
+			  AND COALESCE(errors.is_count_tokens, false) = false
+			  AND COALESCE(errors.error_owner, '') NOT IN ('client', 'user')
+		), successes AS (
+			SELECT usage.account_id,
+			       COUNT(*) FILTER (WHERE NOT EXISTS (
+			           SELECT 1 FROM failure_requests failure
+			           WHERE failure.account_id = usage.account_id
+			             AND failure.request_key = usage.request_id
+			       )) AS successes,
+			       percentile_cont(0.95) WITHIN GROUP (
+			           ORDER BY CASE WHEN usage.stream AND usage.first_token_ms > 0
+			                         THEN usage.first_token_ms ELSE usage.duration_ms END
+			       ) AS latency_ms
+			FROM usage_logs usage
+			WHERE usage.group_id = $1
+			  AND COALESCE(NULLIF(BTRIM(usage.requested_model), ''), usage.model) = $2
+			  AND usage.created_at >= $3
+			  AND usage.duration_ms > 0
+			  AND (usage.total_cost > 0 OR usage.actual_cost > 0
+			       OR usage.input_tokens > 0 OR usage.output_tokens > 0
+			       OR usage.cache_creation_tokens > 0 OR usage.cache_read_tokens > 0
+			       OR usage.image_count > 0 OR usage.image_output_tokens > 0)
+			GROUP BY usage.account_id
+		), failures AS (
+			SELECT account_id, COUNT(*) AS failures
+			FROM failure_requests
+			WHERE account_id > 0
+			GROUP BY account_id
+		)
+		SELECT COALESCE(successes.account_id, failures.account_id),
+		       COALESCE(successes.successes, 0), COALESCE(failures.failures, 0),
+		       COALESCE(successes.latency_ms, 0)
+		FROM successes FULL OUTER JOIN failures USING (account_id)
+		`, groupID, model, since)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	quality := make(map[int64]service.GroupModelAccountQuality)
+	for rows.Next() {
+		var accountID int64
+		var sample service.GroupModelAccountQuality
+		if err := rows.Scan(&accountID, &sample.Successes, &sample.Failures, &sample.LatencyMS); err != nil {
+			return nil, err
+		}
+		quality[accountID] = sample
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	r.schedulingQuality.SetDefault(cacheKey, quality)
+	return quality, nil
 }
 
 func buildWhere(conditions []string) string {

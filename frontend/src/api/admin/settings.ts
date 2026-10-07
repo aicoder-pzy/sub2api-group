@@ -1355,6 +1355,26 @@ export interface PanelRateLimitSettings {
   public_ip_rpm: number;
 }
 
+export interface DirectAccessEntry {
+  cidr: string;
+  note: string;
+}
+
+export interface DirectAccessSettings {
+  hostname: string;
+  entries: DirectAccessEntry[];
+}
+
+export async function getDirectAccessSettings(): Promise<DirectAccessSettings> {
+  const { data } = await apiClient.get<DirectAccessSettings>("/admin/settings/direct-access");
+  return data;
+}
+
+export async function updateDirectAccessSettings(entries: DirectAccessEntry[]): Promise<DirectAccessSettings> {
+  const { data } = await apiClient.put<DirectAccessSettings>("/admin/settings/direct-access", { entries });
+  return data;
+}
+
 export async function getPanelRateLimitSettings(): Promise<PanelRateLimitSettings> {
   const { data } = await apiClient.get<PanelRateLimitSettings>(
     "/admin/settings/panel-rate-limit",

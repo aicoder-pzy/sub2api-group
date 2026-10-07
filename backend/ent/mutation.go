@@ -22095,6 +22095,7 @@ type GroupMutation struct {
 	addpeak_rate_multiplier                 *float64
 	is_exclusive                            *bool
 	status                                  *string
+	account_scheduling_mode                 *string
 	duplicate_operation_id                  *string
 	platform                                *string
 	subscription_type                       *string
@@ -22795,6 +22796,42 @@ func (m *GroupMutation) OldStatus(ctx context.Context) (v string, err error) {
 // ResetStatus resets all changes to the "status" field.
 func (m *GroupMutation) ResetStatus() {
 	m.status = nil
+}
+
+// SetAccountSchedulingMode sets the "account_scheduling_mode" field.
+func (m *GroupMutation) SetAccountSchedulingMode(s string) {
+	m.account_scheduling_mode = &s
+}
+
+// AccountSchedulingMode returns the value of the "account_scheduling_mode" field in the mutation.
+func (m *GroupMutation) AccountSchedulingMode() (r string, exists bool) {
+	v := m.account_scheduling_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountSchedulingMode returns the old "account_scheduling_mode" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldAccountSchedulingMode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountSchedulingMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountSchedulingMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountSchedulingMode: %w", err)
+	}
+	return oldValue.AccountSchedulingMode, nil
+}
+
+// ResetAccountSchedulingMode resets all changes to the "account_scheduling_mode" field.
+func (m *GroupMutation) ResetAccountSchedulingMode() {
+	m.account_scheduling_mode = nil
 }
 
 // SetDuplicateOperationID sets the "duplicate_operation_id" field.
@@ -25921,7 +25958,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 66)
+	fields := make([]string, 0, 67)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -25957,6 +25994,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.status != nil {
 		fields = append(fields, group.FieldStatus)
+	}
+	if m.account_scheduling_mode != nil {
+		fields = append(fields, group.FieldAccountSchedulingMode)
 	}
 	if m.duplicate_operation_id != nil {
 		fields = append(fields, group.FieldDuplicateOperationID)
@@ -26152,6 +26192,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.IsExclusive()
 	case group.FieldStatus:
 		return m.Status()
+	case group.FieldAccountSchedulingMode:
+		return m.AccountSchedulingMode()
 	case group.FieldDuplicateOperationID:
 		return m.DuplicateOperationID()
 	case group.FieldPlatform:
@@ -26293,6 +26335,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldIsExclusive(ctx)
 	case group.FieldStatus:
 		return m.OldStatus(ctx)
+	case group.FieldAccountSchedulingMode:
+		return m.OldAccountSchedulingMode(ctx)
 	case group.FieldDuplicateOperationID:
 		return m.OldDuplicateOperationID(ctx)
 	case group.FieldPlatform:
@@ -26493,6 +26537,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetStatus(v)
+		return nil
+	case group.FieldAccountSchedulingMode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountSchedulingMode(v)
 		return nil
 	case group.FieldDuplicateOperationID:
 		v, ok := value.(string)
@@ -27418,6 +27469,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldStatus:
 		m.ResetStatus()
+		return nil
+	case group.FieldAccountSchedulingMode:
+		m.ResetAccountSchedulingMode()
 		return nil
 	case group.FieldDuplicateOperationID:
 		m.ResetDuplicateOperationID()

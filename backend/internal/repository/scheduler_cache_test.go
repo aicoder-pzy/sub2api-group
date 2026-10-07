@@ -1,12 +1,68 @@
 package repository
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSchedulerCachePreferredSurvivesSnapshotAndUpdates(t *testing.T) {
+	for _, platform := range []string{
+		service.PlatformOpenAI, service.PlatformGrok, service.PlatformAnthropic,
+		service.PlatformGemini, service.PlatformAntigravity, service.PlatformKimi,
+		service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo,
+	} {
+		t.Run(platform, func(t *testing.T) {
+			ctx := context.Background()
+			server := miniredis.RunT(t)
+			client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+			t.Cleanup(func() { _ = client.Close() })
+			cache := NewSchedulerCache(client)
+			rate := 0.065
+			account := service.Account{
+				ID: 121, Platform: platform, Type: service.AccountTypeAPIKey,
+				Status: service.StatusActive, Schedulable: true, Priority: 1, RateMultiplier: &rate,
+				GroupIDs:    []int64{23, 24},
+				Credentials: map[string]any{"model_mapping": map[string]any{"model-a": "upstream-a"}},
+				Extra:       map[string]any{"scheduling_preferred": true, "unrelated_payload": "drop-me"},
+			}
+			for _, groupID := range account.GroupIDs {
+				bucket := service.SchedulerBucket{GroupID: groupID, Platform: platform, Mode: service.SchedulerModeSingle}
+				token, err := cache.CaptureBucketWriteToken(ctx, bucket)
+				require.NoError(t, err)
+				require.NoError(t, cache.SetSnapshot(ctx, bucket, token, []service.Account{account}))
+			}
+			for _, preferred := range []any{true, false, nil, true} {
+				if preferred == nil {
+					delete(account.Extra, "scheduling_preferred")
+				} else {
+					account.Extra["scheduling_preferred"] = preferred
+				}
+				require.NoError(t, cache.SetAccount(ctx, &account))
+				full, err := cache.GetAccount(ctx, account.ID)
+				require.NoError(t, err)
+				require.Equal(t, preferred, full.Extra["scheduling_preferred"])
+				for _, groupID := range account.GroupIDs {
+					bucket := service.SchedulerBucket{GroupID: groupID, Platform: platform, Mode: service.SchedulerModeSingle}
+					candidates, hit, err := cache.GetSnapshot(ctx, bucket)
+					require.NoError(t, err)
+					require.True(t, hit)
+					require.Len(t, candidates, 1)
+					require.Equal(t, preferred, candidates[0].Extra["scheduling_preferred"])
+					require.Equal(t, account.RateMultiplier, candidates[0].RateMultiplier)
+					require.True(t, candidates[0].IsModelSupported("model-a"))
+					require.False(t, candidates[0].IsModelSupported("unsupported-model"))
+					require.NotContains(t, candidates[0].Extra, "unrelated_payload")
+				}
+			}
+		})
+	}
+}
 
 func TestFilterSchedulerCredentialsKeepsSubscriptionPlanType(t *testing.T) {
 	filtered := filterSchedulerCredentials(map[string]any{

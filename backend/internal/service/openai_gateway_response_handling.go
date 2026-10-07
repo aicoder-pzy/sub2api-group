@@ -302,6 +302,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 		}
 		if completedProgressEvent && !firstOutputProgressObserved {
+			markFastestFailoverOutput(ctx)
 			firstOutputScanGuard.Store(false)
 			firstOutputProgressObserved = true
 			stopFirstOutputTimer()

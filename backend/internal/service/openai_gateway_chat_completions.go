@@ -70,7 +70,11 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 	compatPromptCacheTenantIsolated bool,
-) (*OpenAIForwardResult, error) {
+) (resultOut *OpenAIForwardResult, errorOut error) {
+	ctx, timeoutAttempt := s.beginFastestFailoverAttempt(ctx, account)
+	defer func(requestBody []byte) {
+		errorOut = s.finishFastestFailoverAttempt(ctx, c, account, requestBody, timeoutAttempt, errorOut)
+	}(body)
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
@@ -896,11 +900,13 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 					)
 					continue
 				}
-				if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
+				if !clientOutputStarted && (!refusalDetector.ShouldReleaseClientOutput() ||
+					(fastestFailoverAttemptFromResponse(resp) != nil && !fastestFailoverChatChunkStartsOutput(&chunk))) {
 					pendingSSE = append(pendingSSE, sse)
 					continue
 				}
 				if !clientOutputStarted {
+					markFastestFailoverResponseOutput(resp)
 					writeStreamHeaders()
 					for _, pending := range pendingSSE {
 						if _, err := fmt.Fprint(c.Writer, pending); err != nil {
@@ -1179,7 +1185,11 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			}
 			// Send SSE comment as keepalive
 			writeStreamHeaders()
-			if _, err := fmt.Fprint(c.Writer, ":\n\n"); err != nil {
+			written, err := fmt.Fprint(c.Writer, ":\n\n")
+			if fastestFailoverAttemptFromResponse(resp) != nil {
+				recordOpenAIStreamKeepaliveBytes(c, written)
+			}
+			if err != nil {
 				logger.L().Info("openai chat_completions stream: client disconnected during keepalive",
 					zap.String("request_id", requestID),
 				)

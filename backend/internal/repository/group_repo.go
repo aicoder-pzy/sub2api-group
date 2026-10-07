@@ -94,10 +94,15 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
 	}
+	accountSchedulingMode := groupIn.AccountSchedulingMode
+	if accountSchedulingMode == "" {
+		accountSchedulingMode = service.AccountSchedulingModePriority
+	}
 	builder := client.Group.Create().
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
+		SetAccountSchedulingMode(accountSchedulingMode).
 		SetRateMultiplier(groupIn.RateMultiplier).
 		SetSortOrder(groupIn.SortOrder).
 		SetIsExclusive(groupIn.IsExclusive).
@@ -282,10 +287,15 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
 	}
+	accountSchedulingMode := groupIn.AccountSchedulingMode
+	if accountSchedulingMode == "" {
+		accountSchedulingMode = service.AccountSchedulingModePriority
+	}
 	builder := r.client.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
+		SetAccountSchedulingMode(accountSchedulingMode).
 		SetRateMultiplier(groupIn.RateMultiplier).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).

@@ -68,6 +68,9 @@ func (Group) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
+		field.String(`account_scheduling_mode`).
+			MaxLen(32).
+			Default(`priority`),
 		field.String("duplicate_operation_id").
 			MaxLen(64).
 			Optional().

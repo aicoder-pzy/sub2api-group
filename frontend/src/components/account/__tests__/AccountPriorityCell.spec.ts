@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AccountPriorityCell from '../AccountPriorityCell.vue'
 import type { Account } from '@/types'
-import { update } from '@/api/admin/accounts'
+import { bulkUpdate, update } from '@/api/admin/accounts'
 
-vi.mock('@/api/admin/accounts', () => ({ update: vi.fn() }))
+vi.mock('@/api/admin/accounts', () => ({ update: vi.fn(), bulkUpdate: vi.fn() }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 const account = (overrides: Partial<Account> = {}) => ({
@@ -17,12 +17,39 @@ const mountCell = (value = account()) => mount(AccountPriorityCell, { props: { a
 beforeEach(() => {
   vi.useFakeTimers()
   vi.mocked(update).mockReset().mockImplementation(async (id, req) => account({ id, priority: req.priority }))
+  vi.mocked(bulkUpdate).mockReset().mockResolvedValue({ success: 1, failed: 0, results: [{ account_id: 7, success: true }] })
 })
 afterEach(() => {
   vi.useRealTimers()
 })
 
 describe('AccountPriorityCell', () => {
+  it('toggles preference with a key-only update and preserves unrelated extra fields', async () => {
+    const original = account({ extra: { quota_used: 42, scheduling_preferred: false } })
+    const wrapper = mountCell(original)
+    await wrapper.get('[data-testid="account-scheduling-preferred"]').trigger('click')
+    await flushPromises()
+    expect(bulkUpdate).toHaveBeenCalledWith([7], { extra: { scheduling_preferred: true } })
+    expect(update).not.toHaveBeenCalled()
+    const updated = wrapper.emitted('updated')?.[0]?.[0] as Account
+    expect(updated.extra).toEqual({ quota_used: 42, scheduling_preferred: true })
+    await wrapper.setProps({ account: updated })
+    expect(wrapper.get('[role="switch"]').attributes('aria-checked')).toBe('true')
+    await wrapper.get('[role="switch"]').trigger('click')
+    await flushPromises()
+    expect(bulkUpdate).toHaveBeenLastCalledWith([7], { extra: { scheduling_preferred: false } })
+  })
+
+  it('does not display a preference change when persistence fails', async () => {
+    vi.mocked(bulkUpdate).mockResolvedValueOnce({ success: 0, failed: 1, results: [{ account_id: 7, success: false, error: 'failed' }] })
+    const wrapper = mountCell()
+    await wrapper.get('[role="switch"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    expect(wrapper.emitted('error')).toHaveLength(1)
+    expect(wrapper.get('[role="switch"]').attributes('aria-checked')).toBe('false')
+  })
+
   it('batches rapid +/- clicks into a single priority-only update', async () => {
     const wrapper = mountCell()
     await wrapper.get('[data-testid="account-priority-increment"]').trigger('click')

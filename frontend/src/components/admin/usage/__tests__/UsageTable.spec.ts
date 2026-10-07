@@ -92,6 +92,7 @@ const DataTableStub = {
         <slot name="cell-reasoning_effort" :row="row" :value="row.reasoning_effort" />
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
+        <slot name="cell-cache_hit_rate" :row="row" />
         <slot name="cell-cost" :row="row" />
         <slot name="cell-request_id" :row="row" />
         <slot name="cell-upstream_request_id" :row="row" />
@@ -129,6 +130,25 @@ const baseImageRow = {
 }
 
 describe('admin UsageTable tooltip', () => {
+  it('shows cache hit rate using all input tokens and excludes output tokens', () => {
+    const rows = [
+      { input_tokens: 100, cache_creation_tokens: 100, cache_read_tokens: 800, output_tokens: 900, expected: '80.0%' },
+      { input_tokens: 100, cache_read_tokens: 0, expected: '0.0%' },
+      { input_tokens: 0, cache_read_tokens: 4000, expected: '100.0%' },
+      { input_tokens: 0, cache_read_tokens: 0, expected: '—' },
+    ]
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: rows.map((row, index) => ({ ...baseImageRow, ...row, request_id: `cache-${index}`, billing_mode: 'token' })),
+        loading: false,
+        columns: [],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.findAll('[data-testid="cache-hit-rate"]').map(cell => cell.text()))
+      .toEqual(rows.map(row => row.expected))
+  })
+
   beforeEach(() => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       x: 0,

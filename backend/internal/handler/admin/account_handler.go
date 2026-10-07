@@ -64,6 +64,7 @@ type AccountHandler struct {
 	sessionLimitCache       service.SessionLimitCache
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
+	groupModelScheduler     service.GroupModelSchedulingBindingsReader
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
@@ -82,6 +83,10 @@ func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUs
 
 func (h *AccountHandler) SetOpenCodeGoUsageService(usage *service.OpenCodeGoUsageService) {
 	h.opencodeGoUsage = usage
+}
+
+func (h *AccountHandler) SetGroupModelSchedulingReader(reader service.GroupModelSchedulingBindingsReader) {
+	h.groupModelScheduler = reader
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -204,9 +209,10 @@ type AccountWithConcurrency struct {
 	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
 	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
-	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
-	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
-	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	CurrentWindowCost     *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
+	ActiveSessions        *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
+	CurrentRPM            *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	ActiveSchedulerModels []string `json:"active_scheduler_models,omitempty"`
 }
 
 // AccountListItemWithConcurrency is the compact account-list envelope used
@@ -214,12 +220,13 @@ type AccountWithConcurrency struct {
 // so groups/account_groups never appear in the list payload.
 type AccountListItemWithConcurrency struct {
 	*dto.AccountListItem
-	CurrentConcurrency int                          `json:"current_concurrency"`
-	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
-	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
-	CurrentWindowCost  *float64                     `json:"current_window_cost,omitempty"`
-	ActiveSessions     *int                         `json:"active_sessions,omitempty"`
-	CurrentRPM         *int                         `json:"current_rpm,omitempty"`
+	CurrentConcurrency    int                          `json:"current_concurrency"`
+	SchedulerScore        *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
+	SchedulerScores       []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
+	CurrentWindowCost     *float64                     `json:"current_window_cost,omitempty"`
+	ActiveSessions        *int                         `json:"active_sessions,omitempty"`
+	CurrentRPM            *int                         `json:"current_rpm,omitempty"`
+	ActiveSchedulerModels []string                     `json:"active_scheduler_models,omitempty"`
 }
 
 type simpleModeGroupReference struct {
@@ -700,6 +707,15 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
+	activeSchedulerModels := make(map[int64][]string)
+	if groupID > 0 && h.groupModelScheduler != nil {
+		if bindings, bindingErr := h.groupModelScheduler.ListGroupModelSchedulingBindings(c.Request.Context(), groupID); bindingErr == nil {
+			for _, binding := range bindings {
+				activeSchedulerModels[binding.AccountID] = append(activeSchedulerModels[binding.AccountID], binding.Model)
+			}
+		}
+	}
+
 	// Get current concurrency counts for all accounts
 	accountIDs := make([]int64, len(accounts))
 	for i, acc := range accounts {
@@ -809,11 +825,12 @@ func (h *AccountHandler) List(c *gin.Context) {
 			}
 		}
 		item := AccountWithConcurrency{
-			Account:            accountResponse,
-			simpleMode:         h.isSimpleMode(),
-			CurrentConcurrency: concurrencyCounts[acc.ID],
-			SchedulerScore:     schedulerScores[acc.ID],
-			SchedulerScores:    schedulerGroupScores[acc.ID],
+			Account:               accountResponse,
+			simpleMode:            h.isSimpleMode(),
+			CurrentConcurrency:    concurrencyCounts[acc.ID],
+			SchedulerScore:        schedulerScores[acc.ID],
+			SchedulerScores:       schedulerGroupScores[acc.ID],
+			ActiveSchedulerModels: activeSchedulerModels[acc.ID],
 		}
 
 		// 添加窗口费用（仅当启用时）
@@ -847,13 +864,14 @@ func (h *AccountHandler) List(c *gin.Context) {
 		for i := range result {
 			item := result[i]
 			compact[i] = AccountListItemWithConcurrency{
-				AccountListItem:    dto.AccountListItemFromAccount(item.Account),
-				CurrentConcurrency: item.CurrentConcurrency,
-				SchedulerScore:     item.SchedulerScore,
-				SchedulerScores:    item.SchedulerScores,
-				CurrentWindowCost:  item.CurrentWindowCost,
-				ActiveSessions:     item.ActiveSessions,
-				CurrentRPM:         item.CurrentRPM,
+				AccountListItem:       dto.AccountListItemFromAccount(item.Account),
+				CurrentConcurrency:    item.CurrentConcurrency,
+				SchedulerScore:        item.SchedulerScore,
+				SchedulerScores:       item.SchedulerScores,
+				CurrentWindowCost:     item.CurrentWindowCost,
+				ActiveSessions:        item.ActiveSessions,
+				CurrentRPM:            item.CurrentRPM,
+				ActiveSchedulerModels: item.ActiveSchedulerModels,
 			}
 		}
 		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true)

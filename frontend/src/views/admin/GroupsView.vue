@@ -521,6 +521,11 @@
           />
           <p class="input-hint">{{ t("admin.groups.platformHint") }}</p>
         </div>
+        <div>
+          <label class="input-label">{{ t("admin.groups.form.accountSchedulingMode") }}</label>
+          <Select v-model="createForm.account_scheduling_mode" :options="accountSchedulingModeOptions" />
+          <p class="input-hint">{{ t("admin.groups.form.accountSchedulingModeHint") }}</p>
+        </div>
         <!-- 从分组复制账号 -->
         <div v-if="!authStore.isSimpleMode && copyAccountsGroupOptions.length > 0">
           <div class="mb-1.5 flex items-center gap-1">
@@ -2157,6 +2162,11 @@
             data-tour="group-form-platform"
           />
           <p class="input-hint">{{ t("admin.groups.platformNotEditable") }}</p>
+        </div>
+        <div>
+          <label class="input-label">{{ t("admin.groups.form.accountSchedulingMode") }}</label>
+          <Select v-model="editForm.account_scheduling_mode" :options="accountSchedulingModeOptions" />
+          <p class="input-hint">{{ t("admin.groups.form.accountSchedulingModeHint") }}</p>
         </div>
         <template v-if="!authStore.isSimpleMode">
         <!-- 从分组复制账号（编辑时） -->
@@ -4617,6 +4627,11 @@ const platformOptions = computed(() =>
   ),
 );
 
+const accountSchedulingModeOptions = computed(() => [
+  { value: "priority", label: t("admin.groups.form.accountSchedulingPriority") },
+  { value: "fastest_failover", label: t("admin.groups.form.accountSchedulingFastestFailover") },
+]);
+
 const platformFilterOptions = computed(() => [
   { value: "", label: t("admin.groups.allPlatforms") },
   ...GROUP_PLATFORM_OPTIONS,
@@ -4941,6 +4956,7 @@ const createForm = reactive({
   name: "",
   description: "",
   platform: "anthropic" as GroupPlatform,
+  account_scheduling_mode: "priority" as "priority" | "fastest_failover",
   rate_multiplier: 1.0,
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
@@ -5305,6 +5321,7 @@ const editForm = reactive({
   name: "",
   description: "",
   platform: "anthropic" as GroupPlatform,
+  account_scheduling_mode: "priority" as "priority" | "fastest_failover",
   rate_multiplier: 1.0,
   is_exclusive: false,
   status: "active" as "active" | "inactive",
@@ -5768,6 +5785,7 @@ const closeCreateModal = () => {
   createForm.name = "";
   createForm.description = "";
   createForm.platform = "anthropic";
+  createForm.account_scheduling_mode = "priority";
   createForm.rate_multiplier = 1.0;
   createForm.is_exclusive = false;
   createForm.subscription_type = "standard";
@@ -6022,7 +6040,8 @@ const handleCreateGroup = async () => {
       ? {
           name: createForm.name,
           description: createForm.description,
-          platform: createForm.platform,
+      platform: createForm.platform,
+      account_scheduling_mode: createForm.account_scheduling_mode,
         }
       : requestData;
     await adminAPI.groups.create(payload);
@@ -6049,6 +6068,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.name = group.name;
   editForm.description = group.description || "";
   editForm.platform = group.platform;
+  editForm.account_scheduling_mode = group.account_scheduling_mode ?? "priority";
   editForm.rate_multiplier = group.rate_multiplier;
   editForm.is_exclusive = group.is_exclusive;
   editForm.status = group.status;

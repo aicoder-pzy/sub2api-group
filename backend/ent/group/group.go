@@ -40,6 +40,8 @@ const (
 	FieldIsExclusive = "is_exclusive"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
+	// FieldAccountSchedulingMode holds the string denoting the account_scheduling_mode field in the database.
+	FieldAccountSchedulingMode = "account_scheduling_mode"
 	// FieldDuplicateOperationID holds the string denoting the duplicate_operation_id field in the database.
 	FieldDuplicateOperationID = "duplicate_operation_id"
 	// FieldPlatform holds the string denoting the platform field in the database.
@@ -235,6 +237,7 @@ var Columns = []string{
 	FieldPeakRateMultiplier,
 	FieldIsExclusive,
 	FieldStatus,
+	FieldAccountSchedulingMode,
 	FieldDuplicateOperationID,
 	FieldPlatform,
 	FieldSubscriptionType,
@@ -346,6 +349,10 @@ var (
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	StatusValidator func(string) error
+	// DefaultAccountSchedulingMode holds the default value on creation for the "account_scheduling_mode" field.
+	DefaultAccountSchedulingMode string
+	// AccountSchedulingModeValidator is a validator for the "account_scheduling_mode" field. It is called by the builders before save.
+	AccountSchedulingModeValidator func(string) error
 	// DuplicateOperationIDValidator is a validator for the "duplicate_operation_id" field. It is called by the builders before save.
 	DuplicateOperationIDValidator func(string) error
 	// DefaultPlatform holds the default value on creation for the "platform" field.
@@ -502,6 +509,11 @@ func ByIsExclusive(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// ByAccountSchedulingMode orders the results by the account_scheduling_mode field.
+func ByAccountSchedulingMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountSchedulingMode, opts...).ToFunc()
 }
 
 // ByDuplicateOperationID orders the results by the duplicate_operation_id field.

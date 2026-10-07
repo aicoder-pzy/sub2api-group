@@ -190,6 +190,20 @@ func (_c *GroupCreate) SetNillableStatus(v *string) *GroupCreate {
 	return _c
 }
 
+// SetAccountSchedulingMode sets the "account_scheduling_mode" field.
+func (_c *GroupCreate) SetAccountSchedulingMode(v string) *GroupCreate {
+	_c.mutation.SetAccountSchedulingMode(v)
+	return _c
+}
+
+// SetNillableAccountSchedulingMode sets the "account_scheduling_mode" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAccountSchedulingMode(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetAccountSchedulingMode(*v)
+	}
+	return _c
+}
+
 // SetDuplicateOperationID sets the "duplicate_operation_id" field.
 func (_c *GroupCreate) SetDuplicateOperationID(v string) *GroupCreate {
 	_c.mutation.SetDuplicateOperationID(v)
@@ -1075,6 +1089,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.AccountSchedulingMode(); !ok {
+		v := group.DefaultAccountSchedulingMode
+		_c.mutation.SetAccountSchedulingMode(v)
+	}
 	if _, ok := _c.mutation.Platform(); !ok {
 		v := group.DefaultPlatform
 		_c.mutation.SetPlatform(v)
@@ -1264,6 +1282,14 @@ func (_c *GroupCreate) check() error {
 	if v, ok := _c.mutation.Status(); ok {
 		if err := group.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Group.status": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.AccountSchedulingMode(); !ok {
+		return &ValidationError{Name: "account_scheduling_mode", err: errors.New(`ent: missing required field "Group.account_scheduling_mode"`)}
+	}
+	if v, ok := _c.mutation.AccountSchedulingMode(); ok {
+		if err := group.AccountSchedulingModeValidator(v); err != nil {
+			return &ValidationError{Name: "account_scheduling_mode", err: fmt.Errorf(`ent: validator failed for field "Group.account_scheduling_mode": %w`, err)}
 		}
 	}
 	if v, ok := _c.mutation.DuplicateOperationID(); ok {
@@ -1492,6 +1518,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(group.FieldStatus, field.TypeString, value)
 		_node.Status = value
+	}
+	if value, ok := _c.mutation.AccountSchedulingMode(); ok {
+		_spec.SetField(group.FieldAccountSchedulingMode, field.TypeString, value)
+		_node.AccountSchedulingMode = value
 	}
 	if value, ok := _c.mutation.DuplicateOperationID(); ok {
 		_spec.SetField(group.FieldDuplicateOperationID, field.TypeString, value)
@@ -2018,6 +2048,18 @@ func (u *GroupUpsert) SetStatus(v string) *GroupUpsert {
 // UpdateStatus sets the "status" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateStatus() *GroupUpsert {
 	u.SetExcluded(group.FieldStatus)
+	return u
+}
+
+// SetAccountSchedulingMode sets the "account_scheduling_mode" field.
+func (u *GroupUpsert) SetAccountSchedulingMode(v string) *GroupUpsert {
+	u.Set(group.FieldAccountSchedulingMode, v)
+	return u
+}
+
+// UpdateAccountSchedulingMode sets the "account_scheduling_mode" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAccountSchedulingMode() *GroupUpsert {
+	u.SetExcluded(group.FieldAccountSchedulingMode)
 	return u
 }
 
@@ -3148,6 +3190,20 @@ func (u *GroupUpsertOne) SetStatus(v string) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateStatus() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetAccountSchedulingMode sets the "account_scheduling_mode" field.
+func (u *GroupUpsertOne) SetAccountSchedulingMode(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountSchedulingMode(v)
+	})
+}
+
+// UpdateAccountSchedulingMode sets the "account_scheduling_mode" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAccountSchedulingMode() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountSchedulingMode()
 	})
 }
 
@@ -4594,6 +4650,20 @@ func (u *GroupUpsertBulk) SetStatus(v string) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateStatus() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetAccountSchedulingMode sets the "account_scheduling_mode" field.
+func (u *GroupUpsertBulk) SetAccountSchedulingMode(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountSchedulingMode(v)
+	})
+}
+
+// UpdateAccountSchedulingMode sets the "account_scheduling_mode" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAccountSchedulingMode() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountSchedulingMode()
 	})
 }
 

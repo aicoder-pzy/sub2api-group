@@ -209,6 +209,20 @@ func (_u *GroupUpdate) SetNillableStatus(v *string) *GroupUpdate {
 	return _u
 }
 
+// SetAccountSchedulingMode sets the "account_scheduling_mode" field.
+func (_u *GroupUpdate) SetAccountSchedulingMode(v string) *GroupUpdate {
+	_u.mutation.SetAccountSchedulingMode(v)
+	return _u
+}
+
+// SetNillableAccountSchedulingMode sets the "account_scheduling_mode" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableAccountSchedulingMode(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetAccountSchedulingMode(*v)
+	}
+	return _u
+}
+
 // SetPlatform sets the "platform" field.
 func (_u *GroupUpdate) SetPlatform(v string) *GroupUpdate {
 	_u.mutation.SetPlatform(v)
@@ -1503,6 +1517,11 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Group.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.AccountSchedulingMode(); ok {
+		if err := group.AccountSchedulingModeValidator(v); err != nil {
+			return &ValidationError{Name: "account_scheduling_mode", err: fmt.Errorf(`ent: validator failed for field "Group.account_scheduling_mode": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Platform(); ok {
 		if err := group.PlatformValidator(v); err != nil {
 			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "Group.platform": %w`, err)}
@@ -1607,6 +1626,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(group.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.AccountSchedulingMode(); ok {
+		_spec.SetField(group.FieldAccountSchedulingMode, field.TypeString, value)
 	}
 	if _u.mutation.DuplicateOperationIDCleared() {
 		_spec.ClearField(group.FieldDuplicateOperationID, field.TypeString)
@@ -2399,6 +2421,20 @@ func (_u *GroupUpdateOne) SetStatus(v string) *GroupUpdateOne {
 func (_u *GroupUpdateOne) SetNillableStatus(v *string) *GroupUpdateOne {
 	if v != nil {
 		_u.SetStatus(*v)
+	}
+	return _u
+}
+
+// SetAccountSchedulingMode sets the "account_scheduling_mode" field.
+func (_u *GroupUpdateOne) SetAccountSchedulingMode(v string) *GroupUpdateOne {
+	_u.mutation.SetAccountSchedulingMode(v)
+	return _u
+}
+
+// SetNillableAccountSchedulingMode sets the "account_scheduling_mode" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableAccountSchedulingMode(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetAccountSchedulingMode(*v)
 	}
 	return _u
 }
@@ -3710,6 +3746,11 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Group.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.AccountSchedulingMode(); ok {
+		if err := group.AccountSchedulingModeValidator(v); err != nil {
+			return &ValidationError{Name: "account_scheduling_mode", err: fmt.Errorf(`ent: validator failed for field "Group.account_scheduling_mode": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Platform(); ok {
 		if err := group.PlatformValidator(v); err != nil {
 			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "Group.platform": %w`, err)}
@@ -3831,6 +3872,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(group.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.AccountSchedulingMode(); ok {
+		_spec.SetField(group.FieldAccountSchedulingMode, field.TypeString, value)
 	}
 	if _u.mutation.DuplicateOperationIDCleared() {
 		_spec.ClearField(group.FieldDuplicateOperationID, field.TypeString)

@@ -205,6 +205,14 @@
           </div>
         </template>
 
+        <template #cell-cache_hit_rate="{ row }">
+          <span
+            data-testid="cache-hit-rate"
+            class="whitespace-nowrap text-sm tabular-nums text-sky-600 dark:text-sky-400"
+            :title="t('admin.usage.cacheHitRateHint')"
+          >{{ formatCacheHitRate(row) }}</span>
+        </template>
+
         <template #cell-cost="{ row }">
           <div class="text-sm">
             <div class="flex items-center gap-1.5">
@@ -697,6 +705,12 @@ const tooltipData = ref<AdminUsageLog | null>(null)
 const tokenTooltipVisible = ref(false)
 const tokenTooltipPosition = ref({ x: 0, y: 0 })
 const tokenTooltipData = ref<AdminUsageLog | null>(null)
+
+const formatCacheHitRate = (row: AdminUsageLog): string => {
+  const cacheRead = row.cache_read_tokens || 0
+  const totalInput = (row.input_tokens || 0) + (row.cache_creation_tokens || 0) + cacheRead
+  return totalInput > 0 ? `${((cacheRead / totalInput) * 100).toFixed(1)}%` : '—'
+}
 
 const getRequestTypeLabel = (row: AdminUsageLog): string => {
   const requestType = resolveUsageRequestType(row)

@@ -16,11 +16,12 @@ type GroupCodexModelsManifestConfig = domain.GroupCodexModelsManifestConfig
 type ReasoningEffortMapping = domain.ReasoningEffortMapping
 
 type Group struct {
-	ID             int64
-	Name           string
-	Description    string
-	Platform       string
-	RateMultiplier float64
+	ID                    int64
+	Name                  string
+	Description           string
+	Platform              string
+	AccountSchedulingMode string
+	RateMultiplier        float64
 	// 高峰时段倍率：peak_rate_enabled 为 true 且当前时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier。详见 PeakMultiplierAt。
 	PeakRateEnabled    bool
@@ -139,6 +140,21 @@ type Group struct {
 	AccountCount            int64
 	ActiveAccountCount      int64
 	RateLimitedAccountCount int64
+}
+
+const (
+	AccountSchedulingModePriority        = "priority"
+	AccountSchedulingModeFastestFailover = "fastest_failover"
+)
+
+func normalizeAccountSchedulingMode(mode string) (string, error) {
+	if mode == "" {
+		return AccountSchedulingModePriority, nil
+	}
+	if mode != AccountSchedulingModePriority && mode != AccountSchedulingModeFastestFailover {
+		return "", fmt.Errorf("invalid account_scheduling_mode: %s", mode)
+	}
+	return mode, nil
 }
 
 // IsGroupBindableInSimpleMode is the shared policy for groups that may be

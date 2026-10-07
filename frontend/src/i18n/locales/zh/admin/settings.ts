@@ -1,5 +1,23 @@
 export default {
     settings: {
+      directAccess: {
+        title: '直连访问白名单',
+        description: '管理直连入口允许访问的公网 IP。仅限制直连域名，不影响原有域名；访问 API 仍需有效的 API Key。',
+        endpoint: '直连 API 地址：',
+        address: '公网 IP / CIDR 网段',
+        note: '备注（可选）',
+        add: '添加 IP / 网段',
+        removeEntry: '删除第 {index} 条白名单',
+        save: '保存直连白名单',
+        saved: '白名单已保存，已对新请求生效。',
+        empty: '白名单为空时，所有 IP 均无法访问直连入口。可通过原有域名重新配置。',
+        hint: '支持 IPv4、IPv6 和 CIDR 网段，最多 256 条。填写客户端实际公网出口 IP；备注最多 100 字。此处使用独立保存按钮。',
+        unavailable: '此服务器尚未启用直连入口。',
+        addressRequired: '请填写每条记录的 IP 或网段，或删除空白记录。',
+        retry: '重新加载',
+        loadFailed: '加载直连白名单失败',
+        saveFailed: '保存直连白名单失败',
+      },
       title: '系统设置',
       description: '管理注册、邮箱验证、默认值和 SMTP 设置',
       tabs: {

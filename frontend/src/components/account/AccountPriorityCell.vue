@@ -1,74 +1,91 @@
 <template>
-  <div
-    class="group/priority inline-flex h-7 items-center rounded-lg border transition-colors duration-150"
-    :class="[
-      editing || dirty
-        ? 'border-primary-300 bg-primary-50/70 dark:border-primary-700 dark:bg-primary-900/20'
-        : 'border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-dark-600 dark:hover:bg-dark-700/60'
-    ]"
-    data-testid="account-priority-cell"
-  >
-    <button
-      type="button"
-      class="flex h-full w-6 items-center justify-center rounded-l-lg text-gray-500 opacity-0 transition hover:bg-gray-200/70 hover:text-primary-600 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent disabled:hover:text-gray-300 dark:disabled:text-dark-600 dark:disabled:hover:text-dark-600 group-hover/priority:opacity-100 group-focus-within/priority:opacity-100 dark:text-gray-400 dark:hover:bg-dark-600 dark:hover:text-primary-400 [@media(hover:none)]:opacity-100"
-      :class="{ '!opacity-100': editing || dirty }"
-      :disabled="saving || draft <= MIN_PRIORITY"
-      :title="t('admin.accounts.priorityQuick.raise')"
-      :aria-label="t('admin.accounts.priorityQuick.raise')"
-      data-testid="account-priority-decrement"
-      @click="step(-1)"
+  <div class="flex flex-col items-start gap-1">
+    <div
+      class="group/priority inline-flex h-7 items-center rounded-lg border transition-colors duration-150"
+      :class="[
+        editing || dirty
+          ? 'border-primary-300 bg-primary-50/70 dark:border-primary-700 dark:bg-primary-900/20'
+          : 'border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-dark-600 dark:hover:bg-dark-700/60'
+      ]"
+      data-testid="account-priority-cell"
     >
-      <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
-        <path d="M2.5 6h7" />
-      </svg>
-    </button>
+      <button
+        type="button"
+        class="flex h-full w-6 items-center justify-center rounded-l-lg text-gray-500 opacity-0 transition hover:bg-gray-200/70 hover:text-primary-600 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent disabled:hover:text-gray-300 dark:disabled:text-dark-600 dark:disabled:hover:text-dark-600 group-hover/priority:opacity-100 group-focus-within/priority:opacity-100 dark:text-gray-400 dark:hover:bg-dark-600 dark:hover:text-primary-400 [@media(hover:none)]:opacity-100"
+        :class="{ '!opacity-100': editing || dirty }"
+        :disabled="saving || draft <= MIN_PRIORITY"
+        :title="t('admin.accounts.priorityQuick.raise')"
+        :aria-label="t('admin.accounts.priorityQuick.raise')"
+        data-testid="account-priority-decrement"
+        @click="step(-1)"
+      >
+        <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+          <path d="M2.5 6h7" />
+        </svg>
+      </button>
 
-    <input
-      v-if="editing"
-      ref="inputRef"
-      v-model="inputValue"
-      type="text"
-      inputmode="numeric"
-      class="h-full w-10 border-0 bg-transparent p-0 text-center font-mono text-sm tabular-nums text-gray-900 focus:outline-none focus:ring-0 dark:text-white"
-      :aria-label="t('admin.accounts.columns.priority')"
-      data-testid="account-priority-input"
-      @keydown.enter.prevent="commitInput"
-      @keydown.esc.prevent="cancelInput"
-      @keydown.up.prevent="nudgeInput(1)"
-      @keydown.down.prevent="nudgeInput(-1)"
-      @blur="commitInput"
-    />
-    <button
-      v-else
-      type="button"
-      class="relative flex h-full min-w-[2rem] items-center justify-center px-1 font-mono text-sm tabular-nums transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
-      :class="dirty ? 'font-semibold text-primary-600 dark:text-primary-400' : 'text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'"
-      :disabled="saving"
-      :title="t('admin.accounts.priorityQuick.editHint')"
-      data-testid="account-priority-value"
-      @click="startEditing"
-    >
-      {{ draft }}
-      <span
-        v-if="saving"
-        class="absolute -right-0.5 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-primary-500"
-        data-testid="account-priority-saving"
+      <input
+        v-if="editing"
+        ref="inputRef"
+        v-model="inputValue"
+        type="text"
+        inputmode="numeric"
+        class="h-full w-10 border-0 bg-transparent p-0 text-center font-mono text-sm tabular-nums text-gray-900 focus:outline-none focus:ring-0 dark:text-white"
+        :aria-label="t('admin.accounts.columns.priority')"
+        data-testid="account-priority-input"
+        @keydown.enter.prevent="commitInput"
+        @keydown.esc.prevent="cancelInput"
+        @keydown.up.prevent="nudgeInput(1)"
+        @keydown.down.prevent="nudgeInput(-1)"
+        @blur="commitInput"
       />
-    </button>
+      <button
+        v-else
+        type="button"
+        class="relative flex h-full min-w-[2rem] items-center justify-center px-1 font-mono text-sm tabular-nums transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+        :class="dirty ? 'font-semibold text-primary-600 dark:text-primary-400' : 'text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'"
+        :disabled="saving"
+        :title="t('admin.accounts.priorityQuick.editHint')"
+        data-testid="account-priority-value"
+        @click="startEditing"
+      >
+        {{ draft }}
+        <span
+          v-if="saving"
+          class="absolute -right-0.5 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-primary-500"
+          data-testid="account-priority-saving"
+        />
+      </button>
 
+      <button
+        type="button"
+        class="flex h-full w-6 items-center justify-center rounded-r-lg text-gray-500 opacity-0 transition hover:bg-gray-200/70 hover:text-primary-600 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent disabled:hover:text-gray-300 dark:disabled:text-dark-600 dark:disabled:hover:text-dark-600 group-hover/priority:opacity-100 group-focus-within/priority:opacity-100 dark:text-gray-400 dark:hover:bg-dark-600 dark:hover:text-primary-400 [@media(hover:none)]:opacity-100"
+        :class="{ '!opacity-100': editing || dirty }"
+        :disabled="saving || draft >= MAX_PRIORITY"
+        :title="t('admin.accounts.priorityQuick.lower')"
+        :aria-label="t('admin.accounts.priorityQuick.lower')"
+        data-testid="account-priority-increment"
+        @click="step(1)"
+      >
+        <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+          <path d="M2.5 6h7M6 2.5v7" />
+        </svg>
+      </button>
+    </div>
     <button
       type="button"
-      class="flex h-full w-6 items-center justify-center rounded-r-lg text-gray-500 opacity-0 transition hover:bg-gray-200/70 hover:text-primary-600 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent disabled:hover:text-gray-300 dark:disabled:text-dark-600 dark:disabled:hover:text-dark-600 group-hover/priority:opacity-100 group-focus-within/priority:opacity-100 dark:text-gray-400 dark:hover:bg-dark-600 dark:hover:text-primary-400 [@media(hover:none)]:opacity-100"
-      :class="{ '!opacity-100': editing || dirty }"
-      :disabled="saving || draft >= MAX_PRIORITY"
-      :title="t('admin.accounts.priorityQuick.lower')"
-      :aria-label="t('admin.accounts.priorityQuick.lower')"
-      data-testid="account-priority-increment"
-      @click="step(1)"
+      role="switch"
+      :aria-checked="account.extra?.scheduling_preferred === true"
+      :aria-label="t('admin.accounts.schedulingPreferred')"
+      :title="t('admin.accounts.schedulingPreferredHint')"
+      :disabled="saving || dirty || editing"
+      class="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 disabled:opacity-50"
+      :class="account.extra?.scheduling_preferred === true ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-gray-500 dark:text-gray-400'"
+      data-testid="account-scheduling-preferred"
+      @click="togglePreferred"
     >
-      <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
-        <path d="M2.5 6h7M6 2.5v7" />
-      </svg>
+      <span class="h-2 w-2 rounded-full" :class="account.extra?.scheduling_preferred === true ? 'bg-amber-500' : 'bg-gray-300 dark:bg-dark-500'" />
+      {{ t('admin.accounts.schedulingPreferred') }}
     </button>
   </div>
 </template>
@@ -76,7 +93,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { update as updateAccount } from '@/api/admin/accounts'
+import { bulkUpdate, update as updateAccount } from '@/api/admin/accounts'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import type { Account } from '@/types'
 
@@ -101,6 +118,23 @@ const inputRef = ref<HTMLInputElement | null>(null)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 const dirty = computed(() => draft.value !== props.account.priority)
+
+const togglePreferred = async () => {
+  if (saving.value || dirty.value || editing.value) return
+  const preferred = props.account.extra?.scheduling_preferred !== true
+  saving.value = true
+  try {
+    const result = await bulkUpdate([props.account.id], { extra: { scheduling_preferred: preferred } })
+    if (result.success !== 1 || result.failed !== 0) {
+      throw new Error(result.results?.find(item => !item.success)?.error || t('admin.accounts.priorityQuick.failed'))
+    }
+    emit('updated', { ...props.account, extra: { ...props.account.extra, scheduling_preferred: preferred } })
+  } catch (error) {
+    emit('error', extractApiErrorMessage(error, t('admin.accounts.priorityQuick.failed')))
+  } finally {
+    saving.value = false
+  }
+}
 
 watch(
   () => props.account.priority,

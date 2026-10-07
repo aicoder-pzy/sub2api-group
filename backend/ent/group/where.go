@@ -115,6 +115,11 @@ func Status(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldStatus, v))
 }
 
+// AccountSchedulingMode applies equality check predicate on the "account_scheduling_mode" field. It's identical to AccountSchedulingModeEQ.
+func AccountSchedulingMode(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountSchedulingMode, v))
+}
+
 // DuplicateOperationID applies equality check predicate on the "duplicate_operation_id" field. It's identical to DuplicateOperationIDEQ.
 func DuplicateOperationID(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDuplicateOperationID, v))
@@ -908,6 +913,71 @@ func StatusEqualFold(v string) predicate.Group {
 // StatusContainsFold applies the ContainsFold predicate on the "status" field.
 func StatusContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldStatus, v))
+}
+
+// AccountSchedulingModeEQ applies the EQ predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountSchedulingMode, v))
+}
+
+// AccountSchedulingModeNEQ applies the NEQ predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldAccountSchedulingMode, v))
+}
+
+// AccountSchedulingModeIn applies the In predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldAccountSchedulingMode, vs...))
+}
+
+// AccountSchedulingModeNotIn applies the NotIn predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldAccountSchedulingMode, vs...))
+}
+
+// AccountSchedulingModeGT applies the GT predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldAccountSchedulingMode, v))
+}
+
+// AccountSchedulingModeGTE applies the GTE predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldAccountSchedulingMode, v))
+}
+
+// AccountSchedulingModeLT applies the LT predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldAccountSchedulingMode, v))
+}
+
+// AccountSchedulingModeLTE applies the LTE predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldAccountSchedulingMode, v))
+}
+
+// AccountSchedulingModeContains applies the Contains predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldAccountSchedulingMode, v))
+}
+
+// AccountSchedulingModeHasPrefix applies the HasPrefix predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldAccountSchedulingMode, v))
+}
+
+// AccountSchedulingModeHasSuffix applies the HasSuffix predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldAccountSchedulingMode, v))
+}
+
+// AccountSchedulingModeEqualFold applies the EqualFold predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldAccountSchedulingMode, v))
+}
+
+// AccountSchedulingModeContainsFold applies the ContainsFold predicate on the "account_scheduling_mode" field.
+func AccountSchedulingModeContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldAccountSchedulingMode, v))
 }
 
 // DuplicateOperationIDEQ applies the EQ predicate on the "duplicate_operation_id" field.

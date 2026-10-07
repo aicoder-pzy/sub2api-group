@@ -1,5 +1,23 @@
 export default {
     settings: {
+      directAccess: {
+        title: 'Direct access IP allowlist',
+        description: 'Manage public IPs allowed to use the direct hostname. The original hostname is unaffected; API requests still require a valid API key.',
+        endpoint: 'Direct API URL: ',
+        address: 'Public IP / CIDR range',
+        note: 'Note (optional)',
+        add: 'Add IP / range',
+        removeEntry: 'Remove allowlist entry {index}',
+        save: 'Save direct access allowlist',
+        saved: 'Allowlist saved and applied to new requests.',
+        empty: 'An empty allowlist denies all direct access. Use the original hostname to configure it again.',
+        hint: 'Supports IPv4, IPv6 and CIDR ranges, up to 256 entries. Use the actual public egress IP. Notes allow up to 100 characters. Use this section’s save button.',
+        unavailable: 'A direct endpoint has not been enabled on this server.',
+        addressRequired: 'Enter an IP or range for each entry, or remove empty entries.',
+        retry: 'Reload',
+        loadFailed: 'Failed to load the direct access allowlist',
+        saveFailed: 'Failed to save the direct access allowlist',
+      },
       title: 'System Settings',
       description: 'Manage registration, email verification, default values, and SMTP settings',
       tabs: {

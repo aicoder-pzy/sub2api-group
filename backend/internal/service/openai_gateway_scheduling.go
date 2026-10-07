@@ -914,8 +914,10 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusionsStickyHit(ctx 
 
 	// 1. 尝试粘性会话命中
 	// Try sticky session hit
-	if account := s.tryStickySessionHit(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability); account != nil {
-		return account, true, nil
+	if !fastestFailoverEnabled(ctx, groupID) {
+		if account := s.tryStickySessionHit(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability); account != nil {
+			return account, true, nil
+		}
 	}
 
 	// 2. 获取可调度的 OpenAI 账号
@@ -931,6 +933,9 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusionsStickyHit(ctx 
 
 	if selected == nil {
 		return nil, false, noAvailableOpenAISelectionError(requestedModel, compactBlocked, filterStats.summary(""))
+	}
+	if fastestFailoverEnabled(ctx, groupID) {
+		rememberGroupModelSchedulingAccount(ctx, s.cache, groupID, requestedModel, selected.ID)
 	}
 
 	hydrated, err := s.hydrateSelectedAccount(ctx, selected)
@@ -1076,6 +1081,9 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 	if len(eligible) == 0 {
 		return nil, compactBlocked, filterStats
 	}
+	if fastestFailoverEnabled(ctx, groupID) {
+		return fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, eligible)[0], compactBlocked, filterStats
+	}
 	rateOrder := openAILegacyUpstreamRateOrder{}
 	if preferLowUpstreamRate {
 		rateOrder = newOpenAILegacyUpstreamRateOrder(eligible, time.Now(), s.openAIOAuthSchedulingRateMultiplier(ctx))
@@ -1154,6 +1162,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			stickyAccountID = accountID
 		}
 	}
+	if fastestFailoverEnabled(ctx, groupID) {
+		stickyAccountID = groupModelSchedulingActiveAccount(ctx, s.cache, groupID, requestedModel)
+	}
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
 		account, stickyHit, err := s.selectAccountForModelWithExclusionsStickyHit(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability, preferLowUpstreamRate)
 		if err != nil {
@@ -1207,7 +1218,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	// rewriting the durable binding here would make a short burst migrate the
 	// whole conversation to a cache-cold account.
 	stickySpillover := false
-	if sessionHash != "" {
+	if sessionHash != "" && !fastestFailoverEnabled(ctx, groupID) {
 		accountID := stickyAccountID
 		if accountID > 0 && !isExcluded(accountID) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
@@ -1304,6 +1315,36 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	}
 
 	if len(candidates) == 0 {
+		return nil, noAvailableOpenAISelectionError(requestedModel, false, filterStats.summary(""))
+	}
+	if fastestFailoverEnabled(ctx, groupID) {
+		ordered := fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, candidates)
+		for _, account := range ordered {
+			account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
+			if account == nil {
+				continue
+			}
+			result, acquireErr := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+			if acquireErr != nil {
+				continue
+			}
+			if result != nil && result.Acquired {
+				selection, selectErr := s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
+				if selectErr != nil {
+					return nil, selectErr
+				}
+				rememberGroupModelSchedulingAccount(ctx, s.cache, groupID, requestedModel, account.ID)
+				if sessionHash != "" && !gatewayProfitControlGateActive(ctx) {
+					_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, account.ID, openaiStickySessionTTL)
+				}
+				return selection, nil
+			}
+			rememberGroupModelSchedulingAccount(ctx, s.cache, groupID, requestedModel, account.ID)
+			return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+				AccountID: account.ID, MaxConcurrency: account.Concurrency,
+				Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting,
+			})
+		}
 		return nil, noAvailableOpenAISelectionError(requestedModel, false, filterStats.summary(""))
 	}
 	rateOrder := openAILegacyUpstreamRateOrder{}

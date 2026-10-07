@@ -8,6 +8,8 @@ import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
 
+vi.mock("@/components/admin/DirectAccessSettings.vue", () => ({ default: { template: "<div />" } }));
+
 const {
   getSettings,
   updateSettings,
