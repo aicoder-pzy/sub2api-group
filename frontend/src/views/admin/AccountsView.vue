@@ -190,7 +190,13 @@
           @select-page="selectPage"
           @select-all-results="handleSelectAllResults"
           @toggle-schedulable="handleBulkToggleSchedulable"
-        />
+        >
+          <template #before-edit-filtered>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="!schedulingGroup" :title="t('admin.accounts.refreshScheduling.selectGroup')" @click="showRefreshScheduling = true">
+              {{ t('admin.accounts.refreshScheduling.title') }}
+            </button>
+          </template>
+        </AccountBulkActionsBar>
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <DataTable
           ref="dataTableRef"
@@ -474,6 +480,7 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <RefreshSchedulingDialog v-if="showRefreshScheduling && schedulingGroup" :group="schedulingGroup" @close="showRefreshScheduling = false" @updated="handleManualRefresh" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
@@ -527,6 +534,7 @@ import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrs
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
+import RefreshSchedulingDialog from '@/components/admin/account/RefreshSchedulingDialog.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
@@ -562,6 +570,11 @@ const authStore = useAuthStore()
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
 const groupsByID = computed(() => new Map(groups.value.map(group => [group.id, group])))
+const showRefreshScheduling = ref(false)
+const schedulingGroup = computed(() => {
+  const group = groupsByID.value.get(Number(params.group))
+  return group?.account_scheduling_mode === 'fastest_failover' && group.status === 'active' ? group : undefined
+})
 const accountGroupsForRow = (account: Pick<AccountListItem, 'group_ids'>): AdminGroup[] => {
   const groupIDs = account.group_ids ?? []
   if (groupIDs.length === 0) return []

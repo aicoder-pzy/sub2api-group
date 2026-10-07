@@ -2685,6 +2685,9 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				if _, probing := c.Get(schedulingProbeObserverKey); probing {
+					return s.sendErrorAndEnd(c, "Stream ended before model completion")
+				}
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 				return nil
 			}
@@ -2813,6 +2816,9 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				if _, probing := c.Get(schedulingProbeObserverKey); probing {
+					return s.sendErrorAndEnd(c, "Stream ended before message_stop")
+				}
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 				return nil
 			}
@@ -3260,6 +3266,10 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 				return
 			}
 		}
+	}
+	if observer, ok := c.Get(schedulingProbeObserverKey); ok {
+		observer.(func(TestEvent))(event)
+		return
 	}
 	eventJSON, _ := json.Marshal(event)
 	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", eventJSON); err != nil {

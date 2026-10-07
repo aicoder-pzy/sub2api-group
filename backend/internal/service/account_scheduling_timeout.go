@@ -18,8 +18,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const fastestFailoverFirstOutputTimeout = 60 * time.Second
-const fastestFailoverStreamIdleTimeout = 120 * time.Second
 const fastestFailoverTimeoutCooldown = 2 * time.Minute
 
 type fastestFailoverAttemptKey struct{}
@@ -31,6 +29,7 @@ type fastestFailoverAttempt struct {
 	cancel        context.CancelFunc
 	body          io.ReadCloser
 	firstTimeout  time.Duration
+	cooldown      time.Duration
 	idleTimeout   time.Duration
 	outputStarted bool
 	timedOut      bool
@@ -42,12 +41,20 @@ func fastestFailoverAttemptFromContext(ctx context.Context) *fastestFailoverAtte
 	return attempt
 }
 
-func beginFastestFailoverAttempt(ctx context.Context, account *Account) (context.Context, *fastestFailoverAttempt) {
+func beginFastestFailoverAttempt(ctx context.Context, account *Account, settingsService ...*SettingService) (context.Context, *fastestFailoverAttempt) {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
 	if group == nil || group.AccountSchedulingMode != AccountSchedulingModeFastestFailover || account == nil || fastestFailoverAttemptFromContext(ctx) != nil {
 		return ctx, nil
 	}
-	attempt := &fastestFailoverAttempt{firstTimeout: fastestFailoverFirstOutputTimeout, idleTimeout: fastestFailoverStreamIdleTimeout}
+	settings := DefaultFastestFailoverSettings()
+	if len(settingsService) > 0 {
+		settings = settingsService[0].FastestFailoverSettings(ctx)
+	}
+	attempt := &fastestFailoverAttempt{
+		firstTimeout: time.Duration(settings.FirstOutputTimeoutSeconds) * time.Second,
+		idleTimeout:  time.Duration(settings.StreamIdleTimeoutSeconds) * time.Second,
+		cooldown:     time.Duration(settings.ModelCooldownSeconds) * time.Second,
+	}
 	return context.WithValue(ctx, fastestFailoverAttemptKey{}, attempt), attempt
 }
 
@@ -184,11 +191,15 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 	if !timedOut && !(ctx.Err() == nil && (upstreamTimeout || errors.Is(forwardErr, context.DeadlineExceeded))) {
 		return forwardErr
 	}
+	cooldown := attempt.cooldown
+	if cooldown <= 0 {
+		cooldown = fastestFailoverTimeoutCooldown
+	}
 	model := gjson.GetBytes(body, "model").String()
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, model)
-	if repo != nil && modelKey != "" && account.GetModelRateLimitRemainingTimeWithContext(ctx, model) < fastestFailoverTimeoutCooldown {
+	if repo != nil && modelKey != "" && account.GetModelRateLimitRemainingTimeWithContext(ctx, model) < cooldown {
 		updateCtx, release := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-		err := repo.SetModelRateLimit(updateCtx, account.ID, modelKey, time.Now().Add(fastestFailoverTimeoutCooldown), "fastest_failover_timeout")
+		err := repo.SetModelRateLimit(updateCtx, account.ID, modelKey, time.Now().Add(cooldown), "fastest_failover_timeout")
 		release()
 		if err != nil {
 			logger.LegacyPrintf("service.account_scheduling", "fastest failover timeout cooldown failed: account=%d model=%s error=%v", account.ID, modelKey, err)
@@ -199,7 +210,7 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 		UpstreamStatusCode: http.StatusGatewayTimeout, Kind: "fastest_failover_timeout",
 		Message: "Upstream response timed out; account model cooling down",
 	})
-	logger.LegacyPrintf("service.account_scheduling", "fastest failover timeout: account=%d model=%s output_started=%t cooldown=%s", account.ID, modelKey, outputStarted, fastestFailoverTimeoutCooldown)
+	logger.LegacyPrintf("service.account_scheduling", "fastest failover timeout: account=%d model=%s output_started=%t cooldown=%s", account.ID, modelKey, outputStarted, cooldown)
 	return &UpstreamFailoverError{
 		StatusCode:   http.StatusGatewayTimeout,
 		ResponseBody: []byte(`{"error":{"type":"upstream_timeout","message":"Upstream response timed out"}}`),

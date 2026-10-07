@@ -334,6 +334,7 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		groups.GET("/live-capability", h.Admin.Group.GetLiveCapability)
 		groups.PUT("/sort-order", h.Admin.Group.UpdateSortOrder)
 		groups.GET("/:id/model-allowlist-candidates", h.Admin.Group.GetGroupModelAllowlistCandidates)
+		groups.POST("/:id/refresh-scheduling", h.Admin.Account.RefreshGroupScheduling)
 		groups.GET("/:id/composite-routes", h.Admin.Group.ListCompositeRoutes)
 		groups.POST("/:id/composite-routes", h.Admin.Group.CreateCompositeRoute)
 		groups.POST("/:id/composite-routes/preview", h.Admin.Group.PreviewCompositeRoute)
@@ -591,6 +592,8 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		adminSettings.PUT("/openai-images-oauth-unavailable-cooldown", h.Admin.Setting.UpdateOpenAIImagesOAuthUnavailableCooldownSettings)
 		// 面板 API 限流配置
 		adminSettings.GET("/panel-rate-limit", h.Admin.Setting.GetPanelRateLimitSettings)
+		adminSettings.GET("/fastest-failover", h.Admin.Setting.GetFastestFailoverSettings)
+		adminSettings.PUT("/fastest-failover", h.Admin.Setting.UpdateFastestFailoverSettings)
 		adminSettings.GET("/direct-access", h.Admin.Setting.GetDirectAccessSettings)
 		adminSettings.PUT("/direct-access", h.Admin.Setting.UpdateDirectAccessSettings)
 		adminSettings.PUT("/panel-rate-limit", h.Admin.Setting.UpdatePanelRateLimitSettings)

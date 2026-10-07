@@ -37,6 +37,9 @@ func GroupModelSchedulingModelFromKey(key string) (string, bool) {
 }
 
 func groupModelSchedulingActiveAccount(ctx context.Context, cache GatewayCache, groupID *int64, model string) int64 {
+	if ctx.Value(schedulingEvaluationKey{}) != nil {
+		return 0
+	}
 	if cache == nil || groupID == nil || model == "" {
 		return 0
 	}
@@ -48,6 +51,9 @@ func groupModelSchedulingActiveAccount(ctx context.Context, cache GatewayCache, 
 }
 
 func rememberGroupModelSchedulingAccount(ctx context.Context, cache GatewayCache, groupID *int64, model string, accountID int64) {
+	if ctx.Value(schedulingEvaluationKey{}) != nil {
+		return
+	}
 	if cache == nil || groupID == nil || model == "" || accountID <= 0 {
 		return
 	}
@@ -77,6 +83,9 @@ func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository,
 			}
 			if candidate.Priority != current.Priority {
 				return candidate.Priority < current.Priority
+			}
+			if evaluation, ok := ctx.Value(schedulingEvaluationKey{}).(map[int64]GroupModelAccountQuality); ok {
+				return evaluation[candidate.ID].LatencyMS < evaluation[current.ID].LatencyMS
 			}
 			return candidate.ID == activeID && current.ID != activeID
 		})
@@ -187,6 +196,9 @@ func fastestFailoverEnabled(ctx context.Context, groupID *int64) bool {
 }
 
 func groupModelAccountQuality(ctx context.Context, repo UsageLogRepository, groupID *int64, model string) map[int64]GroupModelAccountQuality {
+	if evaluation, ok := ctx.Value(schedulingEvaluationKey{}).(map[int64]GroupModelAccountQuality); ok {
+		return evaluation
+	}
 	if groupID == nil || model == "" {
 		return nil
 	}

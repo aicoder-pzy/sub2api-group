@@ -1,5 +1,24 @@
 export default {
     accounts: {
+      refreshScheduling: {
+        title: 'Update scheduling',
+        selectGroup: 'Filter by a group using fastest failover first',
+        description: 'Evaluates every account in this group, regardless of pagination, other filters or selection. Updates only the specified model. Paused, cooling down, quota restricted or incompatible accounts are skipped.',
+        cost: 'Starting sends a real upstream test to each eligible account and incurs upstream charges. Closing this dialog cancels unfinished tests.',
+        model: 'Test model (select or enter a concrete text model)',
+        policy: 'Preferred accounts and their priority remain respected; equal priority preferred accounts use measured latency. Other accounts within 1.2× the fastest latency favor lower rates. All failures or cancellation retain the previous binding.',
+        progress: 'Evaluated {done}/{total}, testing: {name}',
+        complete: 'Scheduling for {model} updated to {name} (#{id})',
+        account: 'Account',
+        result: 'Result',
+        latency: 'First output',
+        success: 'Success',
+        failed: 'Failed',
+        skipped: 'Skipped',
+        cancel: 'Cancel tests and close',
+        start: 'Evaluate and update',
+        interrupted: 'Connection interrupted without completion confirmation. Refresh the account list to check the current binding.'
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',

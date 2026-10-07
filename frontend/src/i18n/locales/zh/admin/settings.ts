@@ -1,5 +1,19 @@
 export default {
     settings: {
+      fastestFailover: {
+        title: '最快故障切换 · 全局配置',
+        description: '统一作用于所有启用“最快故障切换”的分组，无需按分组重复配置。',
+        first_output_timeout_seconds: '首输出超时（秒）',
+        stream_idle_timeout_seconds: '流空闲超时（秒）',
+        model_cooldown_seconds: '超时后模型冷却（秒）',
+        range: '整数，1–{max} 秒',
+        scope: '首输出前超时会切换账号；输出开始后超时会终止流，不重放请求。超时保护覆盖已接入的 OpenAI 与 Anthropic 转发路径。',
+        save: '保存全局调度配置',
+        saved: '已保存，后续转发尝试使用新配置；其他服务实例最多 30 秒同步。',
+        invalid: '请填写范围内的整数秒数。',
+        loadFailed: '加载调度配置失败',
+        saveFailed: '保存调度配置失败'
+      },
       directAccess: {
         title: '直连访问白名单',
         description: '管理直连入口允许访问的公网 IP。仅限制直连域名，不影响原有域名；访问 API 仍需有效的 API Key。',

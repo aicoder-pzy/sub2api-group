@@ -71,7 +71,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	defaultMappedModel string,
 	compatPromptCacheTenantIsolated bool,
 ) (resultOut *OpenAIForwardResult, errorOut error) {
-	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account)
+	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account, s.settingService)
 	defer func(requestBody []byte) {
 		errorOut = finishFastestFailoverAttempt(ctx, s.accountRepo, c, account, requestBody, timeoutAttempt, errorOut)
 	}(body)

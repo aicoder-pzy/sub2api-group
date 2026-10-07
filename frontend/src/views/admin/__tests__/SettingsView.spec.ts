@@ -9,6 +9,7 @@ import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
 
 vi.mock("@/components/admin/DirectAccessSettings.vue", () => ({ default: { template: "<div />" } }));
+vi.mock("@/components/admin/FastestFailoverSettings.vue", () => ({ default: { template: "<div />" } }));
 
 const {
   getSettings,

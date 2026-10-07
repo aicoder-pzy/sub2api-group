@@ -4,6 +4,22 @@
  */
 
 import { apiClient } from "../client";
+
+export interface FastestFailoverSettings {
+  first_output_timeout_seconds: number
+  stream_idle_timeout_seconds: number
+  model_cooldown_seconds: number
+}
+
+export async function getFastestFailoverSettings(): Promise<FastestFailoverSettings> {
+  const { data } = await apiClient.get<FastestFailoverSettings>('/admin/settings/fastest-failover')
+  return data
+}
+
+export async function updateFastestFailoverSettings(settings: FastestFailoverSettings): Promise<FastestFailoverSettings> {
+  const { data } = await apiClient.put<FastestFailoverSettings>('/admin/settings/fastest-failover', settings)
+  return data
+}
 import type {
   CustomEndpoint,
   CustomMenuItem,

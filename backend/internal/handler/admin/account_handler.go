@@ -65,6 +65,7 @@ type AccountHandler struct {
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
 	groupModelScheduler     service.GroupModelSchedulingBindingsReader
+	schedulingGateway       *service.GatewayService
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService

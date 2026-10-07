@@ -1,5 +1,19 @@
 export default {
     settings: {
+      fastestFailover: {
+        title: 'Fastest failover · Global settings',
+        description: 'Applies to every group using fastest failover scheduling.',
+        first_output_timeout_seconds: 'First output timeout (seconds)',
+        stream_idle_timeout_seconds: 'Stream idle timeout (seconds)',
+        model_cooldown_seconds: 'Model cooldown after timeout (seconds)',
+        range: 'Integer, 1–{max} seconds',
+        scope: 'Before output, a timeout switches accounts; after output, it ends the stream without replay. Protection covers integrated OpenAI and Anthropic forwarding paths.',
+        save: 'Save global scheduling settings',
+        saved: 'Saved for subsequent forwarding attempts. Other instances synchronize within 30 seconds.',
+        invalid: 'Enter whole seconds within the displayed ranges.',
+        loadFailed: 'Failed to load scheduling settings',
+        saveFailed: 'Failed to save scheduling settings'
+      },
       directAccess: {
         title: 'Direct access IP allowlist',
         description: 'Manage public IPs allowed to use the direct hostname. The original hostname is unaffected; API requests still require a valid API key.',

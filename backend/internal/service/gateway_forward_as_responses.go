@@ -35,7 +35,7 @@ func (s *GatewayService) ForwardAsResponses(
 	body []byte,
 	parsed *ParsedRequest,
 ) (resultOut *ForwardResult, errorOut error) {
-	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account)
+	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account, s.settingService)
 	defer func(requestBody []byte) {
 		errorOut = finishFastestFailoverAttempt(ctx, s.accountRepo, c, account, requestBody, timeoutAttempt, errorOut)
 		var failoverErr *UpstreamFailoverError
