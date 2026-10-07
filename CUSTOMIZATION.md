@@ -68,6 +68,24 @@ git fetch upstream --tags
 `upstream` 是本机 Git 配置，新克隆需要添加一次；已经配置的目录无需重复添加。
 GitHub 默认分支仍为 `main`，浏览定制代码时选择 `custom`。
 
+## GitHub 构建与镜像
+
+推送到 `custom` 后，[Custom image 工作流](https://github.com/aicoder-pzy/sub2api-group/actions/workflows/custom-image.yml)
+在 GitHub Actions 编译前后端，验证程序及 PostgreSQL 客户端能够启动，再发布到 GHCR。
+镜像使用当前服务器的 `linux/amd64` 架构，构建使用仓库自带的 `GITHUB_TOKEN`，无需配置 Docker Hub 密钥。
+
+```bash
+docker pull ghcr.io/aicoder-pzy/sub2api-group:custom
+```
+
+`custom` 标签随成功构建更新；`sha-<完整提交号>` 标签对应具体代码，部署或回退时优先固定提交标签或镜像摘要。
+程序版本显示为 `0.2.14-custom.<短提交号>`（基础版本读取 `backend/cmd/server/VERSION`）。
+源码与镜像发布不会自动重启生产服务。服务器上的 `0.2.14-fastest.9` 是此前本地构建部署的版本。
+
+镜像页面：[GitHub Packages](https://github.com/aicoder-pzy/sub2api-group/pkgs/container/sub2api-group)。
+GHCR 新建镜像默认可能为私有；公开后可匿名拉取，私有时需先用有 `read:packages` 权限的令牌登录 `ghcr.io`。
+Actions 构建失败时可在该次运行页面使用 **Re-run jobs** 重试。
+
 ## 后续同步官方更新
 
 开始前提交或暂存当前工作，确保工作区干净，然后更新官方镜像分支：
