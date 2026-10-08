@@ -230,7 +230,8 @@ func TestFastestFailoverSameChannelRetryIsBounded(t *testing.T) {
 	if !ok || limited.SameAccountRetryMax != 1 || original.SameAccountRetryMax != 0 || limited.SameAccountRetryDeadline != original.SameAccountRetryDeadline {
 		t.Fatal("retry cap must preserve the error and its deadline without mutating it")
 	}
-	if limitFastestFailoverRetry(ctx, original, 2).(*UpstreamFailoverError).RetryableOnSameAccount {
+	exhausted, ok := limitFastestFailoverRetry(ctx, original, 2).(*UpstreamFailoverError)
+	if !ok || exhausted.RetryableOnSameAccount {
 		t.Fatal("an internal retry must not receive another handler retry")
 	}
 	group.AccountSchedulingMode = AccountSchedulingModePriority
