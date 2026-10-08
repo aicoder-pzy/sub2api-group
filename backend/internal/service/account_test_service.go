@@ -2886,7 +2886,6 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 	// that stopped early is reported with the reason instead of as a success.
 	pelican := pelicanTestRequested(c)
 	stopReason, refusalCategory := "", ""
-	seenStop := false
 	complete := func() error {
 		if pelican {
 			if failure := pelicanClaudeStopFailure(stopReason, refusalCategory); failure != "" {
@@ -2901,10 +2900,10 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				if _, probing := c.Get(schedulingProbeObserverKey); probing && !seenStop {
+				if _, probing := c.Get(schedulingProbeObserverKey); probing {
 					return s.sendErrorAndEnd(c, "Stream ended before message_stop")
 				}
-				if pelican && !seenStop {
+				if pelican {
 					return s.sendErrorAndEnd(c, "Generation stream ended before completion")
 				}
 				return complete()
@@ -2947,7 +2946,6 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 				}
 			}
 		case "message_stop":
-			seenStop = true
 			return complete()
 		case "error":
 			errorMsg := "Unknown error"

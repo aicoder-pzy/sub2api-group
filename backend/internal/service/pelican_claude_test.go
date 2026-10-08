@@ -190,6 +190,17 @@ func TestPelicanGroupStillRetriesAccountFailures(t *testing.T) {
 	require.False(t, pelicanFailedBeforeOutput(&ScheduledTestResult{Status: "failed", ErrorMessage: pelicanErrEmptyOutput}))
 }
 
+func TestPelicanAdaptiveCNRequestsOneAnswer(t *testing.T) {
+	account := adaptiveCNAccountTestAccount(513, PlatformKimi)
+	svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNChatTestResponse())
+	c, rec := newTestContext()
+	require.NoError(t, svc.TestPelicanAccountConnection(c, account.ID, "k3-256k", "draw a pelican", "high"))
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "http://chat.example/v1/chat/completions", upstream.requests[0].URL.String())
+	require.Equal(t, "draw a pelican", gjson.GetBytes(upstream.bodies[0], "messages.0.content").String())
+	require.Contains(t, rec.Body.String(), `"type":"test_complete","success":true`)
+}
+
 func TestPelicanStreamsRejectTruncatedAndInterruptedAnswers(t *testing.T) {
 	svc := &AccountTestService{}
 	for _, tc := range []struct {

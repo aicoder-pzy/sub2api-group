@@ -167,6 +167,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { extractPelicanHtml as extractHtml } from '@/utils/pelicanHtml'
+import { CANDY_PROMPT } from '@/utils/intelligenceTest'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Input from '@/components/common/Input.vue'
 import TextArea from '@/components/common/TextArea.vue'
@@ -236,7 +237,7 @@ const records = ref<TestRecord[]>([])
 const scheduledRecords = ref<ScheduledTestResult[]>([])
 const controllers = new Map<string, AbortController>()
 
-const deliveryContract = DELIVERY_CONTRACT
+const deliveryContract = computed(() => prompt.value.trim() === CANDY_PROMPT.trim() ? '只输出最终整数，不要解释。' : DELIVERY_CONTRACT)
 const reasoningOptions = computed(() => [
  {value:'none',label:'none'}, {value:'minimal',label:'minimal'}, {value:'xhigh',label:'xhigh'}, {value:'max',label:'max'}, {value:'ultra',label:'ultra'},
   { value: 'low', label: t('admin.accounts.pelicanTest.reasoningLow') },
@@ -295,8 +296,9 @@ function previewScheduled(result: ScheduledTestResult) {
   if (running.value) return
   const config = result.pelican_config
   if (config) editSchedule(config, config.model_id || modelId.value)
-  const html = extractHtml(result.response_text)
-  runs.value = [{ id: `scheduled-${result.id}`, status: result.status === 'success' && html ? 'success' : 'error', output: result.response_text, html, error: result.error_message,
+  const textAnswer = config?.question_kind === 'candy' || config?.prompt.trim() === CANDY_PROMPT.trim()
+  const html = textAnswer ? '' : extractHtml(result.response_text)
+  runs.value = [{ id: `scheduled-${result.id}`, status: result.status === 'success' && (html || textAnswer) ? 'success' : 'error', output: result.response_text, html, error: result.error_message,
     source: 'scheduled', startedAt: result.started_at, finishedAt: result.finished_at,
     durationMs: result.latency_ms, modelId: config?.model_id, reasoningEffort: config?.reasoning_effort
   }]
@@ -331,7 +333,7 @@ async function consumeRun(run: TestRun, signal: AbortSignal) {
     },
     body: JSON.stringify({
       model_id: modelId.value.trim(),
-      prompt: `${prompt.value.trim()}\n\n${DELIVERY_CONTRACT}`,
+      prompt: `${prompt.value.trim()}\n\n${deliveryContract.value}`,
       mode: 'default',
       reasoning_effort: reasoningEffort.value
     }),
@@ -376,8 +378,12 @@ async function consumeRun(run: TestRun, signal: AbortSignal) {
   if (buffer.trim()) consumeLine(buffer.trim())
   if (!completed) throw new Error(t('admin.accounts.pelicanTest.incompleteResponse'))
   if (!run.output.trim()) throw new Error(t('admin.accounts.pelicanTest.emptyResponse'))
-  run.html = extractHtml(run.output)
-  if (!run.html) throw new Error(t('admin.accounts.pelicanTest.invalidHtml'))
+  if (prompt.value.trim() === CANDY_PROMPT.trim()) {
+    if (!/^21\s*(?:个)?[。.!！]?$/.test(run.output.trim())) throw new Error('answer_mismatch: expected 21')
+  } else {
+    run.html = extractHtml(run.output)
+    if (!run.html) throw new Error(t('admin.accounts.pelicanTest.invalidHtml'))
+  }
   run.status = 'success'
 }
 

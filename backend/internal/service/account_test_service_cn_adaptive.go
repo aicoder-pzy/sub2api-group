@@ -21,6 +21,11 @@ const accountTestSuppressCompletionContextKey = "account_test_suppress_completio
 // adaptive CN-provider account. Zhipu uses Chat Completions plus Anthropic;
 // DeepSeek and Kimi additionally use their native Responses endpoints.
 func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+	// A drawing is one answer. The ordinary connectivity test probes every
+	// native endpoint, which would concatenate multiple drawings and bill each.
+	if pelicanTestRequested(c) {
+		return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+	}
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
