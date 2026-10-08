@@ -5,6 +5,7 @@
 
 import { apiClient } from '../client'
 import type { OpenAIReferralRefreshResult, OpenAIReferralSendResult } from '@/types/openaiReferrals'
+import type { UpstreamBalanceConfig, UpstreamBalanceSettings, UpstreamBalanceState, UpstreamBalanceProbeResult } from '@/types'
 import type {
   Account,
   AccountListItem,
@@ -1132,6 +1133,25 @@ export async function refreshOpenCodeGoUsage(id: number): Promise<OpenCodeGoUsag
 }
 
 export const accountsAPI = {
+
+  async getBalanceSettings(): Promise<UpstreamBalanceSettings> {
+    return (await apiClient.get('/admin/accounts/upstream-balance/settings')).data
+  },
+  async updateBalanceSettings(settings: UpstreamBalanceSettings): Promise<UpstreamBalanceSettings> {
+    return (await apiClient.put('/admin/accounts/upstream-balance/settings', settings)).data
+  },
+  async getBalance(id: number): Promise<UpstreamBalanceState> {
+    return (await apiClient.get(`/admin/accounts/${id}/upstream-balance`)).data
+  },
+  async updateBalanceConfig(id: number, config: UpstreamBalanceConfig): Promise<UpstreamBalanceState> {
+    return (await apiClient.put(`/admin/accounts/${id}/upstream-balance`, config)).data
+  },
+  async probeBalance(id: number): Promise<UpstreamBalanceProbeResult> {
+    return (await apiClient.post(`/admin/accounts/${id}/upstream-balance`, undefined, { timeout: 90_000 })).data
+  },
+  async probeBalances(account_ids: number[]): Promise<UpstreamBalanceProbeResult[]> {
+    return (await apiClient.post('/admin/accounts/upstream-balance/batch', { account_ids }, { timeout: 120_000 })).data.results
+  },
   list,
   listWithEtag,
   getUpstreamBillingRatesWithEtag,

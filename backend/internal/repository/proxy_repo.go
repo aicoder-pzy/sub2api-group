@@ -227,13 +227,14 @@ func invalidateProxyProbeSnapshots(ctx context.Context, exec sqlExecutor, proxyI
 		SET extra = COALESCE(extra, '{}'::jsonb)
 				- 'upstream_billing_probe'
 				- 'ollama_cloud_usage_snapshot'
-				- 'opencode_go_usage_snapshot',
+				- 'opencode_go_usage_snapshot' #- '{upstream_balance_probe,snapshot}'::text[],
 			updated_at = NOW()
 		WHERE proxy_id = $1
 			AND type = 'apikey'
 			AND (
 				(extra ? 'upstream_billing_probe'
 					AND extra -> 'upstream_billing_probe' <> 'null'::jsonb)
+				OR (extra #> '{upstream_balance_probe,snapshot}' IS NOT NULL)
 				OR (platform IN (`+ollamaCloudUsagePlatformsSQL+`)
 					AND extra ? 'ollama_cloud_usage_snapshot'
 					AND extra -> 'ollama_cloud_usage_snapshot' <> 'null'::jsonb)
@@ -765,22 +766,22 @@ func (r *proxyRepository) sweepOneExpiredProxyOnExec(ctx context.Context, exec s
 	if target == nil {
 		rows, err = exec.QueryContext(ctx, `
 			UPDATE accounts SET proxy_id=NULL, proxy_fallback_origin_id=COALESCE(proxy_fallback_origin_id,$1),
-				extra=CASE
+				extra=(CASE
 					WHEN type='apikey' AND extra ? 'upstream_billing_probe'
 					THEN extra - 'upstream_billing_probe'
 					ELSE extra
-				END,
+				END) #- '{upstream_balance_probe,snapshot}'::text[],
 				updated_at=NOW()
 			WHERE proxy_id=$1 AND deleted_at IS NULL
 			RETURNING id`, proxyID)
 	} else {
 		rows, err = exec.QueryContext(ctx, `
 			UPDATE accounts SET proxy_id=$2, proxy_fallback_origin_id=COALESCE(proxy_fallback_origin_id,$1),
-				extra=CASE
+				extra=(CASE
 					WHEN type='apikey' AND extra ? 'upstream_billing_probe'
 					THEN extra - 'upstream_billing_probe'
 					ELSE extra
-				END,
+				END) #- '{upstream_balance_probe,snapshot}'::text[],
 				updated_at=NOW()
 			WHERE proxy_id=$1 AND deleted_at IS NULL
 			RETURNING id`, proxyID, *target)

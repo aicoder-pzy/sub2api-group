@@ -4997,6 +4997,7 @@
 
           <!-- Gateway Scheduling Settings -->
           <FastestFailoverSettings v-if="activeTab === 'gateway'" />
+          <UpstreamBalanceSettings v-if="activeTab === 'gateway'" />
           <div class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
@@ -9033,6 +9034,7 @@ import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import FastestFailoverSettings from '@/components/admin/FastestFailoverSettings.vue'
+import UpstreamBalanceSettings from '@/components/admin/UpstreamBalanceSettings.vue'
 import DirectAccessSettings from "@/components/admin/DirectAccessSettings.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";

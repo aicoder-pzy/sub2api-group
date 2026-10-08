@@ -670,7 +670,8 @@ func lockAndMergeAccountProbeExtra(
 				false
 			),
 			extra -> 'opencode_go_usage_auto_refresh',
-			extra -> 'opencode_go_usage_snapshot'
+			extra -> 'opencode_go_usage_snapshot',
+			extra -> 'upstream_balance_probe'
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -699,6 +700,7 @@ func lockAndMergeAccountProbeExtra(
 		currentOllamaSnapshot          []byte
 		currentOpenCodeAutoRefresh     []byte
 		currentOpenCodeSnapshot        []byte
+		currentBalanceProbe            []byte
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
@@ -713,6 +715,7 @@ func lockAndMergeAccountProbeExtra(
 		&opencodeGroupIdentityUnchanged,
 		&currentOpenCodeAutoRefresh,
 		&currentOpenCodeSnapshot,
+		&currentBalanceProbe,
 	); err != nil {
 		return nil, err
 	}
@@ -725,6 +728,7 @@ func lockAndMergeAccountProbeExtra(
 		service.UpstreamBillingProbeEnabledExtraKey,
 		service.UpstreamBillingRateSyncEnabledExtraKey,
 		service.UpstreamBillingProbeExtraKey,
+		service.UpstreamBalanceProbeExtraKey,
 		service.OllamaCloudUsageSessionExtraKey,
 		service.OllamaCloudUsageAutoRefreshExtraKey,
 		service.OllamaCloudUsageSnapshotExtraKey,
@@ -734,6 +738,17 @@ func lockAndMergeAccountProbeExtra(
 		delete(extra, key)
 	}
 	probeAccount := service.IsUpstreamBillingProbeIdentity(account.Platform, account.Type)
+	if probeAccount {
+		if value, present, err := decodeAccountExtraJSON(currentBalanceProbe); err != nil {
+			return nil, err
+		} else if present {
+			balance := service.DecodeUpstreamBalanceState(map[string]any{service.UpstreamBalanceProbeExtraKey: value})
+			if !identityUnchanged {
+				balance.Snapshot = nil
+			}
+			extra[service.UpstreamBalanceProbeExtraKey] = balance
+		}
+	}
 	probeEnabled := false
 	probeEnabledPresent := false
 	if probeAccount {
@@ -867,7 +882,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		UPDATE accounts
 		SET
 			credentials = $1::jsonb,
-			extra = CASE
+			extra = (CASE
 				-- 正确性依赖（非防御）：OpenCode 分支必须先于 Ollama 分支求值。两分支
 				-- 的 WHEN 并不互斥：Ollama 分支的守卫是宽谓词——NOT(ollamaMatch(old)
 				-- AND ollamaMatch(new)) 在旧行不匹配 ollama.com 基址时恒真，且两侧
@@ -929,7 +944,8 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 					AND credentials IS DISTINCT FROM $1::jsonb
 				THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
 				ELSE extra
-			END,
+			END) #- CASE WHEN type = 'apikey' AND credentials IS DISTINCT FROM $1::jsonb
+				THEN ARRAY['upstream_balance_probe','snapshot'] ELSE ARRAY[]::text[] END,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
 	`, string(payload), id)
@@ -3128,7 +3144,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 				" AND COALESCE(btrim("+credentialPlaceholder+"::jsonb ->> 'account_mode') <> 'zen', true) IS NOT TRUE")
 	}
 
-	if len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || len(opencodeGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" || updates.EnsureCodexFingerprintSeed {
+	if len(updates.Extra) > 0 || credentialPlaceholder != "" || len(ollamaGroupIdentityChanges) > 0 || len(opencodeGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" || updates.EnsureCodexFingerprintSeed {
 		extraExpression := "COALESCE(extra, '{}'::jsonb)"
 		if len(updates.Extra) > 0 {
 			payload, err := json.Marshal(updates.Extra)
@@ -3210,6 +3226,16 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 		if updates.EnsureCodexFingerprintSeed {
 			extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
+		}
+		balanceChanges := make([]string, 0, 2)
+		if credentialPlaceholder != "" {
+			balanceChanges = append(balanceChanges, "credentials IS DISTINCT FROM (COALESCE(credentials, '{}'::jsonb) || "+credentialPlaceholder+"::jsonb)")
+		}
+		if ollamaProxyIdentityChanged != "" {
+			balanceChanges = append(balanceChanges, ollamaProxyIdentityChanged)
+		}
+		if len(balanceChanges) > 0 {
+			extraExpression = "(" + extraExpression + ") #- CASE WHEN type = 'apikey' AND (" + strings.Join(balanceChanges, " OR ") + ") THEN ARRAY['upstream_balance_probe','snapshot'] ELSE ARRAY[]::text[] END"
 		}
 		setClauses = append(setClauses, "extra = "+extraExpression)
 	}

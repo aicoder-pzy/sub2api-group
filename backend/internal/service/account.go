@@ -199,6 +199,9 @@ func (a *Account) IsSchedulable() bool {
 	if a.IsAPIKeyOrBedrock() && a.IsQuotaExceeded() {
 		return false
 	}
+	if a.IsUpstreamBalancePaused(now) {
+		return false
+	}
 	return true
 }
 

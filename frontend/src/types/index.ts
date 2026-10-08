@@ -1070,6 +1070,50 @@ export interface UpstreamBillingData {
 
 export type UpstreamBillingProbeStatus = 'ok' | 'unsupported' | 'failed'
 
+export interface UpstreamBalanceSettings {
+  enabled: boolean
+  interval_minutes: number
+  low_balance_threshold: number
+}
+
+export interface UpstreamBalanceConfig {
+  enabled: boolean
+  provider: 'auto' | 'sub2api' | 'newapi'
+  currency: string
+  quota_per_unit: number
+  pause_on_exhaustion: boolean
+}
+
+export interface UpstreamBalanceAmount {
+  scope: 'wallet' | 'key' | 'subscription' | '5h' | '1d' | '7d'
+  currency: string
+  remaining: number | null
+  limit?: number
+  used?: number
+  unlimited: boolean
+  reset_at?: string
+}
+
+export interface UpstreamBalanceState extends UpstreamBalanceConfig {
+  snapshot?: {
+    status: UpstreamBillingProbeStatus
+    provider?: string
+    amounts?: UpstreamBalanceAmount[]
+    received_at?: string
+    fresh_until?: string
+    last_attempt_at: string
+    next_probe_at: string
+    http_status?: number
+    last_error?: string
+  }
+}
+
+export interface UpstreamBalanceProbeResult {
+  account_id: number
+  state?: UpstreamBalanceState
+  error?: string
+}
+
 export interface UpstreamBillingProbeSnapshot {
   status: UpstreamBillingProbeStatus
   data?: UpstreamBillingData
@@ -1219,6 +1263,7 @@ export interface Account {
     upstream_billing_probe_enabled?: boolean
     upstream_billing_rate_sync_enabled?: boolean
     upstream_billing_probe?: UpstreamBillingProbeSnapshot
+    upstream_balance_probe?: UpstreamBalanceState
     codex_reset_credit_snapshot?: {
       available_count?: number
       credits?: { expires_at?: string }[]

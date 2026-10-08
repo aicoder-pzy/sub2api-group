@@ -184,6 +184,8 @@
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
+          :balance-probing="balanceBatchProbing"
+          @probe-upstream-balance="handleBulkProbeBalances"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
@@ -404,6 +406,9 @@
               @probe="handleProbeUpstreamBilling(row)"
             />
           </template>
+          <template #cell-upstream_balance="{ row }">
+            <UpstreamBalanceCell :account="row" :now="upstreamBillingNow" :low-threshold="balanceLowThreshold" @updated="patchBalance(row.id, $event)" />
+          </template>
           <template #cell-priority="{ row }">
             <AccountPriorityCell
               :account="row"
@@ -556,6 +561,8 @@ import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vu
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
+import UpstreamBalanceCell from '@/components/account/UpstreamBalanceCell.vue'
+import type { UpstreamBalanceState } from '@/types'
 import AccountPriorityCell from '@/components/account/AccountPriorityCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -661,6 +668,25 @@ const togglingSchedulable = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, anchorRect:DOMRect|null}>({ show: false, acc: null, anchorRect: null })
 const exportingData = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
+const balanceBatchProbing = ref(false)
+const balanceLowThreshold = ref(5)
+function patchBalance(id: number, state: UpstreamBalanceState) {
+  const account = accounts.value.find(item => item.id === id)
+  if (account) patchAccountInList({ ...account, extra: { ...account.extra, upstream_balance_probe: state } })
+}
+async function handleBulkProbeBalances() {
+  if (balanceBatchProbing.value) return
+  const ids = [...selIds.value]
+  if (!ids.length || ids.length > 20) { appStore.showError(t('admin.accounts.balance.batchLimit')); return }
+  balanceBatchProbing.value = true
+  try {
+    const results = await adminAPI.accounts.probeBalances(ids)
+    results.forEach(result => { if (result.state) patchBalance(result.account_id, result.state) })
+    const failed = results.filter(result => result.error || result.state?.snapshot?.status !== 'ok').length
+    appStore.showSuccess(t('admin.accounts.balance.batchDone', { success: results.length - failed, failed }))
+  } catch (cause) { appStore.showError(extractApiErrorMessage(cause, t('admin.accounts.balance.requestFailed'))) }
+  finally { balanceBatchProbing.value = false }
+}
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
 const upstreamBillingNow = ref(Date.now())
 const upstreamBillingRateETag = ref<string | null>(null)
@@ -1849,6 +1875,7 @@ const allColumns = computed(() => {
     { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
     { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
+    { key: 'upstream_balance', label: t('admin.accounts.balance.title'), sortable: false },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
@@ -2591,6 +2618,7 @@ onMounted(async () => {
 
   load()
   loadUpstreamBillingProbeGlobalState()
+  void adminAPI.accounts.getBalanceSettings().then(settings => { balanceLowThreshold.value = settings.low_balance_threshold }).catch(() => {})
   const [proxiesResult, groupsResult] = await Promise.allSettled([
     adminAPI.proxies.getAll(),
     adminAPI.groups.getAll()
