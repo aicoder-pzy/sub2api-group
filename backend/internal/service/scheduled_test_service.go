@@ -85,11 +85,11 @@ func (s *ScheduledTestService) DeletePlan(ctx context.Context, id int64) error {
 }
 
 // ListResults returns the most recent results for a plan.
-func (s *ScheduledTestService) ListResults(ctx context.Context, planID int64, limit int) ([]*ScheduledTestResult, error) {
+func (s *ScheduledTestService) ListResults(ctx context.Context, planID int64, limit int, includeContent ...bool) ([]*ScheduledTestResult, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	return s.resultRepo.ListByPlanID(ctx, planID, limit)
+	return s.resultRepo.ListByPlanID(ctx, planID, limit, includeContent...)
 }
 
 // SaveResult inserts a result and prunes old entries beyond maxResults.
@@ -99,6 +99,22 @@ func (s *ScheduledTestService) SaveResult(ctx context.Context, planID int64, max
 		return err
 	}
 	return s.resultRepo.PruneOldResults(ctx, planID, maxResults)
+}
+
+func (s *ScheduledTestService) GetResult(ctx context.Context, planID, resultID int64) (*ScheduledTestResult, error) {
+	return s.resultRepo.GetResult(ctx, planID, resultID)
+}
+func (s *ScheduledTestService) ListPelicanHistory(ctx context.Context, beforeID int64) (*PelicanHistoryPage, error) {
+	items, err := s.resultRepo.ListPelicanHistory(ctx, beforeID, 25)
+	if err != nil {
+		return nil, err
+	}
+	page := &PelicanHistoryPage{Items: items}
+	if len(items) > 24 {
+		page.Items = items[:24]
+		page.NextCursor = page.Items[23].ID
+	}
+	return page, nil
 }
 
 func computeNextRun(cronExpr string, from time.Time) (time.Time, error) {
@@ -112,6 +128,38 @@ func computeNextRun(cronExpr string, from time.Time) (time.Time, error) {
 func validateScheduledTestPlan(plan *ScheduledTestPlan) error {
 	if plan == nil {
 		return fmt.Errorf("test plan is required")
+	}
+	if plan.PelicanConfig != nil {
+		if plan.ExpectedAnswer != "" || plan.TestPrompt != "" || plan.JudgeGroupID != 0 || plan.JudgeModelID != "" {
+			return fmt.Errorf("pelican plans cannot include quality judge settings")
+		}
+		cfg := plan.PelicanConfig
+		cfg.Prompt = strings.TrimSpace(cfg.Prompt)
+		if cfg.Prompt == "" || len(cfg.Prompt) > 32000 {
+			return fmt.Errorf("prompt required (maximum 32000 bytes)")
+		}
+		if cfg.QuestionKind != "" && cfg.QuestionKind != "pelican" && cfg.QuestionKind != "candy" {
+			return fmt.Errorf("invalid question kind")
+		}
+		cfg.ReasoningEffort = normalizePelicanReasoningEffort(cfg.ReasoningEffort)
+		if cfg.ReasoningEffort == "" {
+			return fmt.Errorf("invalid reasoning effort")
+		}
+		if cfg.ParallelCount == 0 {
+			cfg.ParallelCount = 1
+		}
+		if cfg.ParallelCount < 1 || cfg.ParallelCount > 8 {
+			return fmt.Errorf("parallel count must be 1–8")
+		}
+		if strings.TrimSpace(plan.ModelID) == "" || len(plan.ModelID) > 100 {
+			return fmt.Errorf("model required (maximum 100 bytes)")
+		}
+		if plan.MaxResults <= 0 {
+			plan.MaxResults = 100
+		}
+		if plan.MaxResults > 200 {
+			return fmt.Errorf("maximum results must be 1–200")
+		}
 	}
 	plan.ModelID = strings.TrimSpace(plan.ModelID)
 	plan.TestPrompt = strings.TrimSpace(plan.TestPrompt)

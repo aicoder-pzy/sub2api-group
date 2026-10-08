@@ -18,6 +18,8 @@ import { resolveRouteDocumentTitle } from './title'
  * Route definitions with lazy loading
  */
 const routes: RouteRecordRaw[] = [
+ {path:'/admin/pelican-tests',name:'AdminPelicanTests',component:()=>import('@/views/admin/PelicanTestsView.vue'),meta:{requiresAuth:true,requiresAdmin:true,title:'Pelican Tests',titleKey:'pelicanTests.title'}},
+ {path:'/pelican-showcase',name:'PelicanShowcase',component:()=>import('@/views/user/PelicanShowcaseView.vue'),meta:{requiresAuth:true,title:'Pelican Showcase',titleKey:'pelicanShowcase.title'}},
   // ==================== Setup Routes ====================
   {
     path: '/setup',

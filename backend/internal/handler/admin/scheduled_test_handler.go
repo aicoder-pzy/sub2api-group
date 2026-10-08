@@ -20,32 +20,34 @@ func NewScheduledTestHandler(scheduledTestSvc *service.ScheduledTestService) *Sc
 }
 
 type createScheduledTestPlanRequest struct {
-	AccountID       int64  `json:"account_id" binding:"required"`
-	ModelID         string `json:"model_id"`
-	TestPrompt      string `json:"test_prompt"`
-	ExpectedAnswer  string `json:"expected_answer"`
-	ReasoningEffort string `json:"reasoning_effort"`
-	JudgeGroupID    int64  `json:"judge_group_id"`
-	JudgeModelID    string `json:"judge_model_id"`
-	JudgePrompt     string `json:"judge_prompt"`
-	CronExpression  string `json:"cron_expression" binding:"required"`
-	Enabled         *bool  `json:"enabled"`
-	MaxResults      int    `json:"max_results"`
-	AutoRecover     *bool  `json:"auto_recover"`
+	PelicanConfig   *service.PelicanTestConfig `json:"pelican_config"`
+	AccountID       int64                      `json:"account_id" binding:"required"`
+	ModelID         string                     `json:"model_id"`
+	TestPrompt      string                     `json:"test_prompt"`
+	ExpectedAnswer  string                     `json:"expected_answer"`
+	ReasoningEffort string                     `json:"reasoning_effort"`
+	JudgeGroupID    int64                      `json:"judge_group_id"`
+	JudgeModelID    string                     `json:"judge_model_id"`
+	JudgePrompt     string                     `json:"judge_prompt"`
+	CronExpression  string                     `json:"cron_expression" binding:"required"`
+	Enabled         *bool                      `json:"enabled"`
+	MaxResults      int                        `json:"max_results"`
+	AutoRecover     *bool                      `json:"auto_recover"`
 }
 
 type updateScheduledTestPlanRequest struct {
-	ModelID         string  `json:"model_id"`
-	TestPrompt      *string `json:"test_prompt"`
-	ExpectedAnswer  *string `json:"expected_answer"`
-	ReasoningEffort *string `json:"reasoning_effort"`
-	JudgeGroupID    *int64  `json:"judge_group_id"`
-	JudgeModelID    *string `json:"judge_model_id"`
-	JudgePrompt     *string `json:"judge_prompt"`
-	CronExpression  string  `json:"cron_expression"`
-	Enabled         *bool   `json:"enabled"`
-	MaxResults      int     `json:"max_results"`
-	AutoRecover     *bool   `json:"auto_recover"`
+	PelicanConfig   *service.PelicanTestConfig `json:"pelican_config"`
+	ModelID         string                     `json:"model_id"`
+	TestPrompt      *string                    `json:"test_prompt"`
+	ExpectedAnswer  *string                    `json:"expected_answer"`
+	ReasoningEffort *string                    `json:"reasoning_effort"`
+	JudgeGroupID    *int64                     `json:"judge_group_id"`
+	JudgeModelID    *string                    `json:"judge_model_id"`
+	JudgePrompt     *string                    `json:"judge_prompt"`
+	CronExpression  string                     `json:"cron_expression"`
+	Enabled         *bool                      `json:"enabled"`
+	MaxResults      int                        `json:"max_results"`
+	AutoRecover     *bool                      `json:"auto_recover"`
 }
 
 // ListByAccount GET /admin/accounts/:id/scheduled-test-plans
@@ -73,6 +75,7 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 	}
 
 	plan := &service.ScheduledTestPlan{
+		PelicanConfig:   req.PelicanConfig,
 		AccountID:       req.AccountID,
 		ModelID:         req.ModelID,
 		TestPrompt:      req.TestPrompt,
@@ -120,6 +123,9 @@ func (h *ScheduledTestHandler) Update(c *gin.Context) {
 		return
 	}
 
+	if req.PelicanConfig != nil {
+		existing.PelicanConfig = req.PelicanConfig
+	}
 	if req.ModelID != "" {
 		existing.ModelID = req.ModelID
 	}
@@ -190,7 +196,7 @@ func (h *ScheduledTestHandler) ListResults(c *gin.Context) {
 		limit = l
 	}
 
-	results, err := h.scheduledTestSvc.ListResults(c.Request.Context(), planID, limit)
+	results, err := h.scheduledTestSvc.ListResults(c.Request.Context(), planID, limit, c.Query("include_content") != "false")
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

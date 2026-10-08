@@ -556,6 +556,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 
 	// Create Claude Code style payload (same for all account types)
 	payload, err := createTestPayload(testModelID)
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
+		payload, err = createPelicanClaudePayload(testModelID, options.prompt, options.reasoningEffort)
+	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
@@ -634,6 +637,9 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 	c.Writer.Flush()
 
 	payload, err := createTestPayload(testModelID)
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
+		payload, err = createPelicanClaudePayload(testModelID, options.prompt, options.reasoningEffort)
+	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
@@ -721,6 +727,19 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		"max_tokens":  256,
 		"temperature": 1,
 	}
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
+		pelican, err := createPelicanClaudePayload(testModelID, options.prompt, options.reasoningEffort)
+		if err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
+		}
+		bedrockPayload["messages"], bedrockPayload["max_tokens"] = pelican["messages"], pelicanClaudeMaxTokens
+		if effort := pelican["output_config"]; effort != nil {
+			bedrockPayload["output_config"] = effort
+		}
+		if thinking := pelican["thinking"]; thinking != nil {
+			bedrockPayload["thinking"] = thinking
+		}
+	}
 	bedrockBody, _ := json.Marshal(bedrockPayload)
 
 	// Use non-streaming endpoint (response is standard Claude JSON)
@@ -776,6 +795,16 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse response: %s", err.Error()))
+	}
+	if pelicanTestRequested(c) {
+		usage := startPelicanTestUsage(ctx, "anthropic")
+		usage.read(string(body))
+		if usage != nil {
+			usage.complete = true
+		}
+		if failure := pelicanClaudeStopFailure(gjson.GetBytes(body, "stop_reason").String(), ""); failure != "" {
+			return s.sendErrorAndEnd(c, failure)
+		}
 	}
 
 	text := ""
@@ -890,6 +919,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt, reasoningEffort)
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
+		payload = createPelicanOpenAIPayload(upstreamTestModelID, isOAuth, options.prompt, options.reasoningEffort)
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -1253,6 +1285,9 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 	s.prepareGrokTestSSE(c)
 
 	payloadBytes, err := buildGrokQuotaProbeBody(testModelID)
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
+		payloadBytes, err = json.Marshal(createPelicanOpenAIPayload(testModelID, false, options.prompt, options.reasoningEffort))
+	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create Grok test payload")
 	}
@@ -2133,6 +2168,12 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Flush()
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.reasoningEffort != "" {
+		payload["reasoning_effort"] = options.reasoningEffort
+	}
+	if pelicanUsageFromContext(ctx) != nil {
+		payload["stream_options"] = map[string]any{"include_usage": true}
+	}
 	if len(reasoningEfforts) > 0 && reasoningEfforts[0] != "" {
 		payload["reasoning_effort"] = reasoningEfforts[0]
 	}
@@ -2696,12 +2737,13 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 // processGeminiStream processes SSE stream from Gemini API
 func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	usage := startPelicanTestStream(c, "gemini")
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				if _, probing := c.Get(schedulingProbeObserverKey); probing {
+				if _, probing := c.Get(schedulingProbeObserverKey); probing || pelicanTestRequested(c) {
 					return s.sendErrorAndEnd(c, "Stream ended before model completion")
 				}
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
@@ -2716,6 +2758,7 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 		}
 
 		jsonStr := strings.TrimPrefix(line, "data: ")
+		usage.read(jsonStr)
 		if jsonStr == "[DONE]" {
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
@@ -2838,16 +2881,33 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 // processClaudeStream processes the SSE stream from Claude API
 func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	usage := startPelicanTestStream(c, "anthropic")
+	// The connection probe only proves the account answers; a Pelican answer
+	// that stopped early is reported with the reason instead of as a success.
+	pelican := pelicanTestRequested(c)
+	stopReason, refusalCategory := "", ""
+	seenStop := false
+	complete := func() error {
+		if pelican {
+			if failure := pelicanClaudeStopFailure(stopReason, refusalCategory); failure != "" {
+				return s.sendErrorAndEnd(c, failure)
+			}
+		}
+		s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+		return nil
+	}
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				if _, probing := c.Get(schedulingProbeObserverKey); probing {
+				if _, probing := c.Get(schedulingProbeObserverKey); probing && !seenStop {
 					return s.sendErrorAndEnd(c, "Stream ended before message_stop")
 				}
-				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-				return nil
+				if pelican && !seenStop {
+					return s.sendErrorAndEnd(c, "Generation stream ended before completion")
+				}
+				return complete()
 			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
 		}
@@ -2858,9 +2918,9 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 		}
 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
+		usage.read(jsonStr)
 		if jsonStr == "[DONE]" {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
+			return complete()
 		}
 
 		var data map[string]any
@@ -2877,9 +2937,18 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 					s.sendEvent(c, TestEvent{Type: "content", Text: text})
 				}
 			}
+		case "message_delta":
+			if delta, ok := data["delta"].(map[string]any); ok {
+				if reason, ok := delta["stop_reason"].(string); ok {
+					stopReason = reason
+				}
+				if details, ok := delta["stop_details"].(map[string]any); ok {
+					refusalCategory, _ = details["category"].(string)
+				}
+			}
 		case "message_stop":
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
+			seenStop = true
+			return complete()
 		case "error":
 			errorMsg := "Unknown error"
 			if errData, ok := data["error"].(map[string]any); ok {
@@ -2896,6 +2965,7 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 // OpenAI-compatible Chat Completions API.
 func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	usage := startPelicanTestStream(c, "chat")
 	seenJSON := false
 	seenFinish := false
 
@@ -2922,8 +2992,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 		}
 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
+		usage.read(jsonStr)
 		if jsonStr == "[DONE]" {
-			if _, probing := c.Get(schedulingProbeObserverKey); probing && !seenFinish {
+			if _, probing := c.Get(schedulingProbeObserverKey); (probing || pelicanTestRequested(c)) && !seenFinish {
 				return s.sendErrorAndEnd(c, "Chat Completions stream ended before finish_reason")
 			}
 			s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
@@ -2965,7 +3036,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 				}
 			}
 			if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
-				if _, probing := c.Get(schedulingProbeObserverKey); probing && finishReason != "stop" {
+				if _, probing := c.Get(schedulingProbeObserverKey); (probing || pelicanTestRequested(c)) && finishReason != "stop" {
 					return s.sendErrorAndEnd(c, "Chat Completions response did not finish normally: "+finishReason)
 				}
 				seenFinish = true
@@ -2977,6 +3048,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 // processOpenAIStream processes the SSE stream from OpenAI Responses API
 func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	usage := startPelicanTestStream(c, "openai")
 	seenCompleted := false
 
 	for {
@@ -2998,6 +3070,7 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 		}
 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
+		usage.read(jsonStr)
 		if jsonStr == "[DONE]" {
 			if seenCompleted {
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
@@ -3020,7 +3093,7 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
-			if _, probing := c.Get(schedulingProbeObserverKey); probing {
+			if _, probing := c.Get(schedulingProbeObserverKey); probing || pelicanTestRequested(c) {
 				if response, ok := data["response"].(map[string]any); ok {
 					if status, _ := response["status"].(string); status != "" && status != "completed" {
 						return s.sendErrorAndEnd(c, "OpenAI response did not complete: "+status)

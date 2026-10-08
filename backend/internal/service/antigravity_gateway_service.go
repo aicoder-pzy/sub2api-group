@@ -386,6 +386,27 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 		return nil, fmt.Errorf("构建请求失败: %w", err)
 	}
 
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
+		var wrapped map[string]any
+		if err := json.Unmarshal(requestBody, &wrapped); err != nil {
+			return nil, err
+		}
+		payload, ok := wrapped["request"].(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("invalid test request envelope")
+		}
+		payload["contents"] = []map[string]any{{"role": "user", "parts": []map[string]any{{"text": options.prompt}}}}
+		generation, _ := payload["generationConfig"].(map[string]any)
+		if generation == nil {
+			generation = map[string]any{}
+		}
+		generation["maxOutputTokens"] = 32000
+		payload["generationConfig"] = generation
+		requestBody, err = json.Marshal(wrapped)
+		if err != nil {
+			return nil, err
+		}
+	}
 	// 代理 URL
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -434,6 +455,7 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 		return nil, fmt.Errorf("API 返回 %d: %s", result.resp.StatusCode, string(respBody))
 	}
 
+	recordPelicanTestSSE(ctx, "gemini", mappedModel, respBody)
 	text := extractTextFromSSEResponse(respBody)
 	return &TestConnectionResult{Text: text, MappedModel: mappedModel}, nil
 }

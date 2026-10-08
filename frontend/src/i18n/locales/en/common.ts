@@ -163,6 +163,7 @@ export default {
 
   // Navigation
   nav: {
+    pelicanShowcase: 'Pelican Tests',
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',

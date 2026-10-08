@@ -19,6 +19,7 @@ type ScheduledTestRunnerService struct {
 	accountTestSvc *AccountTestService
 	qualityJudge   *ScheduledTestQualityJudge
 	rateLimitSvc   *RateLimitService
+	pelicanGroups  *PelicanGroupTestService
 	cfg            *config.Config
 
 	cron      *cron.Cron
@@ -96,10 +97,19 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 	// Delay 10s so execution lands at ~:10 of each minute instead of :00.
 	time.Sleep(10 * time.Second)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
 
 	now := time.Now()
+	s.pelicanGroups.Cleanup(ctx, now)
+	_ = s.scheduledSvc.resultRepo.PruneExpiredPelican(ctx, now.Add(-7*24*time.Hour))
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.pelicanGroups.RunDue(ctx, now)
+	}()
 	plans, err := s.planRepo.ListDue(ctx, now)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] ListDue error: %v", err)
@@ -112,7 +122,6 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 	logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] found %d due plans", len(plans))
 
 	sem := make(chan struct{}, scheduledTestDefaultMaxWorkers)
-	var wg sync.WaitGroup
 
 	for _, plan := range plans {
 		sem <- struct{}{}
@@ -128,6 +137,10 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 }
 
 func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
+	if plan.PelicanConfig != nil {
+		s.runPelicanPlan(ctx, plan)
+		return
+	}
 	startedAt := time.Now()
 	var result *ScheduledTestResult
 	var err error

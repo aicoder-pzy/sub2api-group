@@ -38,6 +38,7 @@ func ProvideAdminHandlers(
 	pluginHandler *admin.PluginHandler,
 	apiKeyHandler *admin.AdminAPIKeyHandler,
 	scheduledTestHandler *admin.ScheduledTestHandler,
+	pelicanGroupTestHandler *admin.PelicanGroupTestHandler,
 	channelHandler *admin.ChannelHandler,
 	channelMonitorHandler *admin.ChannelMonitorHandler,
 	channelMonitorTemplateHandler *admin.ChannelMonitorRequestTemplateHandler,
@@ -84,6 +85,7 @@ func ProvideAdminHandlers(
 		Plugin:                 pluginHandler,
 		APIKey:                 apiKeyHandler,
 		ScheduledTest:          scheduledTestHandler,
+		PelicanGroupTest:       pelicanGroupTestHandler,
 		Channel:                channelHandler,
 		ChannelMonitor:         channelMonitorHandler,
 		ChannelMonitorTemplate: channelMonitorTemplateHandler,
@@ -200,6 +202,7 @@ func ProvideHandlers(
 	modelPlazaHandler *ModelPlazaHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
+	pelicanShowcaseHandler *PelicanShowcaseHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
@@ -226,6 +229,7 @@ func ProvideHandlers(
 		ModelPlaza:       modelPlazaHandler,
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
+		PelicanShowcase:  pelicanShowcaseHandler,
 	}
 }
 
@@ -281,6 +285,8 @@ var ProviderSet = wire.NewSet(
 	admin.NewPluginHandler,
 	admin.NewAdminAPIKeyHandler,
 	admin.NewScheduledTestHandler,
+	admin.NewPelicanGroupTestHandler,
+	NewPelicanShowcaseHandler,
 	admin.NewChannelHandler,
 	admin.NewChannelMonitorHandler,
 	admin.NewChannelMonitorRequestTemplateHandler,

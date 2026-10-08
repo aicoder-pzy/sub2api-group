@@ -23,6 +23,9 @@
               <Icon name="clock" size="sm" class="text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
             </button>
+            <button @click="$emit('pelican',account);$emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="brain" size="sm" class="text-amber-500" />{{ t('admin.accounts.pelicanTest.title') }}
+            </button>
             <button v-if="canDuplicate" @click="$emit('duplicate', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="copy" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
@@ -70,7 +73,7 @@ import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
 
 const props = defineProps<{ show: boolean; account: Account | null; anchorRect: DOMRect | null }>()
-const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
+const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'pelican', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
 const { t } = useI18n()
 const menuRef = ref<HTMLElement | null>(null)
 const { width: viewportWidth, height: viewportHeight } = useWindowSize()

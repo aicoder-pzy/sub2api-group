@@ -482,12 +482,13 @@
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
+    <PelicanTestModal :show="showPelican" :account="pelicanAcc" :accounts="accounts" @close="showPelican=false" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <RefreshSchedulingDialog v-if="showRefreshScheduling && schedulingGroup" :group="schedulingGroup" @close="showRefreshScheduling = false" @updated="handleManualRefresh" />
     <ModelAccountRoutingDialog v-if="showModelAccountRouting" :selected-ids="selIds" @close="showModelAccountRouting = false" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :account-platform="scheduleAcc?.platform" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @pelican="handlePelican" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -546,6 +547,7 @@ import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vu
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
+import PelicanTestModal from '@/components/admin/account/PelicanTestModal.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
@@ -2366,6 +2368,14 @@ const handleViewStats = async (a: AccountListItem) => {
   if (!account) return
   statsAcc.value = account
   showStats.value = true
+}
+const showPelican=ref(false)
+const pelicanAcc=ref<Account|null>(null)
+const handlePelican=async(a:AccountListItem)=>{
+ const account=await loadAccountDetails(a)
+ if(!account)return
+ pelicanAcc.value=account
+ showPelican.value=true
 }
 const handleSchedule = async (a: Account) => {
   scheduleAcc.value = a

@@ -4,6 +4,9 @@ import dashboard from './dashboard'
 import channelMonitorV2 from './channelMonitorV2'
 import batchImage from './batchImage'
 import admin from './admin'
+import pelicanAccount from './pelicanAccount'
+import pelicanShowcase from './pelicanShowcase'
+import pelicanTests from './pelicanTests'
 import misc from './misc'
 
 export default {
@@ -12,6 +15,8 @@ export default {
   ...dashboard,
   ...channelMonitorV2,
   ...batchImage,
-  admin,
+  admin: {...admin,accounts:{...admin.accounts,...pelicanAccount}},
+  ...pelicanShowcase,
+  pelicanTests,
   ...misc,
 }

@@ -723,6 +723,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     items.push({ path: '/dashboard', label: t('nav.dashboard'), icon: DashboardIcon })
   }
   items.push(
+    {path:'/pelican-showcase',label:t('nav.pelicanShowcase'),icon:SignalIcon},
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
@@ -794,6 +795,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true, featureFlag: flagSubscription },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
     { path: '/admin/bps-tickets', label: t('nav.bpsTickets'), icon: SignalIcon },
+    {path:'/admin/pelican-tests',label:t('nav.pelicanShowcase'),icon:SignalIcon},
     { path: '/admin/prism', label: t('nav.prismAdmin'), icon: SignalIcon },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
@@ -846,7 +848,8 @@ const adminNavItems = computed((): NavItem[] => {
   // 简单模式下，在系统设置前插入 API密钥
   if (authStore.isSimpleMode) {
     const filtered = visible.filter(item => !item.hideInSimpleMode)
-    filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
+    filtered.push({path:'/pelican-showcase',label:t('nav.pelicanShowcase'),icon:SignalIcon},
+    { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
     for (const cm of customMenuItemsForAdmin.value) {
       filtered.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })

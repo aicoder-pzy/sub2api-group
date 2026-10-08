@@ -1,6 +1,14 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/views/admin/__tests__/PelicanTestsView.spec.ts \
+	src/views/user/__tests__/PelicanShowcaseView.spec.ts \
+	src/components/user/pelican/__tests__ \
+	src/components/admin/account/__tests__/PelicanRecordsDashboard.spec.ts \
+	src/components/admin/account/__tests__/PelicanTestModal.spec.ts \
+	src/components/admin/account/__tests__/PelicanTestFields.spec.ts \
+	src/utils/__tests__/pelicanHtml.spec.ts \
+	src/utils/__tests__/pelicanPreview.spec.ts \
 	src/views/admin/__tests__/PrismView.spec.ts \
 	src/views/admin/__tests__/BPSTicketsView.spec.ts \
 	src/i18n/__tests__/localeKeyCompleteness.spec.ts \

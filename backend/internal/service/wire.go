@@ -659,9 +659,11 @@ func ProvideScheduledTestRunnerService(
 	concurrencySvc *ConcurrencyService,
 	rateLimitSvc *RateLimitService,
 	cfg *config.Config,
+	pelicanGroups *PelicanGroupTestService,
 ) *ScheduledTestRunnerService {
 	qualityJudge := NewScheduledTestQualityJudge(accountRepo, groupRepo, concurrencySvc, accountTestSvc)
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, qualityJudge, rateLimitSvc, cfg)
+	svc.pelicanGroups = pelicanGroups
 	svc.Start()
 	return svc
 }
@@ -965,6 +967,8 @@ var ProviderSet = wire.NewSet(
 	ProvideSystemOperationLockService,
 	ProvideIdempotencyCleanupService,
 	ProvideScheduledTestService,
+	NewPelicanGroupTestService,
+	NewPelicanShowcaseService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
 	NewChannelService,

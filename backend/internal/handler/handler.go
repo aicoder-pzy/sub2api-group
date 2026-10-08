@@ -33,6 +33,7 @@ type AdminHandlers struct {
 	TLSFingerprintProfile  *admin.TLSFingerprintProfileHandler
 	Plugin                 *admin.PluginHandler
 	APIKey                 *admin.AdminAPIKeyHandler
+	PelicanGroupTest       *admin.PelicanGroupTestHandler
 	ScheduledTest          *admin.ScheduledTestHandler
 	Channel                *admin.ChannelHandler
 	ChannelMonitor         *admin.ChannelMonitorHandler
@@ -47,6 +48,7 @@ type AdminHandlers struct {
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
+	PelicanShowcase  *PelicanShowcaseHandler
 	Auth             *AuthHandler
 	User             *UserHandler
 	APIKey           *APIKeyHandler
