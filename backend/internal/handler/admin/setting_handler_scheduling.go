@@ -16,7 +16,8 @@ func (h *SettingHandler) GetFastestFailoverSettings(c *gin.Context) {
 }
 
 func (h *SettingHandler) UpdateFastestFailoverSettings(c *gin.Context) {
-	var settings service.FastestFailoverSettings
+	settings := service.DefaultFastestFailoverSettings()
+	settings.FirstOutputTimeoutSeconds, settings.StreamIdleTimeoutSeconds, settings.ModelCooldownSeconds = 0, 0, 0
 	if err := c.ShouldBindJSON(&settings); err != nil {
 		response.BadRequest(c, "Invalid scheduling settings")
 		return

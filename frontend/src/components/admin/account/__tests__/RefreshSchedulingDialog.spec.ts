@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import RefreshSchedulingDialog from '../RefreshSchedulingDialog.vue'
 import type { AdminGroup } from '@/types'
+import { getGroupSchedulingStatus } from '@/api/admin/groups'
 
-vi.mock('@/api/admin/groups', () => ({ getModelAllowlistCandidates: vi.fn().mockResolvedValue(['model-a']) }))
+vi.mock('@/api/admin/groups', () => ({ getModelAllowlistCandidates: vi.fn().mockResolvedValue(['model-a']), getGroupSchedulingStatus: vi.fn() }))
 vi.mock('@/api/client', () => ({ buildApiUrl: (path: string) => `/api/v1${path}` }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('vue-i18n', async (importOriginal) => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => key }) }))
 const group = { id: 71, name: 'Test group' } as AdminGroup
 function mountDialog() {
   return mount(RefreshSchedulingDialog, { props: { group }, global: { stubs: { BaseDialog: { template: '<div><slot/><slot name="footer"/></div>' } } } })
@@ -21,6 +22,22 @@ function response(events: object[]) {
 }
 afterEach(() => vi.unstubAllGlobals())
 describe('active scheduling evaluation', () => {
+	 it('reads scheduling status without sending paid probes or changing the binding', async () => {
+		const fetch = vi.fn()
+		vi.stubGlobal('fetch', fetch)
+		vi.mocked(getGroupSchedulingStatus).mockResolvedValue({ model: 'model-a', current_account_id: 1, minimum_samples: 10, transition: null, candidates: [{ account_id: 1, name: 'Primary', current: true, eligible: true, rank: 1, confidence: 'unknown', samples: 0, success_rate: null, recent_failures: 0, last_success_at: null, last_failure_at: null, cooldown_seconds: 0 }] })
+		const wrapper = mount(RefreshSchedulingDialog, { props: { group, readOnly: true }, global: { stubs: { BaseDialog: { template: '<div><slot/><slot name="footer"/></div>' } } } })
+		await flushPromises()
+		expect(getGroupSchedulingStatus).toHaveBeenCalledWith(71, 'model-a')
+		expect(wrapper.text()).toContain('Primary')
+		expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.unknown')
+		expect(wrapper.text()).not.toContain('100.0%')
+		await wrapper.get('input').trigger('keydown.enter')
+		await flushPromises()
+		expect(fetch).not.toHaveBeenCalled()
+		expect(wrapper.emitted('updated')).toBeUndefined()
+		wrapper.unmount()
+	 })
   it('starts only on explicit action and shows streamed results and the winner', async () => {
     const fetch = vi.fn().mockResolvedValue(response([
       { type: 'start', total: 2 }, { type: 'testing', account_id: 1, name: 'A' },

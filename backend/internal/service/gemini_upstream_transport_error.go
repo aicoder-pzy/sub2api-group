@@ -25,6 +25,13 @@ var geminiTransportFailoverBody = []byte(`{"error":{"code":502,"message":"Upstre
 //
 // 本函数不写响应：响应归 handler 所有（换号，或耗尽后按端点格式渲染错误）。
 func (s *GeminiMessagesCompatService) handleUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error) error {
+	if fastestFailoverTotalBudgetExpired(ctx) {
+		return fastestFailoverBudgetError(true)
+	}
+	var budgetErr *UpstreamFailoverError
+	if errors.As(err, &budgetErr) {
+		return err
+	}
 	if isClientCanceledTransportError(ctx, err) {
 		return err
 	}
@@ -38,7 +45,7 @@ func (s *GeminiMessagesCompatService) handleUpstreamTransportError(ctx context.C
 		Kind:               "request_error",
 		Message:            safeErr,
 	}
-	event.ProxyID, event.ProxyName = opsUpstreamProxyAttribution(account)
+	event.ProxyID, event.ProxyName = schedulingProxyErrorAttribution(account, err)
 	appendOpsUpstreamError(c, event)
 
 	if errors.Is(err, context.Canceled) || (errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded)) {

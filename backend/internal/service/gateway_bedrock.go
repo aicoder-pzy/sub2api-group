@@ -203,7 +203,7 @@ func (s *GatewayService) executeBedrockUpstream(
 			return nil, err
 		}
 
-		resp, err = doFastestFailoverUpstream(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
+		resp, err = s.doGatewayUpstream(upstreamReq, proxyURL, account, nil)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()

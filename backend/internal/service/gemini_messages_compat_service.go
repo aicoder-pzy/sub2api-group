@@ -121,6 +121,26 @@ func (s *GeminiMessagesCompatService) GetTokenProvider() *GeminiTokenProvider {
 	return s.tokenProvider
 }
 
+func (s *GeminiMessagesCompatService) schedulingSettingsService() *SettingService {
+	if s != nil && s.rateLimitService != nil {
+		return s.rateLimitService.settingService
+	}
+	return nil
+}
+
+func (s *GeminiMessagesCompatService) beginSchedulingAttempt(ctx context.Context, account *Account, model, action string) (context.Context, *fastestFailoverAttempt) {
+	if action == "countTokens" || ValidateSchedulingProbeModel(model) != nil {
+		return ctx, nil
+	}
+	return beginFastestFailoverAttempt(ctx, account, s.schedulingSettingsService())
+}
+
+func (s *GeminiMessagesCompatService) finishSchedulingAttempt(ctx context.Context, c *gin.Context, account *Account, model string, attempt *fastestFailoverAttempt, err error, attempts int) error {
+	err = limitFastestFailoverRetry(ctx, err, attempts, account.ID)
+	modelBody, _ := json.Marshal(map[string]string{"model": model})
+	return finishFastestFailoverAttempt(ctx, s.accountRepo, c, account, modelBody, attempt, err)
+}
+
 func (s *GeminiMessagesCompatService) SelectAccountForModel(ctx context.Context, groupID *int64, sessionHash string, requestedModel string) (*Account, error) {
 	return s.SelectAccountForModelWithExclusions(ctx, groupID, sessionHash, requestedModel, nil)
 }
@@ -171,7 +191,7 @@ func (s *GeminiMessagesCompatService) SelectAccountForModelWithExclusions(ctx co
 			}
 		}
 		selected = nil
-		if ordered := fastestFailoverCandidateOrder(ctx, nil, s.cache, groupID, requestedModel, candidates); len(ordered) > 0 {
+		if ordered := fastestFailoverCandidateOrder(ctx, nil, s.cache, groupID, requestedModel, candidates, s.schedulingSettingsService().FastestFailoverSettings(ctx)); len(ordered) > 0 {
 			selected = ordered[0]
 		}
 	} else {
@@ -665,9 +685,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	originalModel := req.Model
 	ctx = prepareFastestFailoverBinding(ctx, s.cache, originalModel)
+	ctx, timeoutAttempt := s.beginSchedulingAttempt(ctx, account, originalModel, "generateContent")
 	upstreamAttempts := 0
 	defer func() {
-		errorOut = limitFastestFailoverRetry(ctx, errorOut, upstreamAttempts)
+		errorOut = s.finishSchedulingAttempt(ctx, c, account, originalModel, timeoutAttempt, errorOut, upstreamAttempts)
 		if errorOut == nil && resultOut != nil && !resultOut.ClientDisconnect {
 			confirmGroupModelSchedulingAccount(ctx, originalModel, account.ID)
 		}
@@ -858,7 +879,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		requestIDHeader = idHeader
 
 		upstreamAttempts++
-		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		resp, err = s.doGeminiUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
 		}
@@ -1200,9 +1221,10 @@ func isGeminiSignatureRelatedError(respBody []byte) bool {
 
 func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (resultOut *ForwardResult, errorOut error) {
 	ctx = prepareFastestFailoverBinding(ctx, s.cache, originalModel)
+	ctx, timeoutAttempt := s.beginSchedulingAttempt(ctx, account, originalModel, action)
 	upstreamAttempts := 0
 	defer func() {
-		errorOut = limitFastestFailoverRetry(ctx, errorOut, upstreamAttempts)
+		errorOut = s.finishSchedulingAttempt(ctx, c, account, originalModel, timeoutAttempt, errorOut, upstreamAttempts)
 		if errorOut == nil && resultOut != nil && !resultOut.ClientDisconnect && action != "countTokens" {
 			confirmGroupModelSchedulingAccount(ctx, originalModel, account.ID)
 		}
@@ -1403,7 +1425,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		requestIDHeader = idHeader
 
 		upstreamAttempts++
-		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		resp, err = s.doGeminiUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
 			transportErr := s.handleUpstreamTransportError(ctx, c, account, err)
 			// countTokens 不因上游链路故障而失败：本地估算兜底，不换号。
@@ -2177,6 +2199,8 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	}
 
 	messageID := generateAnthropicMsgID()
+	streamWriter := newFastestFailoverStreamWriter(c.Writer, resp)
+	flusher = streamWriter
 	messageStart := map[string]any{
 		"type": "message_start",
 		"message": map[string]any{
@@ -2193,7 +2217,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			},
 		},
 	}
-	writeSSE(c.Writer, "message_start", messageStart)
+	writeSSE(streamWriter, "message_start", messageStart)
 	flusher.Flush()
 
 	var firstTokenMs *int
@@ -2247,6 +2271,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			continue
 		}
 
+		streamWriter.observeGemini(unwrappedBytes)
 		if fr := extractGeminiFinishReason(geminiResp); fr != "" {
 			finishReason = fr
 		}
@@ -2261,7 +2286,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 				// text block starts, emitting overlapping Anthropic content
 				// blocks that violate the SSE contract.
 				if openToolIndex >= 0 {
-					writeSSE(c.Writer, "content_block_stop", map[string]any{
+					writeSSE(streamWriter, "content_block_stop", map[string]any{
 						"type":  "content_block_stop",
 						"index": openToolIndex,
 					})
@@ -2278,7 +2303,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 
 				if openBlockType != "text" {
 					if openBlockIndex >= 0 {
-						writeSSE(c.Writer, "content_block_stop", map[string]any{
+						writeSSE(streamWriter, "content_block_stop", map[string]any{
 							"type":  "content_block_stop",
 							"index": openBlockIndex,
 						})
@@ -2286,7 +2311,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					openBlockType = "text"
 					openBlockIndex = nextBlockIndex
 					nextBlockIndex++
-					writeSSE(c.Writer, "content_block_start", map[string]any{
+					writeSSE(streamWriter, "content_block_start", map[string]any{
 						"type":  "content_block_start",
 						"index": openBlockIndex,
 						"content_block": map[string]any{
@@ -2300,7 +2325,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}
-				writeSSE(c.Writer, "content_block_delta", map[string]any{
+				writeSSE(streamWriter, "content_block_delta", map[string]any{
 					"type":  "content_block_delta",
 					"index": openBlockIndex,
 					"delta": map[string]any{
@@ -2321,7 +2346,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 
 				// Close any open text block before tool_use.
 				if openBlockIndex >= 0 {
-					writeSSE(c.Writer, "content_block_stop", map[string]any{
+					writeSSE(streamWriter, "content_block_stop", map[string]any{
 						"type":  "content_block_stop",
 						"index": openBlockIndex,
 					})
@@ -2331,7 +2356,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 
 				// If we receive streamed tool args in pieces, keep a single tool block open and emit deltas.
 				if openToolIndex >= 0 && openToolName != name {
-					writeSSE(c.Writer, "content_block_stop", map[string]any{
+					writeSSE(streamWriter, "content_block_stop", map[string]any{
 						"type":  "content_block_stop",
 						"index": openToolIndex,
 					})
@@ -2347,7 +2372,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					nextBlockIndex++
 					sawToolUse = true
 
-					writeSSE(c.Writer, "content_block_start", map[string]any{
+					writeSSE(streamWriter, "content_block_start", map[string]any{
 						"type":  "content_block_start",
 						"index": openToolIndex,
 						"content_block": map[string]any{
@@ -2376,7 +2401,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 				delta, newSeen := computeGeminiTextDelta(seenToolJSON, argsJSONText)
 				seenToolJSON = newSeen
 				if delta != "" {
-					writeSSE(c.Writer, "content_block_delta", map[string]any{
+					writeSSE(streamWriter, "content_block_delta", map[string]any{
 						"type":  "content_block_delta",
 						"index": openToolIndex,
 						"delta": map[string]any{
@@ -2399,14 +2424,17 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		}
 	}
 
+	if err := streamWriter.incompletePreludeError(); err != nil {
+		return nil, err
+	}
 	if openBlockIndex >= 0 {
-		writeSSE(c.Writer, "content_block_stop", map[string]any{
+		writeSSE(streamWriter, "content_block_stop", map[string]any{
 			"type":  "content_block_stop",
 			"index": openBlockIndex,
 		})
 	}
 	if openToolIndex >= 0 {
-		writeSSE(c.Writer, "content_block_stop", map[string]any{
+		writeSSE(streamWriter, "content_block_stop", map[string]any{
 			"type":  "content_block_stop",
 			"index": openToolIndex,
 		})
@@ -2423,7 +2451,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	if usage.InputTokens > 0 {
 		usageObj["input_tokens"] = usage.InputTokens
 	}
-	writeSSE(c.Writer, "message_delta", map[string]any{
+	writeSSE(streamWriter, "message_delta", map[string]any{
 		"type": "message_delta",
 		"delta": map[string]any{
 			"stop_reason":   stopReason,
@@ -2431,7 +2459,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		},
 		"usage": usageObj,
 	})
-	writeSSE(c.Writer, "message_stop", map[string]any{
+	writeSSE(streamWriter, "message_stop", map[string]any{
 		"type": "message_stop",
 	})
 	flusher.Flush()
@@ -2822,6 +2850,8 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 		return nil, errors.New("streaming not supported")
 	}
 
+	streamWriter := newFastestFailoverStreamWriter(c.Writer, resp)
+	flusher = streamWriter
 	reader := bufio.NewReader(resp.Body)
 	usage := &ClaudeUsage{}
 	observer := upstreamResponseModelObserverFromContext(c)
@@ -2841,7 +2871,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
 				// Keepalive / done markers
 				if payload == "" || payload == "[DONE]" {
-					_, _ = io.WriteString(c.Writer, line)
+					_, _ = io.WriteString(streamWriter, line)
 					flusher.Flush()
 				} else {
 					var rawToWrite string
@@ -2858,6 +2888,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 						rawBytes = []byte(payload)
 					}
 
+					streamWriter.observeGemini(rawBytes)
 					sawDataEvent = true
 					if sig, ok := detectGeminiResponseSignal(rawBytes); ok && sig.Kind > best.Kind {
 						best = sig
@@ -2875,10 +2906,10 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 
 					if isOAuth {
 						// SSE format requires double newline (\n\n) to separate events
-						_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", rawToWrite)
+						_, _ = fmt.Fprintf(streamWriter, "data: %s\n\n", rawToWrite)
 					} else {
 						// Pass-through for AI Studio responses.
-						_, _ = io.WriteString(c.Writer, line)
+						_, _ = io.WriteString(streamWriter, line)
 					}
 					flusher.Flush()
 				}
@@ -2886,7 +2917,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 				if !sawDataEvent {
 					fallback.AddLine(trimmed)
 				}
-				_, _ = io.WriteString(c.Writer, line)
+				_, _ = io.WriteString(streamWriter, line)
 				flusher.Flush()
 			}
 		}
@@ -2899,6 +2930,9 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 		}
 	}
 
+	if err := streamWriter.incompletePreludeError(); err != nil {
+		return nil, err
+	}
 	s.finalizeGeminiSSESignal(c, account, true, upstreamRequestID, best, sawDataEvent, fallback)
 
 	return &geminiNativeStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil

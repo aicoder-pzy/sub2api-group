@@ -115,14 +115,22 @@ func isClientCanceledTransportError(ctx context.Context, err error) bool {
 //
 // passthrough tags the Ops error event for the OpenAI passthrough forward path.
 func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, passthrough bool) error {
+	if fastestFailoverTotalBudgetExpired(ctx) {
+		return fastestFailoverBudgetError(true)
+	}
+	var budgetErr *UpstreamFailoverError
+	if errors.As(err, &budgetErr) {
+		return err
+	}
 	if isClientCanceledTransportError(ctx, err) {
 		return err
 	}
 	safeErr := sanitizeUpstreamErrorMessage(err.Error())
 	setOpsUpstreamError(c, 0, safeErr, "")
+	proxyID, proxyName := schedulingProxyErrorAttribution(account, err)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		ProxyID:            opsUpstreamProxyID(account),
-		ProxyName:          opsUpstreamProxyName(account),
+		ProxyID:            proxyID,
+		ProxyName:          proxyName,
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,

@@ -1078,7 +1078,7 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		return nil, compactBlocked, filterStats
 	}
 	if fastestFailoverEnabled(ctx, groupID) {
-		return fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, eligible)[0], compactBlocked, filterStats
+		return fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, eligible, s.settingService.FastestFailoverSettings(ctx))[0], compactBlocked, filterStats
 	}
 	rateOrder := openAILegacyUpstreamRateOrder{}
 	if preferLowUpstreamRate {
@@ -1318,7 +1318,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		return nil, noAvailableOpenAISelectionError(requestedModel, false, filterStats.summary(""))
 	}
 	if fastestFailoverEnabled(ctx, groupID) {
-		ordered := fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, candidates)
+		ordered := fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, candidates, s.settingService.FastestFailoverSettings(ctx))
 		for _, account := range ordered {
 			account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
 			if account == nil {

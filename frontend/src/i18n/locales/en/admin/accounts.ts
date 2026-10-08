@@ -27,7 +27,7 @@ export default {
         description: 'Evaluates every account in this group, regardless of pagination, other filters or selection. Updates only the specified model. Paused, cooling down, quota restricted or incompatible accounts are skipped.',
         cost: 'Starting sends a real upstream test to each eligible account and incurs upstream charges. Closing this dialog cancels unfinished tests.',
         model: 'Test model (select or enter a concrete text model)',
-        policy: 'Preferred accounts and their priority remain respected; equal priority preferred accounts use measured latency. Other accounts within 1.2× the fastest latency favor lower rates. All failures or cancellation retain the previous binding.',
+        policy: 'After completed probes, select using historical success rates and recent failures. Insufficient samples remain unknown. All failures or cancellation retain the previous binding.',
         progress: 'Evaluated {done}/{total}, testing: {name}',
         complete: 'Scheduling for {model} updated to {name} (#{id})',
         account: 'Account',
@@ -39,6 +39,13 @@ export default {
         cancel: 'Cancel tests and close',
         start: 'Evaluate and update',
         interrupted: 'Connection interrupted without completion confirmation. Refresh the account list to check the current binding.'
+      },
+      schedulingStatus: {
+        title: 'Scheduling status', model: 'Model', current: 'Current channel', unbound: 'Unbound',
+        order: 'Candidate order', evidence: 'Sample confidence', successRate: 'Complete success rate', recentFailures: 'Failures in 15 minutes',
+        lastFailure: 'Last failure', cooldown: 'Remaining cooldown', measured: 'Sufficient samples', limited: 'Limited samples', unknown: 'Unknown', degraded: 'Recently unstable',
+        unavailable: 'Currently unavailable', paused: 'Paused or disabled',
+        initial_selection: 'First completed binding', confirmed_failover: 'Confirmed failover', manual_refresh: 'Manual scheduling update'
       },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',

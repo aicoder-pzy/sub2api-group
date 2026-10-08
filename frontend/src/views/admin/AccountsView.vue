@@ -198,6 +198,7 @@
             <button type="button" class="btn btn-secondary btn-sm" :disabled="!schedulingGroup" :title="t('admin.accounts.refreshScheduling.selectGroup')" @click="showRefreshScheduling = true">
               {{ t('admin.accounts.refreshScheduling.title') }}
             </button>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="!schedulingGroup" :title="t('admin.accounts.schedulingStatus.title')" :aria-label="t('admin.accounts.schedulingStatus.title')" @click="showSchedulingStatus = true"><Icon name="eye" size="sm" /></button>
           </template>
         </AccountBulkActionsBar>
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -484,7 +485,7 @@
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <PelicanTestModal :show="showPelican" :account="pelicanAcc" :accounts="accounts" @close="showPelican=false" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
-    <RefreshSchedulingDialog v-if="showRefreshScheduling && schedulingGroup" :group="schedulingGroup" @close="showRefreshScheduling = false" @updated="handleManualRefresh" />
+    <RefreshSchedulingDialog v-if="(showRefreshScheduling || showSchedulingStatus) && schedulingGroup" :group="schedulingGroup" :read-only="showSchedulingStatus" @close="showRefreshScheduling = false; showSchedulingStatus = false" @updated="handleManualRefresh" />
     <ModelAccountRoutingDialog v-if="showModelAccountRouting" :selected-ids="selIds" @close="showModelAccountRouting = false" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :account-platform="scheduleAcc?.platform" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
@@ -578,6 +579,7 @@ const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
 const groupsByID = computed(() => new Map(groups.value.map(group => [group.id, group])))
 const showRefreshScheduling = ref(false)
+const showSchedulingStatus = ref(false)
 const showModelAccountRouting = ref(false)
 const schedulingGroup = computed(() => {
   const group = groupsByID.value.get(Number(params.group))

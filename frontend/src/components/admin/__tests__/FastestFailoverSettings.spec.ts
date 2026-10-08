@@ -9,7 +9,7 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 describe('global fastest failover settings', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    vi.mocked(getFastestFailoverSettings).mockResolvedValue({ first_output_timeout_seconds: 60, stream_idle_timeout_seconds: 120, model_cooldown_seconds: 120 })
+    vi.mocked(getFastestFailoverSettings).mockResolvedValue({ first_output_timeout_seconds: 60, stream_idle_timeout_seconds: 120, model_cooldown_seconds: 120, total_attempt_budget_seconds: 120, minimum_samples: 10 })
     vi.mocked(updateFastestFailoverSettings).mockImplementation(async settings => ({ ...settings }))
   })
   it('loads, validates whole seconds and saves the full global configuration', async () => {
@@ -23,7 +23,7 @@ describe('global fastest failover settings', () => {
     await first.setValue('15')
     await wrapper.get('button').trigger('click')
     await flushPromises()
-    expect(updateFastestFailoverSettings).toHaveBeenCalledWith({ first_output_timeout_seconds: 15, stream_idle_timeout_seconds: 120, model_cooldown_seconds: 120 })
+    expect(updateFastestFailoverSettings).toHaveBeenCalledWith({ first_output_timeout_seconds: 15, stream_idle_timeout_seconds: 120, model_cooldown_seconds: 120, total_attempt_budget_seconds: 120, minimum_samples: 10 })
     expect(wrapper.get('[role="status"]').text()).toContain('saved')
   })
   it('requires a successful load before allowing a save', async () => {

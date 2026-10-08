@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -23,17 +24,21 @@ const fastestFailoverTimeoutCooldown = 2 * time.Minute
 type fastestFailoverAttemptKey struct{}
 
 type fastestFailoverAttempt struct {
-	mutex         sync.Mutex
-	timer         *time.Timer
-	deadline      time.Time
-	cancel        context.CancelFunc
-	body          io.ReadCloser
-	firstTimeout  time.Duration
-	cooldown      time.Duration
-	idleTimeout   time.Duration
-	outputStarted bool
-	timedOut      bool
-	closed        bool
+	mutex          sync.Mutex
+	timer          *time.Timer
+	deadline       time.Time
+	cancel         context.CancelFunc
+	body           io.ReadCloser
+	firstTimeout   time.Duration
+	cooldown       time.Duration
+	idleTimeout    time.Duration
+	outputStarted  bool
+	timedOut       bool
+	closed         bool
+	state          *groupModelSchedulingRequestState
+	totalBudget    time.Duration
+	maxSubmissions int
+	budgetLimited  bool
 }
 
 func fastestFailoverAttemptFromContext(ctx context.Context) *fastestFailoverAttempt {
@@ -50,10 +55,18 @@ func beginFastestFailoverAttempt(ctx context.Context, account *Account, settings
 	if len(settingsService) > 0 {
 		settings = settingsService[0].FastestFailoverSettings(ctx)
 	}
+	ctx = WithFastestFailoverRequestState(ctx)
+	state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	maxSubmissions := 2
+	if account.IsPoolMode() && account.GetPoolModeRetryCount() == 0 {
+		maxSubmissions = 1
+	}
 	attempt := &fastestFailoverAttempt{
 		firstTimeout: time.Duration(settings.FirstOutputTimeoutSeconds) * time.Second,
 		idleTimeout:  time.Duration(settings.StreamIdleTimeoutSeconds) * time.Second,
 		cooldown:     time.Duration(settings.ModelCooldownSeconds) * time.Second,
+		state:        state, totalBudget: time.Duration(settings.TotalAttemptBudgetSeconds) * time.Second,
+		maxSubmissions: maxSubmissions,
 	}
 	return context.WithValue(ctx, fastestFailoverAttemptKey{}, attempt), attempt
 }
@@ -73,7 +86,18 @@ func (attempt *fastestFailoverAttempt) bind(ctx context.Context) context.Context
 	attempt.cancel = cancel
 	if attempt.timer == nil {
 		attempt.deadline = time.Now().Add(attempt.firstTimeout)
-		attempt.timer = time.AfterFunc(attempt.firstTimeout, attempt.expire)
+		if attempt.state != nil {
+			attempt.state.mu.Lock()
+			if attempt.state.deadline.IsZero() {
+				attempt.state.deadline = time.Now().Add(attempt.totalBudget)
+			}
+			if attempt.state.deadline.Before(attempt.deadline) {
+				attempt.deadline = attempt.state.deadline
+				attempt.budgetLimited = true
+			}
+			attempt.state.mu.Unlock()
+		}
+		attempt.timer = time.AfterFunc(time.Until(attempt.deadline), attempt.expire)
 	}
 	return ctx
 }
@@ -109,6 +133,7 @@ func (attempt *fastestFailoverAttempt) progress(output bool) {
 	attempt.outputStarted = attempt.outputStarted || output
 	if attempt.outputStarted {
 		attempt.deadline = time.Now().Add(attempt.idleTimeout)
+		attempt.budgetLimited = false
 	}
 }
 
@@ -116,6 +141,15 @@ func markFastestFailoverOutput(ctx context.Context) {
 	if attempt := fastestFailoverAttemptFromContext(ctx); attempt != nil {
 		attempt.progress(true)
 	}
+}
+
+func fastestFailoverTotalBudgetExpired(ctx context.Context) bool {
+	if attempt := fastestFailoverAttemptFromContext(ctx); attempt != nil {
+		attempt.mutex.Lock()
+		defer attempt.mutex.Unlock()
+		return attempt.timedOut && attempt.budgetLimited && !attempt.outputStarted
+	}
+	return false
 }
 
 func markFastestFailoverResponseOutput(resp *http.Response) {
@@ -173,7 +207,7 @@ func (body *fastestFailoverReadCloser) Read(buffer []byte) (int, error) {
 }
 
 func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c *gin.Context, account *Account, body []byte, attempt *fastestFailoverAttempt, forwardErr error) error {
-	forwardErr = limitFastestFailoverRetry(ctx, forwardErr, 1)
+	forwardErr = limitFastestFailoverRetry(ctx, forwardErr, 1, account.ID)
 	if attempt == nil {
 		return forwardErr
 	}
@@ -183,11 +217,31 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 		attempt.timer.Stop()
 	}
 	timedOut, outputStarted, cancel := attempt.timedOut, attempt.outputStarted, attempt.cancel
+	budgetLimited := attempt.budgetLimited
 	attempt.mutex.Unlock()
 	if cancel != nil {
 		cancel()
 	}
+	if timedOut && budgetLimited {
+		forwardErr = fastestFailoverBudgetError(true)
+		if c != nil {
+			if value, ok := c.Get(OpsUpstreamErrorsKey); ok {
+				if events, ok := value.([]*OpsUpstreamErrorEvent); ok && len(events) > 0 {
+					event := events[len(events)-1]
+					if event != nil && event.AccountID == account.ID && (event.UpstreamStatusCode == 0 || event.UpstreamStatusCode == http.StatusGatewayTimeout) {
+						event.Scope, event.Reason = "request", "fastest_failover_budget_exhausted"
+					}
+				}
+			}
+		}
+	}
+	forwardErr = classifyFastestFailoverRequestError(ctx, c, account, forwardErr)
 	var failoverErr *UpstreamFailoverError
+	if errors.As(forwardErr, &failoverErr) && (failoverErr.Reason == "fastest_failover_budget_exhausted" || failoverErr.Reason == "fastest_failover_retry_limit" || failoverErr.Reason == "fastest_failover_shared_failure_limit") {
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+			Kind: string(failoverErr.Reason), Scope: "request", Reason: string(failoverErr.Reason), Message: "Request retry budget reached"})
+		return forwardErr
+	}
 	upstreamTimeout := errors.As(forwardErr, &failoverErr) && (failoverErr.StatusCode == http.StatusGatewayTimeout || failoverErr.StatusCode == http.StatusRequestTimeout)
 	if !timedOut && (ctx.Err() != nil || (!upstreamTimeout && !errors.Is(forwardErr, context.DeadlineExceeded))) {
 		return forwardErr
@@ -220,17 +274,134 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 
 // Bind after streaming contexts have been detached, so the attempt still cancels
 // both header waits and body reads. Retries share the original first-output deadline.
-func doFastestFailoverUpstream(upstream HTTPUpstream, request *http.Request, proxyURL string, accountID int64, concurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
+func doFastestFailoverUpstream(upstream HTTPUpstream, request *http.Request, proxyURL string, accountID int64, concurrency int, profile *tlsfingerprint.Profile, senders ...func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+	if err := reserveFastestFailoverSubmission(request.Context(), accountID); err != nil {
+		return nil, err
+	}
 	attempt := fastestFailoverAttemptFromContext(request.Context())
 	if attempt != nil {
 		request = request.WithContext(attempt.bind(request.Context()))
 	}
-	response, err := upstream.DoWithTLS(request, proxyURL, accountID, concurrency, profile)
+	var response *http.Response
+	var err error
+	if len(senders) > 0 {
+		response, err = senders[0](request)
+	} else {
+		response, err = upstream.DoWithTLS(request, proxyURL, accountID, concurrency, profile)
+	}
 	if attempt != nil && response != nil && response.Body != nil {
-		response.Request = request
+		if response.Request == nil {
+			response.Request = request
+		}
 		response.Body = attempt.wrapBody(response.Body)
 	}
 	return response, err
+}
+
+func fastestFailoverBudgetError(total bool) *UpstreamFailoverError {
+	err := &UpstreamFailoverError{
+		StatusCode: http.StatusServiceUnavailable, Scope: GatewayFailureScopeRequest,
+		RequestScopedTransient: true, Reason: "fastest_failover_retry_limit",
+		ResponseBody: []byte(`{"error":{"type":"upstream_error","message":"Channel retry limit reached"}}`),
+	}
+	if total {
+		err.StatusCode, err.NextAccountAction, err.Reason = http.StatusGatewayTimeout, NextAccountStop, "fastest_failover_budget_exhausted"
+		err.ResponseBody = []byte(`{"error":{"type":"upstream_timeout","message":"Failover time budget exhausted"}}`)
+	}
+	return err
+}
+
+func reserveFastestFailoverSubmission(ctx context.Context, accountID int64) error {
+	attempt := fastestFailoverAttemptFromContext(ctx)
+	if attempt == nil || attempt.state == nil {
+		return nil
+	}
+	state := attempt.state
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if !state.deadline.IsZero() && !time.Now().Before(state.deadline) {
+		return fastestFailoverBudgetError(true)
+	}
+	if state.submissions == nil {
+		state.submissions = make(map[int64]int)
+	}
+	if state.sharedFailureOrigin > 0 && state.sharedFailureOrigin != accountID {
+		if (state.sharedAlternateID > 0 && state.sharedAlternateID != accountID) || state.submissions[accountID] > 0 {
+			err := fastestFailoverBudgetError(false)
+			err.NextAccountAction, err.Reason = NextAccountStop, "fastest_failover_shared_failure_limit"
+			return err
+		}
+		state.sharedAlternateID = accountID
+	}
+	if state.submissions[accountID] >= attempt.maxSubmissions {
+		return fastestFailoverBudgetError(false)
+	}
+	state.submissions[accountID]++
+	return nil
+}
+
+func isFastestFailoverUnknownGrokForbidden(ctx context.Context, account *Account, status int, body []byte) bool {
+	group, _ := ctx.Value(ctxkey.Group).(*Group)
+	if group == nil || !fastestFailoverEnabled(ctx, &group.ID) || account == nil || !account.IsGrok() || status != http.StatusForbidden {
+		return false
+	}
+	if len(matchTempUnschedulableRules(account, status, body)) > 0 || isGrokContentPolicyRejection(status, body) || grokAccountAccessMessage(string(body)) {
+		return false
+	}
+	if classifyGrokUpstreamFailure(status, body, "").Class != GrokFailureNone {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	for _, marker := range []string{"invalid api key", "invalid_api_key", "invalid token", "invalid_token", "expired token", "token expired", "token has expired", "authentication failed", "unauthenticated", "credentials expired", "api key expired"} {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+	for _, marker := range []string{"insufficient credits", "insufficient balance", "billing", "payment required", "quota exceeded", "quota_exceeded", "quota exhausted", "usage limit", "rate limit", "rate_limit"} {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+	var payload any
+	if json.Unmarshal(body, &payload) == nil && grokStructuredAccountAccessMarker(payload) {
+		return false
+	}
+	return true
+}
+
+func classifyFastestFailoverRequestError(ctx context.Context, c *gin.Context, account *Account, err error) error {
+	state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	var failoverErr *UpstreamFailoverError
+	if state == nil || !errors.As(err, &failoverErr) {
+		return err
+	}
+	limited := *failoverErr
+	unknown := !failoverErr.IsCredentialFailure() && isFastestFailoverUnknownGrokForbidden(ctx, account, failoverErr.StatusCode, failoverErr.ResponseBody)
+	state.mu.Lock()
+	if unknown && state.sharedFailureOrigin == 0 {
+		state.sharedFailureOrigin = account.ID
+	}
+	stop := state.sharedFailureOrigin > 0 && state.sharedFailureOrigin != account.ID
+	state.mu.Unlock()
+	if unknown {
+		limited.Scope, limited.Reason, limited.RequestScopedTransient = GatewayFailureScopeRequest, "grok_unknown_forbidden", true
+		limited.RetryableOnSameAccount = false
+		if c != nil {
+			if value, ok := c.Get(OpsUpstreamErrorsKey); ok {
+				if events, ok := value.([]*OpsUpstreamErrorEvent); ok {
+					for _, event := range events {
+						if event != nil && event.AccountID == account.ID && event.UpstreamStatusCode == http.StatusForbidden {
+							event.Scope, event.Reason = "request", "grok_unknown_forbidden"
+						}
+					}
+				}
+			}
+		}
+	}
+	if stop {
+		limited.NextAccountAction, limited.RetryableOnSameAccount = NextAccountStop, false
+	}
+	return &limited
 }
 
 // Hold protocol preludes until meaningful output, keeping the handler's normal
@@ -247,6 +418,28 @@ type fastestFailoverStreamWriter struct {
 func newFastestFailoverStreamWriter(writer gin.ResponseWriter, resp *http.Response) *fastestFailoverStreamWriter {
 	attempt := fastestFailoverAttemptFromResponse(resp)
 	return &fastestFailoverStreamWriter{writer: writer, attempt: attempt, started: attempt == nil}
+}
+
+func (w *fastestFailoverStreamWriter) observeGemini(data []byte) {
+	if w.attempt == nil || w.started {
+		return
+	}
+	event := gjson.ParseBytes(data)
+	starts := event.Get("error").Exists() || event.Get("promptFeedback.blockReason").String() != ""
+	for _, candidate := range event.Get("candidates").Array() {
+		if candidate.Get("finishReason").String() != "" {
+			starts = true
+		}
+		for _, part := range candidate.Get("content.parts").Array() {
+			if part.Get("text").String() != "" || part.Get("functionCall").Exists() || part.Get("inlineData").Exists() || part.Get("fileData").Exists() {
+				starts = true
+			}
+		}
+	}
+	if starts {
+		w.started = true
+		w.attempt.progress(true)
+	}
 }
 
 func (w *fastestFailoverStreamWriter) observeAnthropic(data string) {

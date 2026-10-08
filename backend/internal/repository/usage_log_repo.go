@@ -176,9 +176,10 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 	}
 	rows, err := r.sql.QueryContext(ctx, `
 		WITH failure_requests AS (
-			SELECT DISTINCT
+			SELECT
 				COALESCE(NULLIF((event->>'account_id')::bigint, 0), errors.account_id) AS account_id,
-				COALESCE(NULLIF(errors.request_id, ''), 'error:' || errors.id::text) AS request_key
+				COALESCE(NULLIF(errors.request_id, ''), 'error:' || errors.id::text) AS request_key,
+				MAX(errors.created_at) AS last_failure_at
 			FROM ops_error_logs errors
 			LEFT JOIN LATERAL jsonb_array_elements(
 				CASE WHEN jsonb_typeof(errors.upstream_errors) = 'array'
@@ -190,6 +191,8 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 			  AND errors.error_phase IN ('upstream', 'account_auth')
 			  AND COALESCE(errors.is_count_tokens, false) = false
 			  AND COALESCE(errors.error_owner, '') NOT IN ('client', 'user')
+			  AND COALESCE(event->>'scope', '') NOT IN ('request', 'provider', 'proxy')
+			GROUP BY 1, 2
 		), successes AS (
 			SELECT usage.account_id,
 			       COUNT(*) FILTER (WHERE NOT EXISTS (
@@ -197,10 +200,17 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 			           WHERE failure.account_id = usage.account_id
 			             AND failure.request_key = usage.request_id
 			       )) AS successes,
+			       MAX(usage.created_at) FILTER (WHERE NOT EXISTS (
+			           SELECT 1 FROM failure_requests failure
+			           WHERE failure.account_id = usage.account_id AND failure.request_key = usage.request_id
+			       )) AS last_success_at,
 			       percentile_cont(0.95) WITHIN GROUP (
 			           ORDER BY CASE WHEN usage.stream AND usage.first_token_ms > 0
 			                         THEN usage.first_token_ms ELSE usage.duration_ms END
-			       ) AS latency_ms
+			       ) FILTER (WHERE NOT EXISTS (
+			           SELECT 1 FROM failure_requests failure
+			           WHERE failure.account_id = usage.account_id AND failure.request_key = usage.request_id
+			       )) AS latency_ms
 			FROM usage_logs usage
 			WHERE usage.group_id = $1
 			  AND COALESCE(NULLIF(BTRIM(usage.requested_model), ''), usage.model) = $2
@@ -212,14 +222,17 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 			       OR usage.image_count > 0 OR usage.image_output_tokens > 0)
 			GROUP BY usage.account_id
 		), failures AS (
-			SELECT account_id, COUNT(*) AS failures
+			SELECT account_id, COUNT(*) AS failures,
+			       COUNT(*) FILTER (WHERE last_failure_at >= NOW() - INTERVAL '15 minutes') AS recent_failures,
+			       MAX(last_failure_at) AS last_failure_at
 			FROM failure_requests
 			WHERE account_id > 0
 			GROUP BY account_id
 		)
 		SELECT COALESCE(successes.account_id, failures.account_id),
 		       COALESCE(successes.successes, 0), COALESCE(failures.failures, 0),
-		       COALESCE(successes.latency_ms, 0)
+		       COALESCE(successes.latency_ms, 0), COALESCE(failures.recent_failures, 0),
+		       successes.last_success_at, failures.last_failure_at
 		FROM successes FULL OUTER JOIN failures USING (account_id)
 		`, groupID, model, since)
 	if err != nil {
@@ -231,7 +244,8 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 	for rows.Next() {
 		var accountID int64
 		var sample service.GroupModelAccountQuality
-		if err := rows.Scan(&accountID, &sample.Successes, &sample.Failures, &sample.LatencyMS); err != nil {
+		if err := rows.Scan(&accountID, &sample.Successes, &sample.Failures, &sample.LatencyMS,
+			&sample.RecentFailures, &sample.LastSuccessAt, &sample.LastFailureAt); err != nil {
 			return nil, err
 		}
 		quality[accountID] = sample

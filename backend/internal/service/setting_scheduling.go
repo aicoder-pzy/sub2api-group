@@ -16,10 +16,15 @@ type FastestFailoverSettings struct {
 	FirstOutputTimeoutSeconds int `json:"first_output_timeout_seconds"`
 	StreamIdleTimeoutSeconds  int `json:"stream_idle_timeout_seconds"`
 	ModelCooldownSeconds      int `json:"model_cooldown_seconds"`
+	TotalAttemptBudgetSeconds int `json:"total_attempt_budget_seconds"`
+	MinimumSamples            int `json:"minimum_samples"`
 }
 
 func DefaultFastestFailoverSettings() FastestFailoverSettings {
-	return FastestFailoverSettings{60, 120, 120}
+	return FastestFailoverSettings{
+		FirstOutputTimeoutSeconds: 60, StreamIdleTimeoutSeconds: 120, ModelCooldownSeconds: 120,
+		TotalAttemptBudgetSeconds: 120, MinimumSamples: 10,
+	}
 }
 
 func (settings FastestFailoverSettings) Validate() error {
@@ -30,6 +35,8 @@ func (settings FastestFailoverSettings) Validate() error {
 		{"first_output_timeout_seconds", settings.FirstOutputTimeoutSeconds, 1, 600},
 		{"stream_idle_timeout_seconds", settings.StreamIdleTimeoutSeconds, 1, 1800},
 		{"model_cooldown_seconds", settings.ModelCooldownSeconds, 1, 86400},
+		{"total_attempt_budget_seconds", settings.TotalAttemptBudgetSeconds, 1, 3600},
+		{"minimum_samples", settings.MinimumSamples, 1, 10000},
 	} {
 		if field.value < field.min || field.value > field.max {
 			return infraerrors.BadRequest("INVALID_SCHEDULING_SETTINGS", fmt.Sprintf("%s must be between %d and %d", field.name, field.min, field.max))

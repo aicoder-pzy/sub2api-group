@@ -13,7 +13,7 @@
           <label v-for="field in fields" :key="field.key" class="block text-sm">
             {{ t(`admin.settings.fastestFailover.${field.key}`) }}
             <input v-model.number="settings[field.key]" :data-testid="field.key" class="input mt-2 w-full" type="number" min="1" :max="field.max" step="1" required @keydown.enter.prevent="save" />
-            <span class="mt-1 block text-xs text-gray-500">{{ t('admin.settings.fastestFailover.range', { max: field.max }) }}</span>
+            <span class="mt-1 block text-xs text-gray-500">{{ t(field.key === 'minimum_samples' ? 'admin.settings.fastestFailover.sampleRange' : 'admin.settings.fastestFailover.range', { max: field.max }) }}</span>
           </label>
         </div>
         <p class="text-xs text-gray-500">{{ t('admin.settings.fastestFailover.scope') }}</p>
@@ -34,9 +34,12 @@ const { t } = useI18n()
 const fields: { key: keyof FastestFailoverSettings; max: number }[] = [
   { key: 'first_output_timeout_seconds', max: 600 },
   { key: 'stream_idle_timeout_seconds', max: 1800 },
-  { key: 'model_cooldown_seconds', max: 86400 }
+  { key: 'model_cooldown_seconds', max: 86400 },
+  { key: 'total_attempt_budget_seconds', max: 3600 },
+  { key: 'minimum_samples', max: 10000 }
 ]
-const settings = ref<FastestFailoverSettings>({ first_output_timeout_seconds: 60, stream_idle_timeout_seconds: 120, model_cooldown_seconds: 120 })
+const defaults: FastestFailoverSettings = { first_output_timeout_seconds: 60, stream_idle_timeout_seconds: 120, model_cooldown_seconds: 120, total_attempt_budget_seconds: 120, minimum_samples: 10 }
+const settings = ref<FastestFailoverSettings>({ ...defaults })
 const loading = ref(false)
 const loaded = ref(false)
 const saving = ref(false)
@@ -46,7 +49,7 @@ watch(settings, () => { saved.value = false }, { deep: true, flush: 'sync' })
 async function load() {
   loading.value = true
   error.value = ''
-  try { settings.value = await getFastestFailoverSettings(); loaded.value = true }
+  try { settings.value = { ...defaults, ...await getFastestFailoverSettings() }; loaded.value = true }
   catch (cause) { error.value = extractApiErrorMessage(cause, t('admin.settings.fastestFailover.loadFailed')) }
   finally { loading.value = false }
 }

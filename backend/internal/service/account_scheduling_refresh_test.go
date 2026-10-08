@@ -72,7 +72,7 @@ func (u *schedulingProbeHTTP) DoWithTLS(req *http.Request, _ string, id int64, _
 }
 
 func TestRefreshGroupSchedulingActiveProbesAndAtomicBinding(t *testing.T) {
-	for _, scenario := range []string{"success", "all_failed", "empty", "truncated", "cancel", "paused_after_test", "write_failure", "failed_preferred"} {
+	for _, scenario := range []string{"success", "all_failed", "empty", "truncated", "cancel", "paused_after_test", "write_failure", "failed_preferred", "historical_reliability"} {
 		t.Run(scenario, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if scenario == "all_failed" || (scenario == "failed_preferred" && r.Header.Get("X-Test-Account") == "1") {
@@ -113,6 +113,9 @@ func TestRefreshGroupSchedulingActiveProbesAndAtomicBinding(t *testing.T) {
 			upstream := &schedulingProbeHTTP{}
 			tests := &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: cfg}
 			svc := &GatewayService{accountRepo: repo, groupRepo: schedulingRefreshGroups{group: group}, cache: cache, cfg: cfg}
+			if scenario == "historical_reliability" {
+				svc.usageLogRepo = accountSchedulingQualityStub{quality: map[int64]GroupModelAccountQuality{1: {Successes: 50, LatencyMS: 500}, 2: {Successes: 10, Failures: 10, LatencyMS: 1}}}
+			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			var events []SchedulingRefreshEvent
@@ -129,7 +132,10 @@ func TestRefreshGroupSchedulingActiveProbesAndAtomicBinding(t *testing.T) {
 					repo.accounts[1].Schedulable = false
 				}
 			})
-			if scenario == "success" || scenario == "failed_preferred" {
+			if scenario == "historical_reliability" {
+				require.NoError(t, err, "%+v", events)
+				require.EqualValues(t, 1, cache.bindings[groupModelSchedulingStickyKey("model-a")], "a fast probe must not erase bad historical reliability")
+			} else if scenario == "success" || scenario == "failed_preferred" {
 				require.NoError(t, err, "%+v", events)
 				require.Equal(t, int64(2), cache.bindings[groupModelSchedulingStickyKey("model-a")])
 				require.Equal(t, "complete", events[len(events)-1].Type)
@@ -140,6 +146,10 @@ func TestRefreshGroupSchedulingActiveProbesAndAtomicBinding(t *testing.T) {
 			}
 			if scenario == "cancel" {
 				require.Equal(t, []int64{1}, upstream.calls)
+			} else if scenario == "all_failed" {
+				require.Equal(t, []int64{1, 1, 2, 2}, upstream.calls)
+			} else if scenario == "failed_preferred" {
+				require.Equal(t, []int64{1, 1, 2}, upstream.calls)
 			} else {
 				require.Equal(t, []int64{1, 2}, upstream.calls)
 			}
@@ -179,7 +189,7 @@ func TestSchedulingProbeFirstOutputDeadlineCancelsHTTP(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: &schedulingProbeHTTP{}, cfg: cfg}
-	_, err := svc.probeSchedulingAccount(context.Background(), 1, "model-a", FastestFailoverSettings{1, 10, 1})
+	_, err := svc.probeSchedulingAccount(context.Background(), 1, "model-a", FastestFailoverSettings{1, 10, 1, 120, 10})
 	require.Error(t, err)
 	select {
 	case <-ended:

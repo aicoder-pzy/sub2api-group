@@ -40,7 +40,9 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 
 	originalModel := ccReq.Model
 	ctx = prepareFastestFailoverBinding(ctx, s.cache, originalModel)
+	ctx, timeoutAttempt := s.beginSchedulingAttempt(ctx, account, originalModel, "generateContent")
 	defer func() {
+		errorOut = s.finishSchedulingAttempt(ctx, c, account, originalModel, timeoutAttempt, errorOut, 1)
 		if errorOut == nil && resultOut != nil && !resultOut.ClientDisconnect {
 			confirmGroupModelSchedulingAccount(ctx, originalModel, account.ID)
 		}
@@ -78,7 +80,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	startTime time.Time,
 ) (resultOut *ForwardResult, errorOut error) {
 	upstreamAttempts := 0
-	defer func() { errorOut = limitFastestFailoverRetry(ctx, errorOut, upstreamAttempts) }()
+	defer func() { errorOut = limitFastestFailoverRetry(ctx, errorOut, upstreamAttempts, account.ID) }()
 	var req struct {
 		Model  string `json:"model"`
 		Stream bool   `json:"stream"`
@@ -132,7 +134,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		requestIDHeader = idHeader
 
 		upstreamAttempts++
-		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		resp, err = s.doGeminiUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
 		}
@@ -533,13 +535,19 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
+	streamWriter := newFastestFailoverStreamWriter(c.Writer, resp)
+	flusher = streamWriter
 
 	writeChatChunk := func(chunk apicompat.ChatCompletionsChunk) bool {
+		if streamWriter.attempt != nil && fastestFailoverChatChunkStartsOutput(&chunk) {
+			streamWriter.started = true
+			streamWriter.attempt.progress(true)
+		}
 		sse, err := apicompat.ChatChunkToSSE(chunk)
 		if err != nil {
 			return false
 		}
-		if _, err := io.WriteString(c.Writer, sse); err != nil {
+		if _, err := io.WriteString(streamWriter, sse); err != nil {
 			return true
 		}
 		return false
@@ -795,7 +803,10 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 		}
 	}
 
-	_, _ = io.WriteString(c.Writer, "data: [DONE]\n\n")
+	if err := streamWriter.incompletePreludeError(); err != nil {
+		return nil, err
+	}
+	_, _ = io.WriteString(streamWriter, "data: [DONE]\n\n")
 	flusher.Flush()
 
 	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil

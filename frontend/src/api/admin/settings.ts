@@ -28,6 +28,8 @@ export interface FastestFailoverSettings {
   first_output_timeout_seconds: number
   stream_idle_timeout_seconds: number
   model_cooldown_seconds: number
+  total_attempt_budget_seconds: number
+  minimum_samples: number
 }
 
 export async function getFastestFailoverSettings(): Promise<FastestFailoverSettings> {

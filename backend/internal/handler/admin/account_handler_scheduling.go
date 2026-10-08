@@ -77,3 +77,21 @@ func (h *AccountHandler) RefreshGroupScheduling(c *gin.Context) {
 		}
 	}
 }
+
+func (h *AccountHandler) GroupSchedulingStatus(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	if h.schedulingGateway == nil {
+		response.Error(c, 503, "Scheduling diagnostics unavailable")
+		return
+	}
+	status, err := h.schedulingGateway.GroupSchedulingStatus(c.Request.Context(), h.accountTestService, id, strings.TrimSpace(c.Query("model")))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, status)
+}

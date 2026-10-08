@@ -2044,7 +2044,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		}
 
 		if fastestFailover && len(qualityCandidates) > 0 {
-			selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates)[0]
+			selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))[0]
 		}
 		if selected != nil {
 			if sessionHash != "" && s.cache != nil {
@@ -2169,7 +2169,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 	}
 
 	if fastestFailover && len(qualityCandidates) > 0 {
-		selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates)[0]
+		selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))[0]
 	}
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, false)
@@ -2331,7 +2331,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		}
 
 		if fastestFailover && len(qualityCandidates) > 0 {
-			selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates)[0]
+			selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))[0]
 		}
 		if selected != nil {
 			if sessionHash != "" && s.cache != nil {
@@ -2457,7 +2457,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 	}
 
 	if fastestFailover && len(qualityCandidates) > 0 {
-		selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates)[0]
+		selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))[0]
 	}
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, nativePlatform, accounts, excludedIDs, true)

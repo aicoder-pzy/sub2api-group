@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"errors"
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -228,15 +230,20 @@ func (c *openAIProxyStreamCircuit) ensureCapacityLocked(now time.Time) {
 	}
 }
 
-func openAIProxyStreamCircuitProxyID(account *Account) (int64, bool) {
+func openAIProxyStreamCircuitProxyID(account *Account, responses ...*http.Response) (int64, bool) {
+	if account != nil && account.Platform == PlatformOpenAI && len(responses) > 0 && responses[0] != nil && responses[0].Request != nil {
+		if egress, ok := responses[0].Request.Context().Value(schedulingProxyEgressKey{}).(schedulingProxyEgress); ok {
+			return egress.id, egress.id > 0
+		}
+	}
 	if account == nil || account.Platform != PlatformOpenAI || account.ProxyID == nil || *account.ProxyID <= 0 {
 		return 0, false
 	}
 	return *account.ProxyID, true
 }
 
-func (s *OpenAIGatewayService) recordOpenAIProxyStreamDisconnect(account *Account, streamErr error, upstreamRequestID string) {
-	proxyID, ok := openAIProxyStreamCircuitProxyID(account)
+func (s *OpenAIGatewayService) recordOpenAIProxyStreamDisconnect(account *Account, streamErr error, upstreamRequestID string, responses ...*http.Response) {
+	proxyID, ok := openAIProxyStreamCircuitProxyID(account, responses...)
 	if !ok || streamErr == nil || errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, context.DeadlineExceeded) {
 		return
 	}
@@ -255,8 +262,8 @@ func (s *OpenAIGatewayService) recordOpenAIProxyStreamDisconnect(account *Accoun
 	)
 }
 
-func (s *OpenAIGatewayService) clearOpenAIProxyStreamDisconnect(account *Account) {
-	proxyID, ok := openAIProxyStreamCircuitProxyID(account)
+func (s *OpenAIGatewayService) clearOpenAIProxyStreamDisconnect(account *Account, responses ...*http.Response) {
+	proxyID, ok := openAIProxyStreamCircuitProxyID(account, responses...)
 	if !ok {
 		return
 	}
@@ -292,7 +299,24 @@ func (s *OpenAIGatewayService) isOpenAIProxyStreamQuarantined(ctx context.Contex
 		return false
 	}
 	circuit := s.getOpenAIProxyStreamCircuit()
-	return circuit != nil && circuit.isBlocked(proxyID, time.Now())
+	if circuit == nil || !circuit.isBlocked(proxyID, time.Now()) {
+		return false
+	}
+	group, _ := ctx.Value(ctxkey.Group).(*Group)
+	if group != nil && fastestFailoverEnabled(ctx, &group.ID) {
+		primary := account.Proxy
+		repo := schedulingProxyRepository(s.settingService)
+		if primary == nil && repo != nil {
+			primary, _ = repo.GetByID(ctx, proxyID)
+		}
+		if primary != nil {
+			_, available := newSchedulingProxyChain(primary).next(ctx, repo, func(id int64) bool { return circuit.isBlocked(id, time.Now()) })
+			if available {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // logOpenAIProxyStreamQuarantineFailOpen emits a rate-limited warning when a

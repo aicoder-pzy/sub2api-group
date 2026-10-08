@@ -39,7 +39,7 @@ func TestFastestFailoverQualityPriceAndPreference(t *testing.T) {
 		{name: "unstable cheap account loses", latency: 100, failures: 30, cheapRate: 0.1, want: 1},
 		{name: "healthy binding persists", latency: 100, pinned: 1, cheapRate: 0.1, want: 1},
 		{name: "zero rate is valid", latency: 100, cheapRate: 0, want: 2},
-		{name: "invalid rate falls back", latency: 100, cheapRate: math.NaN(), want: 1},
+		{name: "invalid rate does not affect reliability", latency: 100, cheapRate: math.NaN(), want: 2},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -84,13 +84,13 @@ func TestFastestFailoverMultiplePreferredAndUnknownModels(t *testing.T) {
 		t.Fatalf("priority displaced the current channel: %d", got)
 	}
 	delete(repo.quality, 1)
-	if got := fastestFailoverCandidateOrder(ctx, repo, nil, &groupID, "model-a", candidates)[0].ID; got != 1 {
-		t.Fatalf("manual preference ignored on unmeasured account: %d", got)
+	if got := fastestFailoverCandidateOrder(ctx, repo, nil, &groupID, "model-a", candidates)[0].ID; got != 2 {
+		t.Fatalf("unmeasured preference displaced reliable backup: %d", got)
 	}
 	candidates[0].Extra = nil
 	candidates[1].Extra = nil
-	if got := fastestFailoverCandidateOrder(ctx, nil, nil, &groupID, "new-model", candidates)[0].ID; got != 2 {
-		t.Fatalf("cold start ignored lower rate: %d", got)
+	if got := fastestFailoverCandidateOrder(ctx, nil, nil, &groupID, "new-model", candidates)[0].ID; got != 1 {
+		t.Fatalf("cold start ignored configured priority: %d", got)
 	}
 }
 
@@ -242,7 +242,7 @@ func TestFastestFailoverSameChannelRetryIsBounded(t *testing.T) {
 
 func TestFastestFailoverCandidateOrderUsesRequestedModelLatency(t *testing.T) {
 	groupID := int64(3)
-	accounts := []*Account{{ID: 1, Priority: 1}, {ID: 2, Priority: 2}}
+	accounts := []*Account{{ID: 1, Priority: 1}, {ID: 2, Priority: 1}}
 	repo := accountSchedulingLatencyStub{latencies: map[string]map[int64]float64{
 		"gpt-5":  {1: 500, 2: 100},
 		"claude": {1: 80, 2: 450},
@@ -369,6 +369,7 @@ func TestFastestFailoverOpenAISchedulerUsesModelPinWithAdvancedSchedulerEnabled(
 				accounts[index].GroupIDs = []int64{groupID}
 			}
 			cache := &accountSchedulingCacheStub{bindings: map[string]int64{"old-session": 3}}
+			rememberGroupModelSchedulingAccount(ctx, cache, &groupID, "model-a", 2)
 			cfg := &config.Config{}
 			cfg.Gateway.Scheduling.LoadBatchEnabled = loadBatch
 			svc := &OpenAIGatewayService{
@@ -442,6 +443,7 @@ func TestFastestFailoverHealthyChannelPersistsAcrossSchedulerPaths(t *testing.T)
 			cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
 			cfg := &config.Config{}
 			cfg.Gateway.Scheduling.LoadBatchEnabled = scenario.loadBatch
+			rememberGroupModelSchedulingAccount(ctx, cache, &groupID, "model-a", 2)
 			svc := &OpenAIGatewayService{
 				accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cache: cache, cfg: cfg,
 				usageLogRepo:       accountSchedulingLatencyStub{latencies: map[string]map[int64]float64{"model-a": {1: 1000, 2: 110, 3: 1}}},

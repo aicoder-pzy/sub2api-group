@@ -26,6 +26,17 @@ type GroupModelSchedulingBindingsReader interface {
 	ListGroupModelSchedulingBindings(context.Context, int64) ([]GroupModelSchedulingBinding, error)
 }
 
+type GroupModelSchedulingTransition struct {
+	PreviousAccountID int64     `json:"previous_account_id"`
+	AccountID         int64     `json:"account_id"`
+	Reason            string    `json:"reason"`
+	ChangedAt         time.Time `json:"changed_at"`
+}
+
+type GroupModelSchedulingHistoryReader interface {
+	GetGroupModelSchedulingTransition(context.Context, int64, string) (*GroupModelSchedulingTransition, error)
+}
+
 type GroupModelSchedulingAtomicCache interface {
 	GetSessionAccountState(context.Context, int64, string) (int64, int64, error)
 	CompareAndSwapSessionAccountID(context.Context, int64, string, int64, int64) (bool, error)
@@ -46,8 +57,12 @@ type groupModelSchedulingSnapshot struct {
 }
 
 type groupModelSchedulingRequestState struct {
-	mu        sync.Mutex
-	snapshots map[groupModelSchedulingScope]groupModelSchedulingSnapshot
+	mu                  sync.Mutex
+	snapshots           map[groupModelSchedulingScope]groupModelSchedulingSnapshot
+	deadline            time.Time
+	submissions         map[int64]int
+	sharedFailureOrigin int64
+	sharedAlternateID   int64
 }
 
 // Share the original binding revision across account retries and detached streams.
@@ -71,13 +86,22 @@ func prepareFastestFailoverBinding(ctx context.Context, cache GatewayCache, mode
 	return ctx
 }
 
-func limitFastestFailoverRetry(ctx context.Context, err error, attempts int) error {
+func limitFastestFailoverRetry(ctx context.Context, err error, attempts int, accountIDs ...int64) error {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
 	var failoverErr *UpstreamFailoverError
 	if group != nil && fastestFailoverEnabled(ctx, &group.ID) && errors.As(err, &failoverErr) &&
 		failoverErr.RetryableOnSameAccount {
 		limited := *failoverErr
-		if attempts > 1 {
+		state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+		spent := false
+		if state != nil {
+			state.mu.Lock()
+			if len(accountIDs) > 0 {
+				spent = state.submissions[accountIDs[0]] > 1
+			}
+			state.mu.Unlock()
+		}
+		if attempts > 1 || spent {
 			limited.RetryableOnSameAccount = false
 		} else if limited.SameAccountRetryMax == 0 || limited.SameAccountRetryMax > 1 {
 			limited.SameAccountRetryMax = 1
@@ -163,95 +187,61 @@ func rememberGroupModelSchedulingAccount(ctx context.Context, cache GatewayCache
 	_ = cache.SetSessionAccountID(ctx, *groupID, groupModelSchedulingStickyKey(model), accountID, groupModelSchedulingStickyTTL)
 }
 
-func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository, cache GatewayCache, groupID *int64, model string, candidates []*Account) []*Account {
+func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository, cache GatewayCache, groupID *int64, model string, candidates []*Account, configured ...FastestFailoverSettings) []*Account {
 	ordered := append([]*Account(nil), candidates...)
 	if len(ordered) == 0 {
 		return ordered
 	}
 	activeID := groupModelSchedulingActiveAccount(ctx, cache, groupID, model)
-	activeIndex := -1
-	hasPreferred := false
+	// Healthy traffic does not need a historical query or a new backup ranking.
 	for index, account := range ordered {
 		if account.ID == activeID {
-			activeIndex = index
+			ordered = append(ordered[:index], ordered[index+1:]...)
+			return append([]*Account{account}, ordered...)
 		}
-		hasPreferred = hasPreferred || accountSchedulingPreferred(account)
-	}
-	sortAccountsByPriorityAndLastUsed(ordered, false)
-	if activeIndex >= 0 {
-		for index, account := range ordered {
-			if account.ID == activeID {
-				ordered[0], ordered[index] = ordered[index], ordered[0]
-				return ordered
-			}
-		}
-	}
-	if hasPreferred {
-		sort.SliceStable(ordered, func(first, second int) bool {
-			candidate, current := ordered[first], ordered[second]
-			if accountSchedulingPreferred(candidate) != accountSchedulingPreferred(current) {
-				return accountSchedulingPreferred(candidate)
-			}
-			if candidate.Priority != current.Priority {
-				return candidate.Priority < current.Priority
-			}
-			if evaluation, ok := ctx.Value(schedulingEvaluationKey{}).(map[int64]GroupModelAccountQuality); ok {
-				return evaluation[candidate.ID].LatencyMS < evaluation[current.ID].LatencyMS
-			}
-			return candidate.ID == activeID && current.ID != activeID
-		})
-		return ordered
 	}
 	quality := groupModelAccountQuality(ctx, repo, groupID, model)
-	bestFailureRate := math.Inf(1)
-	for _, account := range ordered {
-		if sample, ok := quality[account.ID]; ok && sample.LatencyMS > 0 {
-			bestFailureRate = math.Min(bestFailureRate, sample.failureRate())
-		}
+	settings := DefaultFastestFailoverSettings()
+	if len(configured) > 0 {
+		settings = configured[0]
 	}
-	fastest := math.Inf(1)
-	for _, account := range ordered {
-		if sample, ok := quality[account.ID]; ok && sample.LatencyMS > 0 && sample.failureRate() <= bestFailureRate+0.02 {
-			fastest = math.Min(fastest, sample.LatencyMS)
-		}
+	return orderFastestFailoverCandidates(ordered, quality, activeID, settings)
+}
+
+func orderFastestFailoverCandidates(candidates []*Account, quality map[int64]GroupModelAccountQuality, activeID int64, settings FastestFailoverSettings) []*Account {
+	ordered := append([]*Account(nil), candidates...)
+	minimum := int64(settings.MinimumSamples)
+	if minimum < 1 {
+		minimum = 10
 	}
-	qualified := make(map[int64]bool, len(ordered))
-	if math.IsInf(bestFailureRate, 1) {
-		for _, account := range ordered {
-			bestFailureRate = math.Min(bestFailureRate, quality[account.ID].failureRate())
-		}
-	}
-	for _, account := range ordered {
-		sample := quality[account.ID]
-		qualified[account.ID] = sample.failureRate() <= bestFailureRate+0.02 && (math.IsInf(fastest, 1) || (sample.LatencyMS > 0 && sample.LatencyMS <= fastest*1.2))
-	}
-	qualityTier := func(account *Account) int {
-		if qualified[account.ID] {
-			return 0
-		}
-		return 1
-	}
-	now := time.Now()
 	sort.SliceStable(ordered, func(first, second int) bool {
 		candidate, current := ordered[first], ordered[second]
-		candidateTier, currentTier := qualityTier(candidate), qualityTier(current)
+		if candidate.ID == activeID || current.ID == activeID {
+			return candidate.ID != current.ID && candidate.ID == activeID
+		}
+		candidateSample, currentSample := quality[candidate.ID], quality[current.ID]
+		candidateTier, currentTier := candidateSample.reliabilityTier(minimum), currentSample.reliabilityTier(minimum)
 		if candidateTier != currentTier {
 			return candidateTier < currentTier
 		}
-		if candidateTier == 1 {
-			candidateSample, currentSample := quality[candidate.ID], quality[current.ID]
+		if candidateSample.attempts() >= minimum && currentSample.attempts() >= minimum {
 			if candidateSample.failureRate() != currentSample.failureRate() {
 				return candidateSample.failureRate() < currentSample.failureRate()
 			}
-			if candidateSample.LatencyMS != currentSample.LatencyMS {
-				return candidateSample.LatencyMS > 0 && (currentSample.LatencyMS <= 0 || candidateSample.LatencyMS < currentSample.LatencyMS)
-			}
 		}
-		candidateRate, currentRate := groupModelSchedulingRate(candidate, now), groupModelSchedulingRate(current, now)
-		if candidateRate != currentRate {
-			return candidateRate < currentRate
+		if candidateSample.RecentFailures != currentSample.RecentFailures {
+			return candidateSample.RecentFailures < currentSample.RecentFailures
 		}
-		return false
+		if accountSchedulingPreferred(candidate) != accountSchedulingPreferred(current) {
+			return accountSchedulingPreferred(candidate)
+		}
+		if candidate.Priority != current.Priority {
+			return candidate.Priority < current.Priority
+		}
+		if candidateSample.LatencyMS != currentSample.LatencyMS {
+			return candidateSample.LatencyMS > 0 && (currentSample.LatencyMS <= 0 || candidateSample.LatencyMS < currentSample.LatencyMS)
+		}
+		return candidate.ID < current.ID
 	})
 	return ordered
 }
@@ -273,15 +263,50 @@ func groupModelSchedulingRate(account *Account, now time.Time) float64 {
 }
 
 type GroupModelAccountQuality struct {
-	Successes int64
-	Failures  int64
-	LatencyMS float64
+	Successes      int64
+	Failures       int64
+	LatencyMS      float64
+	RecentFailures int64
+	LastSuccessAt  *time.Time
+	LastFailureAt  *time.Time
+	ProbeSucceeded bool
+}
+
+func (sample GroupModelAccountQuality) attempts() int64 { return sample.Successes + sample.Failures }
+
+func (sample GroupModelAccountQuality) reliabilityTier(minimum int64) int {
+	if (sample.attempts() >= minimum && sample.failureRate() > 0.2) ||
+		(!sample.ProbeSucceeded && ((sample.Successes == 0 && sample.Failures > 0) ||
+			(sample.RecentFailures >= 2 && sample.LastFailureAt != nil &&
+				(sample.LastSuccessAt == nil || sample.LastFailureAt.After(*sample.LastSuccessAt))))) {
+		return 3
+	}
+	if sample.attempts() >= minimum && sample.Successes > 0 {
+		return 0
+	}
+	if sample.ProbeSucceeded || sample.Successes > 0 {
+		return 1
+	}
+	return 2
+}
+
+func (sample GroupModelAccountQuality) confidence(minimum int64) string {
+	switch sample.reliabilityTier(minimum) {
+	case 0:
+		return "measured"
+	case 1:
+		return "limited"
+	case 3:
+		return "degraded"
+	default:
+		return "unknown"
+	}
 }
 
 func (sample GroupModelAccountQuality) failureRate() float64 {
-	attempts := sample.Successes + sample.Failures
-	if attempts < 5 {
-		attempts = 5
+	attempts := sample.attempts()
+	if attempts == 0 {
+		return 0
 	}
 	return float64(sample.Failures) / float64(attempts)
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -93,14 +94,21 @@ func (c *gatewayCache) ListGroupModelSchedulingBindings(ctx context.Context, gro
 func (c *gatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
 	key := buildSessionKey(groupID, sessionHash)
 	if strings.HasPrefix(sessionHash, service.GroupModelSchedulingKeyPrefix) {
-		return setGroupModelSchedulingAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision"}, accountID).Err()
+		transition, err := json.Marshal(service.GroupModelSchedulingTransition{AccountID: accountID, Reason: "manual_refresh", ChangedAt: time.Now().UTC()})
+		if err != nil {
+			return err
+		}
+		return setGroupModelSchedulingAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision", key + ":transition"}, accountID, transition).Err()
 	}
 	return c.rdb.Set(ctx, key, accountID, ttl).Err()
 }
 
 var setGroupModelSchedulingAccountScript = redis.NewScript(`
+local transition = cjson.decode(ARGV[2])
+transition.previous_account_id = tonumber(redis.call('GET', KEYS[1]) or '0')
 redis.call('SET', KEYS[1], ARGV[1])
 redis.call('INCR', KEYS[2])
+redis.call('SET', KEYS[3], cjson.encode(transition))
 return 1
 `)
 
@@ -109,8 +117,12 @@ local revision = redis.call('GET', KEYS[2]) or '0'
 if revision ~= ARGV[1] then
   return 0
 end
+local transition = cjson.decode(ARGV[3])
+transition.previous_account_id = tonumber(redis.call('GET', KEYS[1]) or '0')
+if transition.previous_account_id == 0 then transition.reason = 'initial_selection' end
 redis.call('SET', KEYS[1], ARGV[2])
 redis.call('INCR', KEYS[2])
+redis.call('SET', KEYS[3], cjson.encode(transition))
 return 1
 `)
 
@@ -139,8 +151,27 @@ func (c *gatewayCache) GetSessionAccountState(ctx context.Context, groupID int64
 
 func (c *gatewayCache) CompareAndSwapSessionAccountID(ctx context.Context, groupID int64, sessionHash string, revision int64, accountID int64) (bool, error) {
 	key := buildSessionKey(groupID, sessionHash)
-	result, err := compareAndSwapSessionAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision"}, revision, accountID).Int()
+	transition, err := json.Marshal(service.GroupModelSchedulingTransition{AccountID: accountID, Reason: "confirmed_failover", ChangedAt: time.Now().UTC()})
+	if err != nil {
+		return false, err
+	}
+	result, err := compareAndSwapSessionAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision", key + ":transition"}, revision, accountID, transition).Int()
 	return result == 1, err
+}
+
+func (c *gatewayCache) GetGroupModelSchedulingTransition(ctx context.Context, groupID int64, model string) (*service.GroupModelSchedulingTransition, error) {
+	raw, err := c.rdb.Get(ctx, buildSessionKey(groupID, service.GroupModelSchedulingKeyPrefix+base64.RawURLEncoding.EncodeToString([]byte(model)))+":transition").Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var transition service.GroupModelSchedulingTransition
+	if err := json.Unmarshal(raw, &transition); err != nil {
+		return nil, err
+	}
+	return &transition, nil
 }
 
 func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, sessionHash string, ttl time.Duration) error {
@@ -158,13 +189,14 @@ func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, ses
 func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64, sessionHash string) error {
 	key := buildSessionKey(groupID, sessionHash)
 	if strings.HasPrefix(sessionHash, service.GroupModelSchedulingKeyPrefix) {
-		return deleteGroupModelSchedulingAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision"}).Err()
+		return deleteGroupModelSchedulingAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision", key + ":transition"}).Err()
 	}
 	return c.rdb.Del(ctx, key).Err()
 }
 
 var deleteGroupModelSchedulingAccountScript = redis.NewScript(`
 redis.call('DEL', KEYS[1])
+redis.call('DEL', KEYS[3])
 redis.call('INCR', KEYS[2])
 return 1
 `)

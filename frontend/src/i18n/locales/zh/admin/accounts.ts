@@ -27,7 +27,7 @@ export default {
         description: '评测当前分组的全部账号，不受分页、其他筛选或勾选影响。仅更新所填模型的调度。暂停、冷却、配额受限或不支持此模型的账号会跳过。',
         cost: '开始后会向每个符合条件的账号发送真实测试请求，产生上游费用。关闭窗口会取消尚未完成的测试。',
         model: '测试模型（选择或输入具体文本模型）',
-        policy: '保留“优先调度”与其优先级规则；同级优先账号按本次首输出耗时排序。普通账号在最快耗时的 1.2 倍内优先选择低倍率账号。全部失败或取消时保留原调度。',
+        policy: '完整测试通过后，结合历史成功率与近期故障选择渠道。样本不足标记为未知；全部失败或取消时保留原调度。',
         progress: '已评测 {done}/{total}，正在测试：{name}',
         complete: '已将 {model} 的调度更新为 {name}（#{id}）',
         account: '账号',
@@ -39,6 +39,13 @@ export default {
         cancel: '取消测试并关闭',
         start: '开始评测并更新',
         interrupted: '测试连接中断，未收到完成确认；请刷新账号列表确认当前调度。'
+      },
+      schedulingStatus: {
+        title: '调度状态', model: '模型', current: '当前渠道', unbound: '尚未绑定',
+        order: '候选顺序', evidence: '样本可信度', successRate: '完整成功率', recentFailures: '近 15 分钟故障',
+        lastFailure: '最近故障', cooldown: '剩余冷却', measured: '样本充足', limited: '样本不足', unknown: '未知', degraded: '近期不稳定',
+        unavailable: '当前不可用', paused: '暂停或停用',
+        initial_selection: '首次完整成功绑定', confirmed_failover: '故障后完整成功接管', manual_refresh: '手动更新调度'
       },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',

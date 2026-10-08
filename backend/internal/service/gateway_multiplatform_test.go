@@ -3610,7 +3610,7 @@ func TestFastestFailoverGatewayPreferencePreservesAvailability(t *testing.T) {
 			}
 			repo := &mockAccountRepoForPlatform{accounts: []Account{
 				{ID: 1, Priority: 10, RateMultiplier: &expensive},
-				{ID: 2, Priority: 20, RateMultiplier: &cheap},
+				{ID: 2, Priority: 10, RateMultiplier: &cheap},
 				{ID: 3, Priority: 1, Extra: map[string]any{"scheduling_preferred": true}},
 				{ID: 4, Priority: 1, Extra: map[string]any{"scheduling_preferred": true}},
 			}}

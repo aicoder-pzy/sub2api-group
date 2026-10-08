@@ -4,6 +4,35 @@
  */
 
 import { apiClient } from '../client'
+
+export interface SchedulingCandidateStatus {
+  account_id: number
+  name: string
+  current: boolean
+  eligible: boolean
+  rank: number
+  confidence: 'measured' | 'limited' | 'unknown' | 'degraded'
+  samples: number
+  success_rate: number | null
+  recent_failures: number
+  last_success_at: string | null
+  last_failure_at: string | null
+  cooldown_seconds: number
+  reason?: string
+}
+
+export interface GroupSchedulingStatus {
+  model: string
+  current_account_id: number
+  minimum_samples: number
+  transition: { previous_account_id: number; account_id: number; reason: string; changed_at: string } | null
+  candidates: SchedulingCandidateStatus[]
+}
+
+export async function getGroupSchedulingStatus(groupID: number, model: string): Promise<GroupSchedulingStatus> {
+  const { data } = await apiClient.get<GroupSchedulingStatus>(`/admin/groups/${groupID}/scheduling-status`, { params: { model } })
+  return data
+}
 import type {
   AdminGroup,
   GroupPlatform,

@@ -726,6 +726,9 @@ func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil {
 		return false
 	}
+	if e.Scope == GatewayFailureScopeRequest && (e.Reason == "fastest_failover_retry_limit" || e.Reason == "fastest_failover_budget_exhausted" || e.Reason == "fastest_failover_shared_failure_limit" || e.Reason == "grok_unknown_forbidden") {
+		return false
+	}
 	return !e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount
 }
 

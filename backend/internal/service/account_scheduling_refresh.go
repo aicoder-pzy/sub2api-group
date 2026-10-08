@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +75,12 @@ func (s *AccountTestService) probeSchedulingAccount(ctx context.Context, id int6
 		}
 	})
 	err := s.TestAccountConnection(c, id, model, "Reply with OK only.", AccountTestModeDefault)
+	attempt.mutex.Lock()
+	timedOut := attempt.timedOut
+	attempt.mutex.Unlock()
+	if timedOut {
+		return 0, fmt.Errorf("probe timed out: %w", context.DeadlineExceeded)
+	}
 	if ctx.Err() != nil {
 		return 0, fmt.Errorf("probe timed out or canceled: %w", ctx.Err())
 	}
@@ -89,6 +96,18 @@ func (s *AccountTestService) probeSchedulingAccount(ctx context.Context, id int6
 	return latency, nil
 }
 
+var schedulingProbeTransientError = regexp.MustCompile(`(?i)(?:\breturned (?:429|5[0-9]{2}):|\brequest failed:|\bstream read error:)`)
+
+func schedulingProbeRetryable(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	var upstream *UpstreamFailoverError
+	return errors.Is(err, context.DeadlineExceeded) ||
+		(errors.As(err, &upstream) && (upstream.StatusCode == http.StatusTooManyRequests || upstream.StatusCode >= 500)) ||
+		schedulingProbeTransientError.MatchString(err.Error())
+}
+
 func ValidateSchedulingProbeModel(model string) error {
 	if model == "" || len(model) > 200 || strings.ContainsAny(model, "*?\r\n\x00") {
 		return infraerrors.BadRequest("INVALID_PROBE_MODEL", "Choose a concrete text model")
@@ -100,6 +119,44 @@ func ValidateSchedulingProbeModel(model string) error {
 		}
 	}
 	return nil
+}
+
+func (s *GatewayService) groupSchedulingSelector(ctx context.Context, tests *AccountTestService, group *Group, model string) (context.Context, string, func(map[int64]struct{}) (*Account, error), error) {
+	ctx = context.WithValue(ctx, ctxkey.Group, group)
+	ctx, _ = WithGatewayTokenRequestPricing(ctx)
+	ctx = s.withGatewayProfitControlGate(ctx, &group.ID)
+	platform, probeModel := group.Platform, model
+	if platform == PlatformComposite {
+		decision, ok, err := s.resolveCompositeRouteDecision(ctx, group, model, CompositeRouteEndpointAny)
+		if err != nil {
+			return ctx, "", nil, err
+		}
+		if !ok {
+			return ctx, "", nil, errors.New("no route for this model")
+		}
+		platform, probeModel = decision.TargetPlatform, decision.UpstreamModel
+		ctx = WithCompositeRouteDecision(ctx, decision)
+	}
+	if err := ValidateSchedulingProbeModel(probeModel); err != nil {
+		return ctx, "", nil, err
+	}
+	if s.checkChannelPricingRestriction(ctx, &group.ID, probeModel) {
+		return ctx, "", nil, errors.New("model is restricted by channel pricing")
+	}
+	selectAccount := func(excluded map[int64]struct{}) (*Account, error) {
+		if platform == PlatformOpenAI || NormalizeOpenAICompatiblePlatform(platform) != PlatformOpenAI {
+			if tests == nil || tests.openaiGatewayService == nil {
+				return nil, errors.New("OpenAI scheduler unavailable")
+			}
+			openai := tests.openaiGatewayService
+			return openai.selectAccountForModelWithExclusions(openai.withOpenAIQuotaAutoPauseContext(ctx), &group.ID, platform, "", probeModel, excluded, false, 0, "", false)
+		}
+		if platform == PlatformAnthropic || platform == PlatformGemini {
+			return s.selectAccountWithMixedScheduling(ctx, &group.ID, "", probeModel, excluded, platform)
+		}
+		return s.selectAccountForModelWithPlatform(ctx, &group.ID, "", probeModel, excluded, platform)
+	}
+	return ctx, probeModel, selectAccount, nil
 }
 
 // RefreshGroupScheduling evaluates the entire group, independent of UI pages or
@@ -131,41 +188,12 @@ func (s *GatewayService) RefreshGroupScheduling(ctx context.Context, tests *Acco
 	}
 	quality := make(map[int64]GroupModelAccountQuality)
 	failed := make([]*Account, 0)
-	ctx = context.WithValue(ctx, ctxkey.Group, group)
-	ctx, _ = WithGatewayTokenRequestPricing(ctx)
-	ctx = s.withGatewayProfitControlGate(ctx, &groupID)
 	ctx = context.WithValue(ctx, schedulingEvaluationKey{}, quality)
-	platform, probeModel := group.Platform, model
-	if platform == PlatformComposite {
-		decision, ok, resolveErr := s.resolveCompositeRouteDecision(ctx, group, model, CompositeRouteEndpointAny)
-		if resolveErr != nil {
-			return resolveErr
-		}
-		if !ok {
-			return errors.New("no route for this model")
-		}
-		platform, probeModel = decision.TargetPlatform, decision.UpstreamModel
-		ctx = WithCompositeRouteDecision(ctx, decision)
-	}
-	if err := ValidateSchedulingProbeModel(probeModel); err != nil {
+	ctx, probeModel, selectAccount, err := s.groupSchedulingSelector(ctx, tests, group, model)
+	if err != nil {
 		return err
 	}
-	if s.checkChannelPricingRestriction(ctx, &groupID, probeModel) {
-		return errors.New("model is restricted by channel pricing")
-	}
-	selectAccount := func(excluded map[int64]struct{}) (*Account, error) {
-		if platform == PlatformOpenAI || NormalizeOpenAICompatiblePlatform(platform) != PlatformOpenAI {
-			if tests.openaiGatewayService == nil {
-				return nil, errors.New("OpenAI scheduler unavailable")
-			}
-			openai := tests.openaiGatewayService
-			return openai.selectAccountForModelWithExclusions(openai.withOpenAIQuotaAutoPauseContext(ctx), &groupID, platform, "", probeModel, excluded, false, 0, "", false)
-		}
-		if platform == PlatformAnthropic || platform == PlatformGemini {
-			return s.selectAccountWithMixedScheduling(ctx, &groupID, "", probeModel, excluded, platform)
-		}
-		return s.selectAccountForModelWithPlatform(ctx, &groupID, "", probeModel, excluded, platform)
-	}
+	history := groupModelAccountQuality(context.WithValue(ctx, schedulingEvaluationKey{}, struct{}{}), s.usageLogRepo, &groupID, probeModel)
 	settings := s.settingService.FastestFailoverSettings(ctx)
 	emit(SchedulingRefreshEvent{Type: "start", Total: len(accounts), Model: model})
 	// ponytail: an explicit admin action reuses the live selector per account
@@ -211,6 +239,10 @@ func (s *GatewayService) RefreshGroupScheduling(ctx context.Context, tests *Acco
 		}
 		emit(SchedulingRefreshEvent{Type: "testing", AccountID: account.ID, Name: account.Name})
 		latency, probeErr := tests.probeSchedulingAccount(ctx, account.ID, probeModel, settings)
+		if ctx.Err() == nil && schedulingProbeRetryable(probeErr) {
+			emit(SchedulingRefreshEvent{Type: "testing", AccountID: account.ID, Name: account.Name, Status: "retrying"})
+			latency, probeErr = tests.probeSchedulingAccount(ctx, account.ID, probeModel, settings)
+		}
 		slot.ReleaseFunc()
 		if err := ctx.Err(); err != nil {
 			return err
@@ -220,7 +252,12 @@ func (s *GatewayService) RefreshGroupScheduling(ctx context.Context, tests *Acco
 			failed = append(failed, fresh)
 		} else {
 			event.Status, event.FirstOutputMS = "success", latency
-			quality[account.ID] = GroupModelAccountQuality{Successes: 1, LatencyMS: latency}
+			sample := history[account.ID]
+			sample.ProbeSucceeded = true
+			if sample.LatencyMS <= 0 {
+				sample.LatencyMS = latency
+			}
+			quality[account.ID] = sample
 		}
 		emit(event)
 	}
