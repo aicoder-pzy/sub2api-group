@@ -166,7 +166,7 @@ func TestFastestFailoverProxyReplayRequiresUnsentProof(t *testing.T) {
 			resp, err := doSchedulingProxyFallback(req, account, primary.URL(), repo, blocked, func(r *http.Request, url string) (*http.Response, error) {
 				calls = append(calls, url)
 				trace := httptrace.ContextClientTrace(r.Context())
-				if mode != "no_trace" && !(mode == "fresh_trace" && len(calls) > 1) {
+				if mode != "no_trace" && (mode != "fresh_trace" || len(calls) <= 1) {
 					trace.GetConn("upstream.example:443")
 				}
 				if mode == "connected" {

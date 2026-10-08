@@ -92,7 +92,7 @@ func NewClaudeResetCreditService(accounts AccountRepository, tokens *ClaudeToken
 		// Never forward OAuth credentials across redirects, even to another public host.
 		isolated := *client
 		isolated.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-		return isolated.Do(req)
+		return isolated.Do(req) // #nosec G704 -- Fixed api.anthropic.com usage URL; resolved IPs validated and redirects disabled.
 	}
 	return s
 }

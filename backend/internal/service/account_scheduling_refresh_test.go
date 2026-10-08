@@ -132,25 +132,27 @@ func TestRefreshGroupSchedulingActiveProbesAndAtomicBinding(t *testing.T) {
 					repo.accounts[1].Schedulable = false
 				}
 			})
-			if scenario == "historical_reliability" {
+			switch scenario {
+			case "historical_reliability":
 				require.NoError(t, err, "%+v", events)
 				require.EqualValues(t, 1, cache.bindings[groupModelSchedulingStickyKey("model-a")], "a fast probe must not erase bad historical reliability")
-			} else if scenario == "success" || scenario == "failed_preferred" {
+			case "success", "failed_preferred":
 				require.NoError(t, err, "%+v", events)
 				require.Equal(t, int64(2), cache.bindings[groupModelSchedulingStickyKey("model-a")])
 				require.Equal(t, "complete", events[len(events)-1].Type)
 				require.Equal(t, 4, events[0].Total)
-			} else {
+			default:
 				require.Error(t, err)
 				require.Equal(t, int64(1), cache.bindings[groupModelSchedulingStickyKey("model-a")])
 			}
-			if scenario == "cancel" {
+			switch scenario {
+			case "cancel":
 				require.Equal(t, []int64{1}, upstream.calls)
-			} else if scenario == "all_failed" {
+			case "all_failed":
 				require.Equal(t, []int64{1, 1, 2, 2}, upstream.calls)
-			} else if scenario == "failed_preferred" {
+			case "failed_preferred":
 				require.Equal(t, []int64{1, 1, 2}, upstream.calls)
-			} else {
+			default:
 				require.Equal(t, []int64{1, 2}, upstream.calls)
 			}
 			if scenario == "failed_preferred" {

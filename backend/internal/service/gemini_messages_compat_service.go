@@ -2193,14 +2193,14 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	c.Header("X-Accel-Buffering", "no")
 	c.Status(http.StatusOK)
 
-	flusher, ok := c.Writer.(http.Flusher)
+	_, ok := c.Writer.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
 	}
 
 	messageID := generateAnthropicMsgID()
 	streamWriter := newFastestFailoverStreamWriter(c.Writer, resp)
-	flusher = streamWriter
+	flusher := streamWriter
 	messageStart := map[string]any{
 		"type": "message_start",
 		"message": map[string]any{
@@ -2845,13 +2845,13 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 	}
 	c.Header("Content-Type", contentType)
 
-	flusher, ok := c.Writer.(http.Flusher)
+	_, ok := c.Writer.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
 	}
 
 	streamWriter := newFastestFailoverStreamWriter(c.Writer, resp)
-	flusher = streamWriter
+	flusher := streamWriter
 	reader := bufio.NewReader(resp.Body)
 	usage := &ClaudeUsage{}
 	observer := upstreamResponseModelObserverFromContext(c)

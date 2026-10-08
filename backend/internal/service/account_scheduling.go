@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -249,17 +248,6 @@ func orderFastestFailoverCandidates(candidates []*Account, quality map[int64]Gro
 func accountSchedulingPreferred(account *Account) bool {
 	preferred, _ := account.Extra["scheduling_preferred"].(bool)
 	return preferred
-}
-
-func groupModelSchedulingRate(account *Account, now time.Time) float64 {
-	if rate, ok := openAIFreshUpstreamBillingRate(account, now); ok && rate >= 0 && !math.IsNaN(rate) && !math.IsInf(rate, 0) {
-		return rate
-	}
-	rate := account.BillingRateMultiplier()
-	if math.IsNaN(rate) || math.IsInf(rate, 0) {
-		return 1
-	}
-	return rate
 }
 
 type GroupModelAccountQuality struct {
