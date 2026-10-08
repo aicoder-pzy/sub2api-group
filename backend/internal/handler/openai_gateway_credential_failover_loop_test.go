@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -312,14 +313,15 @@ func (r *grokCredentialHandlerRefresher) Refresh(ctx context.Context, _ *service
 
 type grokCredentialHandlerUpstream struct {
 	service.HTTPUpstream
-	mu            sync.Mutex
-	hits          []int64
-	requestURLs   []string
-	authorization []string
-	failAccountID int64
-	rateLimitIDs  map[int64]bool
-	failureStatus map[int64]int
-	cancelRequest context.CancelFunc
+	mu               sync.Mutex
+	hits             []int64
+	requestURLs      []string
+	authorization    []string
+	failAccountID    int64
+	preludeAccountID int64
+	rateLimitIDs     map[int64]bool
+	failureStatus    map[int64]int
+	cancelRequest    context.CancelFunc
 }
 
 func (u *grokCredentialHandlerUpstream) Do(req *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
@@ -332,10 +334,19 @@ func (u *grokCredentialHandlerUpstream) Do(req *http.Request, _ string, accountI
 	u.requestURLs = append(u.requestURLs, req.URL.String())
 	u.authorization = append(u.authorization, req.Header.Get("Authorization"))
 	failAccountID := u.failAccountID
+	preludeAccountID := u.preludeAccountID
 	rateLimited := u.rateLimitIDs[accountID]
 	failureStatus := u.failureStatus[accountID]
 	cancelRequest := u.cancelRequest
 	u.mu.Unlock()
+	if accountID == preludeAccountID {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(strings.Repeat(
+				"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_failed_prelude\"}}\n\n", 80))),
+		}, nil
+	}
 	if rateLimited {
 		return &http.Response{
 			StatusCode: http.StatusTooManyRequests,
@@ -556,6 +567,23 @@ func TestResponsesCredentialFailoverLoop(t *testing.T) {
 		require.Empty(t, upstream.accountHits())
 		require.Empty(t, repo.errorIDs())
 	})
+}
+
+func TestResponsesGrokFastestFailoverDiscardsFailedAttemptPrelude(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	_, _, upstream, router, cleanup := newGrokCredentialFailoverHandler(t, "failed_stream_preamble")
+	defer cleanup()
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/openai/v1/responses", bytes.NewBufferString(`{"model":"grok","input":"hello","stream":true}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(recorder, req)
+
+	require.Equal(t, []int64{801, 802}, upstream.accountHits())
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Contains(t, recorder.Body.String(), "resp_healthy")
+	require.NotContains(t, recorder.Body.String(), "resp_failed_prelude")
+	require.Equal(t, 1, strings.Count(recorder.Body.String(), `"type":"response.completed"`))
 }
 
 func TestResponsesGrok429FailoverIsBounded(t *testing.T) {
@@ -862,7 +890,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 			Extra: map[string]any{service.GrokMediaEligibleExtraKey: true},
 		},
 	}
-	if mode == "postmap_cancel" || mode == "first_402" || mode == "first_429" || mode == "all_429" || mode == "mixed_429_500" || mode == "mixed_500_429" || mode == "oauth_429_apikey_500" {
+	if mode == "postmap_cancel" || mode == "first_402" || mode == "first_429" || mode == "all_429" || mode == "mixed_429_500" || mode == "mixed_500_429" || mode == "oauth_429_apikey_500" || mode == "failed_stream_preamble" {
 		accounts[0].Credentials["expires_at"] = time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
 	}
 	if mode == "all_429" || mode == "mixed_429_500" || mode == "mixed_500_429" || mode == "oauth_429_apikey_500" {
@@ -905,6 +933,8 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 	}
 	upstream := &grokCredentialHandlerUpstream{}
 	switch mode {
+	case "failed_stream_preamble":
+		upstream.preludeAccountID = 801
 	case "first_402":
 		upstream.failAccountID = 801
 	case "first_429":
@@ -939,10 +969,16 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 		User:  &service.User{ID: 903, Status: service.StatusActive},
 		Group: &service.Group{ID: groupID, Platform: service.PlatformGrok, Status: service.StatusActive, AllowImageGeneration: true},
 	}
+	if mode == "failed_stream_preamble" {
+		apiKey.Group.AccountSchedulingMode = service.AccountSchedulingModeFastestFailover
+	}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: 1})
+		if mode == "failed_stream_preamble" {
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Group, apiKey.Group))
+		}
 		c.Next()
 	})
 	router.POST("/openai/v1/responses", h.Responses)

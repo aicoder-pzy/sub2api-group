@@ -58,7 +58,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
 	}
 	guardFirstOutput := firstOutputTimeout > 0
-	stageFirstOutput := account != nil && account.Platform == PlatformOpenAI
+	// Fastest failover must keep lifecycle events private until semantic output
+	// on every compatible platform, so a timeout can still switch accounts.
+	stageFirstOutput := account != nil && (account.Platform == PlatformOpenAI || fastestFailoverAttemptFromContext(ctx) != nil)
 	var attemptResponseHeaders http.Header
 	if stageFirstOutput {
 		if s.responseHeaderFilter != nil {

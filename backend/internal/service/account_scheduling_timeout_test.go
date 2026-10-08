@@ -33,11 +33,12 @@ func (repo *schedulingTimeoutRepo) SetModelRateLimit(ctx context.Context, accoun
 
 type schedulingTimeoutUpstream struct {
 	HTTPUpstream
-	headers   bool
-	output    bool
-	success   bool
-	keepalive bool
-	stream    *schedulingTimeoutBody
+	headers      bool
+	output       bool
+	success      bool
+	keepalive    bool
+	largePrelude bool
+	stream       *schedulingTimeoutBody
 }
 
 func expireSchedulingAttempt(attempt *fastestFailoverAttempt) {
@@ -54,6 +55,9 @@ func (upstream *schedulingTimeoutUpstream) Do(request *http.Request, _ string, _
 		return nil, request.Context().Err()
 	}
 	payload := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-timeout\"}}\n\n"
+	if upstream.largePrelude {
+		payload = strings.Repeat(payload, 80)
+	}
 	if upstream.output {
 		payload += "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n"
 	}
@@ -117,15 +121,17 @@ func (body *schedulingTimeoutBody) Close() error {
 
 func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 	for _, scenario := range []struct {
-		name        string
-		passthrough bool
-		headers     bool
-		output      bool
-		chat        bool
-		raw         bool
-		nonstream   bool
-		success     bool
-		keepalive   bool
+		name         string
+		passthrough  bool
+		headers      bool
+		output       bool
+		chat         bool
+		raw          bool
+		nonstream    bool
+		success      bool
+		keepalive    bool
+		grok         bool
+		largePrelude bool
 	}{
 		{name: "native_headers", headers: true},
 		{name: "passthrough_headers", passthrough: true, headers: true},
@@ -152,16 +158,27 @@ func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 		{name: "chat_success", chat: true, output: true, success: true},
 		{name: "raw_chat_success", chat: true, raw: true, output: true, success: true},
 		{name: "responses_via_chat_success", raw: true, output: true, success: true},
+		{name: "grok_headers", grok: true, headers: true},
+		{name: "grok_preamble", grok: true},
+		{name: "grok_large_preamble", grok: true, largePrelude: true},
+		{name: "grok_preamble_keepalive", grok: true, keepalive: true},
+		{name: "grok_after_output", grok: true, output: true},
+		{name: "grok_nonstream", grok: true, nonstream: true},
+		{name: "grok_success", grok: true, output: true, success: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			groupID := int64(103)
+			platform := PlatformOpenAI
+			if scenario.grok {
+				platform = PlatformGrok
+			}
 			ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: groupID, AccountSchedulingMode: AccountSchedulingModeFastestFailover})
 			repo := &schedulingTimeoutRepo{schedulerTestOpenAIAccountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{
 				{ID: 1, Priority: 1}, {ID: 2, Priority: 2},
 			}}}
 			for index := range repo.accounts {
 				account := &repo.accounts[index]
-				account.Platform, account.Type, account.Status = PlatformOpenAI, AccountTypeAPIKey, StatusActive
+				account.Platform, account.Type, account.Status = platform, AccountTypeAPIKey, StatusActive
 				account.Schedulable, account.Concurrency = true, 1
 				account.GroupIDs = []int64{groupID}
 				account.Extra = map[string]any{"openai_passthrough": scenario.passthrough, "scheduling_preferred": index == 0}
@@ -170,7 +187,7 @@ func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 				}
 				account.Credentials = map[string]any{"api_key": "test-key", "base_url": "https://api.example.com", "model_mapping": map[string]any{"model-a": "upstream-a", "model-b": "upstream-b"}}
 			}
-			upstream := &schedulingTimeoutUpstream{headers: scenario.headers, output: scenario.output, success: scenario.success, keepalive: scenario.keepalive}
+			upstream := &schedulingTimeoutUpstream{headers: scenario.headers, output: scenario.output, success: scenario.success, keepalive: scenario.keepalive, largePrelude: scenario.largePrelude}
 			cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
 			svc := &OpenAIGatewayService{accountRepo: repo, cache: cache, httpUpstream: upstream, cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
 			if scenario.keepalive {
@@ -212,6 +229,7 @@ func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 			require.True(t, repo.accounts[0].IsSchedulableForModel("model-b"))
 			if scenario.output {
 				require.Contains(t, recorder.Body.String(), "hello")
+				require.True(t, upstream.stream.attempt.outputStarted, "semantic output must switch the attempt to its idle timeout")
 			} else if scenario.keepalive {
 				require.Contains(t, recorder.Body.String(), ":\n\n")
 				require.Equal(t, -1, OpenAICompactKeepaliveAdjustedWrittenSize(ginCtx))
@@ -220,10 +238,10 @@ func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 			}
 			for _, model := range []string{"model-a", "model-b"} {
 				capability := OpenAIEndpointCapabilityResponses
-				if scenario.raw {
+				if scenario.raw || scenario.grok {
 					capability = OpenAIEndpointCapabilityChatCompletions
 				}
-				selected, _, _ := svc.selectBestAccount(ctx, &groupID, PlatformOpenAI, repo.accounts, model, nil, false, capability, false)
+				selected, _, _ := svc.selectBestAccount(ctx, &groupID, platform, repo.accounts, model, nil, false, capability, false)
 				require.NotNil(t, selected)
 				if model == "model-a" {
 					require.EqualValues(t, 2, selected.ID)
