@@ -3,12 +3,15 @@ package service
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
 const groupModelSchedulingStickyTTL = 0
@@ -21,6 +24,91 @@ type GroupModelSchedulingBinding struct {
 
 type GroupModelSchedulingBindingsReader interface {
 	ListGroupModelSchedulingBindings(context.Context, int64) ([]GroupModelSchedulingBinding, error)
+}
+
+type GroupModelSchedulingAtomicCache interface {
+	GetSessionAccountState(context.Context, int64, string) (int64, int64, error)
+	CompareAndSwapSessionAccountID(context.Context, int64, string, int64, int64) (bool, error)
+}
+
+type groupModelSchedulingRequestKey struct{}
+
+type groupModelSchedulingScope struct {
+	groupID int64
+	model   string
+}
+
+type groupModelSchedulingSnapshot struct {
+	cache     GroupModelSchedulingAtomicCache
+	accountID int64
+	revision  int64
+	valid     bool
+}
+
+type groupModelSchedulingRequestState struct {
+	mu        sync.Mutex
+	snapshots map[groupModelSchedulingScope]groupModelSchedulingSnapshot
+}
+
+// Share the original binding revision across account retries and detached streams.
+func WithFastestFailoverRequestState(ctx context.Context) context.Context {
+	group, _ := ctx.Value(ctxkey.Group).(*Group)
+	if group == nil || group.AccountSchedulingMode != AccountSchedulingModeFastestFailover ||
+		ctx.Value(groupModelSchedulingRequestKey{}) != nil || ctx.Value(schedulingEvaluationKey{}) != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, groupModelSchedulingRequestKey{}, &groupModelSchedulingRequestState{
+		snapshots: make(map[groupModelSchedulingScope]groupModelSchedulingSnapshot),
+	})
+}
+
+func prepareFastestFailoverBinding(ctx context.Context, cache GatewayCache, model string) context.Context {
+	ctx = WithFastestFailoverRequestState(ctx)
+	group, _ := ctx.Value(ctxkey.Group).(*Group)
+	if group != nil && fastestFailoverEnabled(ctx, &group.ID) {
+		groupModelSchedulingActiveAccount(ctx, cache, &group.ID, model)
+	}
+	return ctx
+}
+
+func limitFastestFailoverRetry(ctx context.Context, err error, attempts int) error {
+	group, _ := ctx.Value(ctxkey.Group).(*Group)
+	var failoverErr *UpstreamFailoverError
+	if group != nil && fastestFailoverEnabled(ctx, &group.ID) && errors.As(err, &failoverErr) &&
+		failoverErr.RetryableOnSameAccount {
+		limited := *failoverErr
+		if attempts > 1 {
+			limited.RetryableOnSameAccount = false
+		} else if limited.SameAccountRetryMax == 0 || limited.SameAccountRetryMax > 1 {
+			limited.SameAccountRetryMax = 1
+		}
+		return &limited
+	}
+	return err
+}
+
+func confirmGroupModelSchedulingAccount(ctx context.Context, model string, accountID int64) {
+	state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	group, _ := ctx.Value(ctxkey.Group).(*Group)
+	if state == nil || group == nil || accountID <= 0 || ctx.Err() != nil || ctx.Value(schedulingEvaluationKey{}) != nil {
+		return
+	}
+	scope := groupModelSchedulingScope{group.ID, model}
+	state.mu.Lock()
+	snapshot, ok := state.snapshots[scope]
+	state.mu.Unlock()
+	if !ok || !snapshot.valid || snapshot.accountID == accountID {
+		return
+	}
+	updateCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	changed, err := snapshot.cache.CompareAndSwapSessionAccountID(updateCtx, group.ID,
+		groupModelSchedulingStickyKey(model), snapshot.revision, accountID)
+	if err != nil {
+		logger.LegacyPrintf("service.account_scheduling", "fastest failover binding confirmation failed: group=%d model=%s account=%d error=%v", group.ID, model, accountID, err)
+	} else if changed {
+		logger.LegacyPrintf("service.account_scheduling", "fastest failover binding confirmed: group=%d model=%s previous=%d account=%d", group.ID, model, snapshot.accountID, accountID)
+	}
 }
 
 func groupModelSchedulingStickyKey(model string) string {
@@ -42,6 +130,21 @@ func groupModelSchedulingActiveAccount(ctx context.Context, cache GatewayCache, 
 	}
 	if cache == nil || groupID == nil || model == "" {
 		return 0
+	}
+	if atomicCache, ok := cache.(GroupModelSchedulingAtomicCache); ok {
+		accountID, revision, err := atomicCache.GetSessionAccountState(ctx, *groupID, groupModelSchedulingStickyKey(model))
+		if state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState); state != nil {
+			scope := groupModelSchedulingScope{*groupID, model}
+			state.mu.Lock()
+			if _, captured := state.snapshots[scope]; !captured {
+				state.snapshots[scope] = groupModelSchedulingSnapshot{atomicCache, accountID, revision, err == nil}
+			}
+			state.mu.Unlock()
+		}
+		if err != nil {
+			return 0
+		}
+		return accountID
 	}
 	accountID, err := cache.GetSessionAccountID(ctx, *groupID, groupModelSchedulingStickyKey(model))
 	if err != nil {
@@ -75,6 +178,14 @@ func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository,
 		hasPreferred = hasPreferred || accountSchedulingPreferred(account)
 	}
 	sortAccountsByPriorityAndLastUsed(ordered, false)
+	if activeIndex >= 0 {
+		for index, account := range ordered {
+			if account.ID == activeID {
+				ordered[0], ordered[index] = ordered[index], ordered[0]
+				return ordered
+			}
+		}
+	}
 	if hasPreferred {
 		sort.SliceStable(ordered, func(first, second int) bool {
 			candidate, current := ordered[first], ordered[second]
@@ -90,14 +201,6 @@ func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository,
 			return candidate.ID == activeID && current.ID != activeID
 		})
 		return ordered
-	}
-	if activeIndex >= 0 {
-		for index, account := range ordered {
-			if account.ID == activeID {
-				ordered[0], ordered[index] = ordered[index], ordered[0]
-				return ordered
-			}
-		}
 	}
 	quality := groupModelAccountQuality(ctx, repo, groupID, model)
 	bestFailureRate := math.Inf(1)

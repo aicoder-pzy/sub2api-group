@@ -33,12 +33,17 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	body []byte,
 	parsed *ParsedRequest,
 ) (resultOut *ForwardResult, errorOut error) {
+	bindingModel := gjson.GetBytes(body, "model").String()
+	ctx = prepareFastestFailoverBinding(ctx, s.cache, bindingModel)
 	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account, s.settingService)
 	defer func(requestBody []byte) {
 		errorOut = finishFastestFailoverAttempt(ctx, s.accountRepo, c, account, requestBody, timeoutAttempt, errorOut)
 		var failoverErr *UpstreamFailoverError
 		if timeoutAttempt != nil && !timeoutAttempt.outputStarted && errors.As(errorOut, &failoverErr) {
 			resultOut = nil
+		}
+		if errorOut == nil && resultOut != nil && !resultOut.ClientDisconnect {
+			confirmGroupModelSchedulingAccount(ctx, bindingModel, account.ID)
 		}
 	}(body)
 	startTime := time.Now()

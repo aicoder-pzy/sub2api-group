@@ -21,6 +21,38 @@ type mockAccountRepoForGemini struct {
 	listByPlatformFunc func(ctx context.Context, platforms []string) ([]Account, error)
 }
 
+func TestFastestFailoverGeminiKeepsHealthyChannel(t *testing.T) {
+	groupID := int64(106)
+	base := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: groupID, Platform: PlatformGemini, Status: StatusActive, Hydrated: true, AccountSchedulingMode: AccountSchedulingModeFastestFailover})
+	cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
+	accounts := []Account{
+		{ID: 1, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Priority: 10},
+		{ID: 2, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Priority: 1, Extra: map[string]any{"scheduling_preferred": true}},
+	}
+	repo := &mockAccountRepoForGemini{accounts: accounts, accountsByID: map[int64]*Account{1: &accounts[0], 2: &accounts[1]}}
+	svc := &GeminiMessagesCompatService{cache: cache, accountRepo: repo}
+	rememberGroupModelSchedulingAccount(base, cache, &groupID, "gemini-2.5-flash", 1)
+	require.NoError(t, cache.SetSessionAccountID(base, groupID, "gemini:session", 2, time.Hour))
+	ctx := WithFastestFailoverRequestState(base)
+	selected, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "session", "gemini-2.5-flash", nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, selected.ID)
+	selected, err = svc.SelectAccountForModelWithExclusions(ctx, &groupID, "session", "gemini-2.5-flash", map[int64]struct{}{1: {}})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, selected.ID)
+	require.EqualValues(t, 1, groupModelSchedulingActiveAccount(base, cache, &groupID, "gemini-2.5-flash"))
+	rememberGroupModelSchedulingAccount(base, cache, &groupID, "gemini-2.5-flash", 1)
+	confirmGroupModelSchedulingAccount(ctx, "gemini-2.5-flash", 2)
+	require.EqualValues(t, 1, groupModelSchedulingActiveAccount(base, cache, &groupID, "gemini-2.5-flash"), "manual refresh must invalidate the older request")
+	ctx = WithFastestFailoverRequestState(base)
+	selected, err = svc.SelectAccountForModelWithExclusions(ctx, &groupID, "session", "gemini-2.5-flash", map[int64]struct{}{1: {}})
+	require.NoError(t, err)
+	confirmGroupModelSchedulingAccount(ctx, "gemini-2.5-flash", selected.ID)
+	selected, err = svc.SelectAccountForModelWithExclusions(WithFastestFailoverRequestState(base), &groupID, "session", "gemini-2.5-flash", nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, selected.ID, "the recovered old channel must not take traffic back")
+}
+
 func (m *mockAccountRepoForGemini) GetByID(ctx context.Context, id int64) (*Account, error) {
 	if acc, ok := m.accountsByID[id]; ok {
 		return acc, nil

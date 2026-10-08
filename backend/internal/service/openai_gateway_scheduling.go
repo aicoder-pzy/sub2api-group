@@ -934,10 +934,6 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusionsStickyHit(ctx 
 	if selected == nil {
 		return nil, false, noAvailableOpenAISelectionError(requestedModel, compactBlocked, filterStats.summary(""))
 	}
-	if fastestFailoverEnabled(ctx, groupID) {
-		rememberGroupModelSchedulingAccount(ctx, s.cache, groupID, requestedModel, selected.ID)
-	}
-
 	hydrated, err := s.hydrateSelectedAccount(ctx, selected)
 	if err != nil {
 		return nil, false, err
@@ -1337,13 +1333,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				if selectErr != nil {
 					return nil, selectErr
 				}
-				rememberGroupModelSchedulingAccount(ctx, s.cache, groupID, requestedModel, account.ID)
 				if sessionHash != "" && !gatewayProfitControlGateActive(ctx) {
 					_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, account.ID, openaiStickySessionTTL)
 				}
 				return selection, nil
 			}
-			rememberGroupModelSchedulingAccount(ctx, s.cache, groupID, requestedModel, account.ID)
 			return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 				AccountID: account.ID, MaxConcurrency: account.Concurrency,
 				Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting,

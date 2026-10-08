@@ -73,9 +73,14 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 ) (resultOut *OpenAIForwardResult, errorOut error) {
 	defer func(raw []byte) { stampBPSForwardResult(c, account, raw, resultOut) }(body)
 	ctx = withBPSRequestScope(ctx, c, body)
+	bindingModel := gjson.GetBytes(body, "model").String()
+	ctx = prepareFastestFailoverBinding(ctx, s.cache, bindingModel)
 	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account, s.settingService)
 	defer func(requestBody []byte) {
 		errorOut = finishFastestFailoverAttempt(ctx, s.accountRepo, c, account, requestBody, timeoutAttempt, errorOut)
+		if errorOut == nil && resultOut != nil && !resultOut.ClientDisconnect && resultOut.SucceededForScheduling() {
+			confirmGroupModelSchedulingAccount(ctx, bindingModel, account.ID)
+		}
 	}(body)
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)

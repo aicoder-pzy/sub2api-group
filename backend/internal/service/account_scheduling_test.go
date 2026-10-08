@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,8 +33,8 @@ func TestFastestFailoverQualityPriceAndPreference(t *testing.T) {
 	}{
 		{name: "cheaper within speed range", latency: 100, cheapRate: 0.5, want: 2},
 		{name: "preference beats lower rate", preferred: true, latency: 100, cheapRate: 0.5, want: 1},
-		{name: "preference takes over binding", preferred: true, latency: 100, pinned: 2, cheapRate: 0.5, want: 1},
-		{name: "slow preference takes over", preferred: true, latency: 300, pinned: 2, cheapRate: 0.5, want: 1},
+		{name: "preference preserves healthy binding", preferred: true, latency: 100, pinned: 2, cheapRate: 0.5, want: 2},
+		{name: "slow preference preserves binding", preferred: true, latency: 300, pinned: 2, cheapRate: 0.5, want: 2},
 		{name: "slow preference wins initially", preferred: true, latency: 300, cheapRate: 0.5, want: 1},
 		{name: "unstable cheap account loses", latency: 100, failures: 30, cheapRate: 0.1, want: 1},
 		{name: "healthy binding persists", latency: 100, pinned: 1, cheapRate: 0.1, want: 1},
@@ -79,8 +80,8 @@ func TestFastestFailoverMultiplePreferredAndUnknownModels(t *testing.T) {
 		1: {Successes: 100, LatencyMS: 100},
 		2: {Successes: 100, LatencyMS: 110},
 	}}
-	if got := fastestFailoverCandidateOrder(ctx, repo, cache, &groupID, "model-a", candidates)[0].ID; got != 1 {
-		t.Fatalf("preferred priority selected %d", got)
+	if got := fastestFailoverCandidateOrder(ctx, repo, cache, &groupID, "model-a", candidates)[0].ID; got != 2 {
+		t.Fatalf("priority displaced the current channel: %d", got)
 	}
 	delete(repo.quality, 1)
 	if got := fastestFailoverCandidateOrder(ctx, repo, nil, &groupID, "model-a", candidates)[0].ID; got != 1 {
@@ -108,16 +109,134 @@ func (s accountSchedulingLatencyStub) GetGroupModelAccountQuality(_ context.Cont
 
 type accountSchedulingCacheStub struct {
 	GatewayCache
-	bindings map[string]int64
+	mu        sync.Mutex
+	bindings  map[string]int64
+	revisions map[string]int64
 }
 
 func (s *accountSchedulingCacheStub) GetSessionAccountID(_ context.Context, _ int64, key string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.bindings[key], nil
 }
 
 func (s *accountSchedulingCacheStub) SetSessionAccountID(_ context.Context, _ int64, key string, accountID int64, _ time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.revisions == nil {
+		s.revisions = make(map[string]int64)
+	}
 	s.bindings[key] = accountID
+	s.revisions[key]++
 	return nil
+}
+
+func (s *accountSchedulingCacheStub) GetSessionAccountState(_ context.Context, _ int64, key string) (int64, int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.bindings[key], s.revisions[key], nil
+}
+
+func (s *accountSchedulingCacheStub) CompareAndSwapSessionAccountID(_ context.Context, _ int64, key string, revision int64, accountID int64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.revisions[key] != revision {
+		return false, nil
+	}
+	if s.revisions == nil {
+		s.revisions = make(map[string]int64)
+	}
+	s.bindings[key] = accountID
+	s.revisions[key]++
+	return true, nil
+}
+
+func TestFastestFailoverBindingConfirmationRejectsStaleRequests(t *testing.T) {
+	groupID := int64(5)
+	group := &Group{ID: groupID, AccountSchedulingMode: AccountSchedulingModeFastestFailover}
+	cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
+	base := context.WithValue(context.Background(), ctxkey.Group, group)
+	rememberGroupModelSchedulingAccount(base, cache, &groupID, "model-a", 1)
+	first := prepareFastestFailoverBinding(base, cache, "model-a")
+	late := prepareFastestFailoverBinding(base, cache, "model-a")
+	confirmGroupModelSchedulingAccount(first, "model-a", 2)
+	if got := groupModelSchedulingActiveAccount(base, cache, &groupID, "model-a"); got != 2 {
+		t.Fatalf("confirmed backup = %d, want 2", got)
+	}
+	// A retry can see the new channel without replacing its original revision.
+	prepareFastestFailoverBinding(late, cache, "model-a")
+	confirmGroupModelSchedulingAccount(late, "model-a", 3)
+	confirmGroupModelSchedulingAccount(late, "model-a", 1)
+	if got := groupModelSchedulingActiveAccount(base, cache, &groupID, "model-a"); got != 2 {
+		t.Fatalf("late request replaced the confirmed channel: %d", got)
+	}
+}
+
+func TestFastestFailoverBindingManualRefreshInvalidatesOldRequest(t *testing.T) {
+	groupID := int64(5)
+	base := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: groupID, AccountSchedulingMode: AccountSchedulingModeFastestFailover})
+	for _, winner := range []int64{1, 3} {
+		cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
+		rememberGroupModelSchedulingAccount(base, cache, &groupID, "model-a", 1)
+		old := prepareFastestFailoverBinding(base, cache, "model-a")
+		rememberGroupModelSchedulingAccount(base, cache, &groupID, "model-a", winner)
+		confirmGroupModelSchedulingAccount(old, "model-a", 2)
+		if got := groupModelSchedulingActiveAccount(base, cache, &groupID, "model-a"); got != winner {
+			t.Fatalf("old request displaced manual winner %d: %d", winner, got)
+		}
+	}
+}
+
+func TestFastestFailoverBindingConcurrentConfirmations(t *testing.T) {
+	groupID := int64(5)
+	base := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: groupID, AccountSchedulingMode: AccountSchedulingModeFastestFailover})
+	cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
+	requests := make([]context.Context, 20)
+	for index := range requests {
+		requests[index] = prepareFastestFailoverBinding(base, cache, "model-a")
+	}
+	var workers sync.WaitGroup
+	for index, ctx := range requests {
+		workers.Add(1)
+		go func(ctx context.Context, id int64) {
+			defer workers.Done()
+			confirmGroupModelSchedulingAccount(ctx, "model-a", id)
+		}(ctx, int64(index+1))
+	}
+	workers.Wait()
+	_, revision, err := cache.GetSessionAccountState(base, groupID, groupModelSchedulingStickyKey("model-a"))
+	if err != nil || revision != 1 {
+		t.Fatalf("concurrent requests committed %d revisions: %v", revision, err)
+	}
+}
+
+func TestFastestFailoverBindingDoesNotCommitCanceledRequest(t *testing.T) {
+	groupID := int64(5)
+	base := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: groupID, AccountSchedulingMode: AccountSchedulingModeFastestFailover})
+	cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
+	ctx, cancel := context.WithCancel(prepareFastestFailoverBinding(base, cache, "model-a"))
+	cancel()
+	confirmGroupModelSchedulingAccount(ctx, "model-a", 2)
+	if got := groupModelSchedulingActiveAccount(base, cache, &groupID, "model-a"); got != 0 {
+		t.Fatalf("canceled request committed channel %d", got)
+	}
+}
+
+func TestFastestFailoverSameChannelRetryIsBounded(t *testing.T) {
+	group := &Group{ID: 5, AccountSchedulingMode: AccountSchedulingModeFastestFailover}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+	original := &UpstreamFailoverError{StatusCode: 503, RetryableOnSameAccount: true, SameAccountRetryDeadline: time.Now().Add(time.Minute)}
+	limited, ok := limitFastestFailoverRetry(ctx, original, 1).(*UpstreamFailoverError)
+	if !ok || limited.SameAccountRetryMax != 1 || original.SameAccountRetryMax != 0 || limited.SameAccountRetryDeadline != original.SameAccountRetryDeadline {
+		t.Fatal("retry cap must preserve the error and its deadline without mutating it")
+	}
+	if limitFastestFailoverRetry(ctx, original, 2).(*UpstreamFailoverError).RetryableOnSameAccount {
+		t.Fatal("an internal retry must not receive another handler retry")
+	}
+	group.AccountSchedulingMode = AccountSchedulingModePriority
+	if limitFastestFailoverRetry(ctx, original, 1) != original {
+		t.Fatal("ordinary scheduling retry policy changed")
+	}
 }
 
 func TestFastestFailoverCandidateOrderUsesRequestedModelLatency(t *testing.T) {
@@ -248,7 +367,7 @@ func TestFastestFailoverOpenAISchedulerUsesModelPinWithAdvancedSchedulerEnabled(
 				accounts[index].Concurrency = 1
 				accounts[index].GroupIDs = []int64{groupID}
 			}
-			cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"old-session": 3}}
+			cache := &accountSchedulingCacheStub{bindings: map[string]int64{"old-session": 3}}
 			cfg := &config.Config{}
 			cfg.Gateway.Scheduling.LoadBatchEnabled = loadBatch
 			svc := &OpenAIGatewayService{
@@ -270,7 +389,8 @@ func TestFastestFailoverOpenAISchedulerUsesModelPinWithAdvancedSchedulerEnabled(
 				{session: "failover", excluded: map[int64]struct{}{2: {}}, want: 3},
 				{session: "after-failover", want: 3},
 			} {
-				selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", request.session, "model-a", request.excluded, OpenAIUpstreamTransportAny, false)
+				requestCtx := WithFastestFailoverRequestState(ctx)
+				selection, _, err := svc.SelectAccountWithScheduler(requestCtx, &groupID, "", request.session, "model-a", request.excluded, OpenAIUpstreamTransportAny, false)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -280,12 +400,13 @@ func TestFastestFailoverOpenAISchedulerUsesModelPinWithAdvancedSchedulerEnabled(
 				if selection.ReleaseFunc != nil {
 					selection.ReleaseFunc()
 				}
+				confirmGroupModelSchedulingAccount(requestCtx, "model-a", selection.Account.ID)
 			}
 		})
 	}
 }
 
-func TestFastestFailoverPreferenceTakesOverAcrossSchedulerPaths(t *testing.T) {
+func TestFastestFailoverHealthyChannelPersistsAcrossSchedulerPaths(t *testing.T) {
 	for _, scenario := range []struct {
 		platform  string
 		loadBatch bool
@@ -317,7 +438,7 @@ func TestFastestFailoverPreferenceTakesOverAcrossSchedulerPaths(t *testing.T) {
 				accounts[index].Credentials = map[string]any{"model_mapping": map[string]any{"model-a": "model-a"}}
 			}
 			accounts[2].Credentials = map[string]any{"model_mapping": map[string]any{"other-model": "other-model"}}
-			cache := &schedulerTestGatewayCache{sessionBindings: make(map[string]int64)}
+			cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
 			cfg := &config.Config{}
 			cfg.Gateway.Scheduling.LoadBatchEnabled = scenario.loadBatch
 			svc := &OpenAIGatewayService{
@@ -332,11 +453,13 @@ func TestFastestFailoverPreferenceTakesOverAcrossSchedulerPaths(t *testing.T) {
 				want      int64
 			}{
 				{want: 2},
-				{preferred: true, want: 1},
-				{preferred: true, excluded: map[int64]struct{}{1: {}}, want: 2},
+				{preferred: true, want: 2},
+				{preferred: true, excluded: map[int64]struct{}{2: {}}, want: 1},
+				{want: 1},
 			} {
 				accounts[0].Extra = map[string]any{"scheduling_preferred": request.preferred}
-				selection, _, err := svc.SelectAccountWithSchedulerForCapability(ctx, &groupID, "", "session", "model-a", request.excluded, OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions, false, false, true, scenario.platform)
+				requestCtx := WithFastestFailoverRequestState(ctx)
+				selection, _, err := svc.SelectAccountWithSchedulerForCapability(requestCtx, &groupID, "", "session", "model-a", request.excluded, OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions, false, false, true, scenario.platform)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -346,7 +469,38 @@ func TestFastestFailoverPreferenceTakesOverAcrossSchedulerPaths(t *testing.T) {
 				if selection.ReleaseFunc != nil {
 					selection.ReleaseFunc()
 				}
+				confirmGroupModelSchedulingAccount(requestCtx, "model-a", selection.Account.ID)
 			}
 		})
+	}
+}
+
+func TestFastestFailoverFullCurrentChannelWaitsWithoutSwitching(t *testing.T) {
+	for _, loadBatch := range []bool{false, true} {
+		groupID := int64(103)
+		ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: groupID, Platform: PlatformOpenAI, AccountSchedulingMode: AccountSchedulingModeFastestFailover})
+		accounts := []Account{
+			{ID: 1, Priority: 10, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}},
+			{ID: 2, Priority: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}},
+		}
+		cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
+		rememberGroupModelSchedulingAccount(ctx, cache, &groupID, "model-a", 1)
+		cfg := &config.Config{}
+		cfg.Gateway.Scheduling.LoadBatchEnabled = loadBatch
+		var attempted []int64
+		svc := &OpenAIGatewayService{
+			accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cache: cache, cfg: cfg,
+			concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquiredIDs: &attempted, acquireResults: map[int64]bool{1: false, 2: true}}),
+		}
+		selection, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", "model-a", nil)
+		if err != nil || selection == nil || selection.Account.ID != 1 || selection.WaitPlan == nil {
+			t.Fatalf("loadBatch=%t: full current channel did not wait: selection=%+v error=%v", loadBatch, selection, err)
+		}
+		if len(attempted) != 1 || attempted[0] != 1 {
+			t.Fatalf("local capacity triggered another channel: %v", attempted)
+		}
+		if groupModelSchedulingActiveAccount(ctx, cache, &groupID, "model-a") != 1 {
+			t.Fatal("waiting changed the current channel")
+		}
 	}
 }

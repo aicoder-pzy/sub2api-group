@@ -394,9 +394,11 @@ func setGroupContext(c *gin.Context, group *service.Group) {
 		return
 	}
 	if existing, ok := c.Request.Context().Value(ctxkey.Group).(*service.Group); ok && existing != nil && existing.ID == group.ID && service.IsGroupContextValid(existing) {
+		c.Request = c.Request.WithContext(service.WithFastestFailoverRequestState(c.Request.Context()))
 		return
 	}
 	ctx := context.WithValue(c.Request.Context(), ctxkey.Group, group)
+	ctx = service.WithFastestFailoverRequestState(ctx)
 	c.Request = c.Request.WithContext(ctx)
 }
 

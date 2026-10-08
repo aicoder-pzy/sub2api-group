@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,63 @@ type geminiCompatHTTPUpstreamStub struct {
 	err      error
 	calls    int
 	lastReq  *http.Request
+}
+
+func TestFastestFailoverGeminiConfirmationAndRetryBudget(t *testing.T) {
+	for _, endpoint := range []string{"messages", "chat", "native"} {
+		for _, scenario := range []string{"success", "upstream_failure", "retry_disabled"} {
+			t.Run(endpoint+"/"+scenario, func(t *testing.T) {
+				groupID := int64(105)
+				ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: groupID, Platform: PlatformGemini, AccountSchedulingMode: AccountSchedulingModeFastestFailover})
+				cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
+				rememberGroupModelSchedulingAccount(ctx, cache, &groupID, "model-a", 2)
+				account := &Account{ID: 1, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+					"api_key": "test-key", "pool_mode": true,
+					"model_mapping": map[string]any{"model-a": "gemini-2.5-flash"},
+				}}
+				status := http.StatusOK
+				payload := `{"candidates":[{"content":{"parts":[{"text":"hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3}}`
+				if scenario != "success" {
+					status = http.StatusInternalServerError
+					payload = `{"error":{"message":"temporary upstream failure"}}`
+				}
+				if scenario == "retry_disabled" {
+					account.Credentials["pool_mode_retry_count"] = 0
+				}
+				upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(payload))}}
+				svc := &GeminiMessagesCompatService{cache: cache, httpUpstream: upstream, cfg: &config.Config{}}
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Request = httptest.NewRequest(http.MethodPost, "/test", nil).WithContext(ctx)
+				var result *ForwardResult
+				var err error
+				switch endpoint {
+				case "messages":
+					result, err = svc.Forward(ctx, c, account, []byte(`{"model":"model-a","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`))
+				case "chat":
+					result, err = svc.ForwardAsChatCompletions(ctx, c, account, []byte(`{"model":"model-a","messages":[{"role":"user","content":"hello"}]}`))
+				case "native":
+					result, err = svc.ForwardNative(ctx, c, account, "model-a", "generateContent", false, []byte(`{"contents":[{"parts":[{"text":"hello"}]}]}`))
+				}
+				if scenario == "success" {
+					require.NoError(t, err)
+					require.NotNil(t, result)
+					require.EqualValues(t, 1, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "model-a"))
+					require.Zero(t, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "gemini-2.5-flash"))
+				} else {
+					var failover *UpstreamFailoverError
+					require.ErrorAs(t, err, &failover)
+					require.EqualValues(t, 2, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "model-a"))
+					if scenario == "upstream_failure" {
+						require.Equal(t, 2, upstream.calls)
+						require.False(t, failover.RetryableOnSameAccount, "the internal retry already consumed the same-channel budget")
+					} else {
+						require.Equal(t, 1, upstream.calls)
+					}
+				}
+			})
+		}
+	}
 }
 
 func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {

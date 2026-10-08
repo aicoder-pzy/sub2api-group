@@ -3687,6 +3687,7 @@ func TestFastestFailoverGatewayTimeoutSkipsStalePreferredAccount(t *testing.T) {
 					selected, err := selectAccount(ctx, &groupID, "", model, nil, PlatformAnthropic)
 					require.NoError(t, err)
 					require.Equal(t, want, selected.ID, "group=%d routed=%t mixed=%t model=%s", groupID, routed, mixed, model)
+					require.EqualValues(t, primary.ID, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "model-a"), "selection alone must not commit a backup")
 				}
 			}
 		}

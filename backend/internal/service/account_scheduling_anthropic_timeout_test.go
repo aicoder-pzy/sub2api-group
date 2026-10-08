@@ -107,6 +107,9 @@ func TestFastestFailoverAnthropicTimeoutAcrossGroupsAndEndpoints(t *testing.T) {
 					upstream.bedrock = endpoint == "bedrock"
 					svc := newForwardPartialUsageServiceForTest(nil)
 					svc.httpUpstream, svc.accountRepo = upstream, repo
+					cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
+					svc.cache = cache
+					rememberGroupModelSchedulingAccount(ctx, cache, &groupID, "requested-model", 999)
 					rec := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(rec)
 					c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(ctx)
@@ -115,13 +118,15 @@ func TestFastestFailoverAnthropicTimeoutAcrossGroupsAndEndpoints(t *testing.T) {
 					parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
 					require.NoError(t, err)
 					forward := func() (*ForwardResult, error) {
+						attemptParsed, err := parsed.CloneForBody(body)
+						require.NoError(t, err)
 						switch endpoint {
 						case "chat", "chat_buffered":
-							return svc.ForwardAsChatCompletions(ctx, c, account, body, parsed)
+							return svc.ForwardAsChatCompletions(ctx, c, account, body, attemptParsed)
 						case "responses", "responses_buffered":
-							return svc.ForwardAsResponses(ctx, c, account, body, parsed)
+							return svc.ForwardAsResponses(ctx, c, account, body, attemptParsed)
 						default:
-							return svc.Forward(ctx, c, account, parsed)
+							return svc.Forward(ctx, c, account, attemptParsed)
 						}
 					}
 					result, err := forward()
@@ -132,9 +137,11 @@ func TestFastestFailoverAnthropicTimeoutAcrossGroupsAndEndpoints(t *testing.T) {
 						require.Equal(t, 5, result.Usage.OutputTokens)
 						require.Empty(t, repo.cooledModel)
 						require.Contains(t, rec.Body.String(), "hello")
+						require.EqualValues(t, account.ID, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "requested-model"))
 						return
 					}
 					var failover *UpstreamFailoverError
+					require.EqualValues(t, 999, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "requested-model"))
 					require.ErrorAs(t, err, &failover)
 					if scenario == "eof" {
 						require.Equal(t, http.StatusBadGateway, failover.StatusCode)
@@ -165,6 +172,7 @@ func TestFastestFailoverAnthropicTimeoutAcrossGroupsAndEndpoints(t *testing.T) {
 						require.NoError(t, err)
 						require.NotNil(t, result)
 						require.Contains(t, rec.Body.String(), "hello")
+						require.EqualValues(t, account.ID, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "requested-model"))
 						if endpoint == "messages" || endpoint == "passthrough" {
 							require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_start"))
 						}

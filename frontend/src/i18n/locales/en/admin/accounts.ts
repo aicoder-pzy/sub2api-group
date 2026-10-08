@@ -136,7 +136,7 @@ export default {
       schedulableEnabled: 'Scheduling enabled',
       activeScheduler: 'Currently selected',
       schedulingPreferred: 'Prefer account',
-      schedulingPreferredHint: 'For fastest failover: an available account supporting the model takes precedence over faster or cheaper accounts. Among preferred accounts, lower priority numbers win. Enabling may replace the current binding.',
+      schedulingPreferredHint: 'Used for initial selection, backup selection after a failure, and manual scheduling refresh. Among preferred accounts, lower priority numbers win. A healthy current channel is retained.',
       activeSchedulerHint: 'This account is currently pinned for one or more models in the selected group.',
       schedulableDisabled: 'Scheduling disabled',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',

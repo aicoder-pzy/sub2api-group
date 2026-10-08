@@ -93,12 +93,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if parsed == nil {
 		return nil, fmt.Errorf("parse request: empty request")
 	}
+	bindingModel := parsed.Model
+	ctx = prepareFastestFailoverBinding(ctx, s.cache, bindingModel)
 	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account, s.settingService)
 	defer func(requestBody []byte) {
 		err = finishFastestFailoverAttempt(ctx, s.accountRepo, c, account, requestBody, timeoutAttempt, err)
 		var failoverErr *UpstreamFailoverError
 		if timeoutAttempt != nil && !timeoutAttempt.outputStarted && errors.As(err, &failoverErr) {
 			result = nil
+		}
+		if err == nil && result != nil && !result.ClientDisconnect {
+			confirmGroupModelSchedulingAccount(ctx, bindingModel, account.ID)
 		}
 	}(parsed.Body.Bytes())
 	// API-key mappings and OAuth native IDs are resolved before mimicry.

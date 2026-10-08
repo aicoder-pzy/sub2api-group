@@ -39,6 +39,7 @@ type schedulingTimeoutUpstream struct {
 	keepalive    bool
 	largePrelude bool
 	stream       *schedulingTimeoutBody
+	heartbeat    <-chan struct{}
 }
 
 func expireSchedulingAttempt(attempt *fastestFailoverAttempt) {
@@ -75,7 +76,7 @@ func (upstream *schedulingTimeoutUpstream) Do(request *http.Request, _ string, _
 	if upstream.success {
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(payload))}, nil
 	}
-	upstream.stream = &schedulingTimeoutBody{Reader: strings.NewReader(payload), attempt: attempt, waitForOutput: upstream.output, keepalive: upstream.keepalive}
+	upstream.stream = &schedulingTimeoutBody{Reader: strings.NewReader(payload), attempt: attempt, waitForOutput: upstream.output, keepalive: upstream.keepalive, heartbeat: upstream.heartbeat}
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: upstream.stream}, nil
 }
 
@@ -86,13 +87,17 @@ type schedulingTimeoutBody struct {
 	closed        bool
 	waitForOutput bool
 	keepalive     bool
+	heartbeat     <-chan struct{}
 }
 
 func (body *schedulingTimeoutBody) Read(buffer []byte) (int, error) {
 	count, err := body.Reader.Read(buffer)
 	if err == io.EOF {
 		if body.keepalive {
-			time.Sleep(1100 * time.Millisecond)
+			select {
+			case <-body.heartbeat:
+			case <-time.After(3 * time.Second):
+			}
 		}
 		if body.waitForOutput {
 			deadline := time.Now().Add(time.Second)
@@ -117,6 +122,19 @@ func (body *schedulingTimeoutBody) Close() error {
 	body.closed = true
 	body.mutex.Unlock()
 	return nil
+}
+
+type schedulingTimeoutRecorder struct {
+	*httptest.ResponseRecorder
+	heartbeat chan struct{}
+	once      sync.Once
+}
+
+func (recorder *schedulingTimeoutRecorder) Flush() {
+	recorder.ResponseRecorder.Flush()
+	if strings.Contains(recorder.Body.String(), ":\n\n") {
+		recorder.once.Do(func() { close(recorder.heartbeat) })
+	}
 }
 
 func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
@@ -193,7 +211,7 @@ func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 			if scenario.keepalive {
 				svc.cfg.Gateway.StreamKeepaliveInterval = 1
 			}
-			rememberGroupModelSchedulingAccount(ctx, cache, &groupID, "model-a", 1)
+			rememberGroupModelSchedulingAccount(ctx, cache, &groupID, "model-a", 2)
 			body := []byte(`{"model":"model-a","stream":true,"input":"hello","reasoning":{"effort":"high"}}`)
 			if scenario.nonstream {
 				body = []byte(`{"model":"model-a","stream":false,"input":"hello"}`)
@@ -205,7 +223,9 @@ func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 				}
 			}
 			recorder := httptest.NewRecorder()
-			ginCtx, _ := gin.CreateTestContext(recorder)
+			heartbeat := make(chan struct{})
+			upstream.heartbeat = heartbeat
+			ginCtx, _ := gin.CreateTestContext(&schedulingTimeoutRecorder{ResponseRecorder: recorder, heartbeat: heartbeat})
 			ginCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body))).WithContext(ctx)
 			var err error
 			if scenario.chat {
@@ -217,8 +237,11 @@ func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 				require.NoError(t, err)
 				require.Contains(t, recorder.Body.String(), "hello")
 				require.Empty(t, repo.cooledModel)
+				require.EqualValues(t, 1, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "model-a"))
+				require.Zero(t, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "upstream-a"))
 				return
 			}
+			require.EqualValues(t, 2, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "model-a"), "failed candidate must not become the current channel")
 			var failoverErr *UpstreamFailoverError
 			require.ErrorAs(t, err, &failoverErr)
 			require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)

@@ -2047,9 +2047,6 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 			selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates)[0]
 		}
 		if selected != nil {
-			if fastestFailover {
-				rememberGroupModelSchedulingAccount(ctx, s.cache, groupID, requestedModel, selected.ID)
-			}
 			if sessionHash != "" && s.cache != nil {
 				if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.ID); err != nil {
 					logger.LegacyPrintf("service.gateway", "set session account failed: session=%s account_id=%d err=%v", sessionHash, selected.ID, err)
@@ -2183,9 +2180,6 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 	}
 
 	// 4. 建立粘性绑定
-	if fastestFailover {
-		rememberGroupModelSchedulingAccount(ctx, s.cache, groupID, requestedModel, selected.ID)
-	}
 	if sessionHash != "" && s.cache != nil {
 		if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.ID); err != nil {
 			logger.LegacyPrintf("service.gateway", "set session account failed: session=%s account_id=%d err=%v", sessionHash, selected.ID, err)
@@ -2340,9 +2334,6 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 			selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates)[0]
 		}
 		if selected != nil {
-			if fastestFailover {
-				rememberGroupModelSchedulingAccount(ctx, s.cache, groupID, requestedModel, selected.ID)
-			}
 			if sessionHash != "" && s.cache != nil {
 				if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.ID); err != nil {
 					logger.LegacyPrintf("service.gateway", "set session account failed: session=%s account_id=%d err=%v", sessionHash, selected.ID, err)
@@ -2477,9 +2468,6 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 	}
 
 	// 4. 建立粘性绑定
-	if fastestFailover {
-		rememberGroupModelSchedulingAccount(ctx, s.cache, groupID, requestedModel, selected.ID)
-	}
 	if sessionHash != "" && s.cache != nil {
 		if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.ID); err != nil {
 			logger.LegacyPrintf("service.gateway", "set session account failed: session=%s account_id=%d err=%v", sessionHash, selected.ID, err)

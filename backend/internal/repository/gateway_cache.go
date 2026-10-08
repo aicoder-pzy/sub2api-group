@@ -92,7 +92,55 @@ func (c *gatewayCache) ListGroupModelSchedulingBindings(ctx context.Context, gro
 
 func (c *gatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
 	key := buildSessionKey(groupID, sessionHash)
+	if strings.HasPrefix(sessionHash, service.GroupModelSchedulingKeyPrefix) {
+		return setGroupModelSchedulingAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision"}, accountID).Err()
+	}
 	return c.rdb.Set(ctx, key, accountID, ttl).Err()
+}
+
+var setGroupModelSchedulingAccountScript = redis.NewScript(`
+redis.call('SET', KEYS[1], ARGV[1])
+redis.call('INCR', KEYS[2])
+return 1
+`)
+
+var compareAndSwapSessionAccountScript = redis.NewScript(`
+local revision = redis.call('GET', KEYS[2]) or '0'
+if revision ~= ARGV[1] then
+  return 0
+end
+redis.call('SET', KEYS[1], ARGV[2])
+redis.call('INCR', KEYS[2])
+return 1
+`)
+
+func (c *gatewayCache) GetSessionAccountState(ctx context.Context, groupID int64, sessionHash string) (int64, int64, error) {
+	key := buildSessionKey(groupID, sessionHash)
+	values, err := c.rdb.MGet(ctx, key, key+":revision").Result()
+	if err != nil {
+		return 0, 0, err
+	}
+	var state [2]int64
+	for index, value := range values {
+		if value == nil {
+			continue
+		}
+		text, ok := value.(string)
+		if !ok {
+			return 0, 0, errors.New("invalid scheduling binding state")
+		}
+		state[index], err = strconv.ParseInt(text, 10, 64)
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	return state[0], state[1], nil
+}
+
+func (c *gatewayCache) CompareAndSwapSessionAccountID(ctx context.Context, groupID int64, sessionHash string, revision int64, accountID int64) (bool, error) {
+	key := buildSessionKey(groupID, sessionHash)
+	result, err := compareAndSwapSessionAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision"}, revision, accountID).Int()
+	return result == 1, err
 }
 
 func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, sessionHash string, ttl time.Duration) error {
@@ -109,8 +157,17 @@ func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, ses
 // or unschedulable), allowing subsequent requests to select a new available account.
 func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64, sessionHash string) error {
 	key := buildSessionKey(groupID, sessionHash)
+	if strings.HasPrefix(sessionHash, service.GroupModelSchedulingKeyPrefix) {
+		return deleteGroupModelSchedulingAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision"}).Err()
+	}
 	return c.rdb.Del(ctx, key).Err()
 }
+
+var deleteGroupModelSchedulingAccountScript = redis.NewScript(`
+redis.call('DEL', KEYS[1])
+redis.call('INCR', KEYS[2])
+return 1
+`)
 
 var claimOpenAIResponsesSessionWindowScript = redis.NewScript(`
 local previous = redis.call('GET', KEYS[1])

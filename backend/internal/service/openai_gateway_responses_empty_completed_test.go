@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -46,6 +47,49 @@ func TestOpenAIResponsesEmptyCompletedFailsOver(t *testing.T) {
 	require.True(t, errors.As(err, &failoverErr), "empty completed must produce UpstreamFailoverError, got: %v", err)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.Empty(t, recorder.Body.String(), "no empty success stream may reach the client")
+}
+
+func TestGrokResponsesEmptyCompletionFailoverAndBinding(t *testing.T) {
+	for _, output := range []bool{false, true} {
+		name := "empty"
+		if output {
+			name = "completed_output"
+		}
+		t.Run(name, func(t *testing.T) {
+			stream := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_grok\",\"status\":\"in_progress\"}}\n\n"
+			if output {
+				stream += "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello grok\"}\n\n"
+				stream += "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":11,\"output_tokens\":4}}}\n\n"
+			} else {
+				stream += "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"
+			}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(stream)),
+			}}
+			svc := newOpenAIImageGenerationControlTestService(upstream)
+			groupID := int64(5)
+			ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: groupID, AccountSchedulingMode: AccountSchedulingModeFastestFailover})
+			cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
+			svc.cache = cache
+			rememberGroupModelSchedulingAccount(ctx, cache, &groupID, "grok-4.7", 1)
+			c, recorder := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
+			account := newOpenAIImageGenerationControlTestAccount()
+			account.ID, account.Platform = 2, PlatformGrok
+			_, err := svc.Forward(ctx, c, account, []byte(`{"model":"grok-4.7","stream":true,"input":"hello"}`))
+			if output {
+				require.NoError(t, err)
+				require.Contains(t, recorder.Body.String(), "hello grok")
+				require.EqualValues(t, 2, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "grok-4.7"))
+			} else {
+				var failoverErr *UpstreamFailoverError
+				require.ErrorAs(t, err, &failoverErr)
+				require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+				require.Empty(t, recorder.Body.String())
+				require.EqualValues(t, 1, groupModelSchedulingActiveAccount(ctx, cache, &groupID, "grok-4.7"))
+			}
+		})
+	}
 }
 
 // TestOpenAIResponsesEmptyCompletedWithOutputSucceeds ensures streams with real

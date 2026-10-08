@@ -264,8 +264,7 @@ func (s *GatewayService) RefreshGroupScheduling(ctx context.Context, tests *Acco
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Otherwise a failed preferred account would immediately take the new
-	// binding back on the next live request. Keep other model scopes untouched.
+	// Failed probes enter the existing model cooldown without affecting other models.
 	cooldown := time.Duration(settings.ModelCooldownSeconds) * time.Second
 	for _, account := range failed {
 		if account.GetModelRateLimitRemainingTimeWithContext(ctx, probeModel) >= cooldown {

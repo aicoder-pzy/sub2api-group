@@ -4,6 +4,7 @@ package repository
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,6 +39,71 @@ func (s *GatewayCacheSuite) TestSetAndGetSessionAccountID() {
 	sid, err := s.cache.GetSessionAccountID(s.ctx, groupID, sessionID)
 	require.NoError(s.T(), err, "GetSessionAccountID")
 	require.Equal(s.T(), accountID, sid, "session id mismatch")
+}
+
+func (s *GatewayCacheSuite) TestGroupModelBindingConcurrentConfirmation() {
+	cache := s.cache.(service.GroupModelSchedulingAtomicCache)
+	key := service.GroupModelSchedulingKeyPrefix + "bW9kZWwtYQ"
+	account, revision, err := cache.GetSessionAccountState(s.ctx, 1, key)
+	require.NoError(s.T(), err)
+	require.Zero(s.T(), account)
+	require.Zero(s.T(), revision)
+	var workers sync.WaitGroup
+	results := make(chan bool, 20)
+	errors := make(chan error, 20)
+	for id := int64(1); id <= 20; id++ {
+		workers.Add(1)
+		go func(id int64) {
+			defer workers.Done()
+			changed, err := cache.CompareAndSwapSessionAccountID(s.ctx, 1, key, revision, id)
+			results <- changed
+			errors <- err
+		}(id)
+	}
+	workers.Wait()
+	close(results)
+	close(errors)
+	confirmed := 0
+	for changed := range results {
+		if changed {
+			confirmed++
+		}
+	}
+	for err := range errors {
+		require.NoError(s.T(), err)
+	}
+	require.Equal(s.T(), 1, confirmed)
+	account, revision, err = cache.GetSessionAccountState(s.ctx, 1, key)
+	require.NoError(s.T(), err)
+	require.Positive(s.T(), account)
+	require.EqualValues(s.T(), 1, revision)
+	ttl, err := s.rdb.TTL(s.ctx, buildSessionKey(1, key)).Result()
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), -time.Nanosecond, ttl)
+}
+
+func (s *GatewayCacheSuite) TestGroupModelManualRefreshAndDeletionRejectStaleConfirmation() {
+	cache := s.cache.(service.GroupModelSchedulingAtomicCache)
+	key := service.GroupModelSchedulingKeyPrefix + "bW9kZWwtYQ"
+	// Existing deployments have a plain binding and no revision key yet.
+	require.NoError(s.T(), s.rdb.Set(s.ctx, buildSessionKey(1, key), 7, 0).Err())
+	account, revision, err := cache.GetSessionAccountState(s.ctx, 1, key)
+	require.NoError(s.T(), err)
+	require.EqualValues(s.T(), 7, account)
+	require.Zero(s.T(), revision)
+	require.NoError(s.T(), s.cache.SetSessionAccountID(s.ctx, 1, key, 7, 0))
+	changed, err := cache.CompareAndSwapSessionAccountID(s.ctx, 1, key, revision, 8)
+	require.NoError(s.T(), err)
+	require.False(s.T(), changed, "even a refresh to the same account invalidates old requests")
+	_, revision, err = cache.GetSessionAccountState(s.ctx, 1, key)
+	require.NoError(s.T(), err)
+	require.NoError(s.T(), s.cache.DeleteSessionAccountID(s.ctx, 1, key))
+	changed, err = cache.CompareAndSwapSessionAccountID(s.ctx, 1, key, revision, 8)
+	require.NoError(s.T(), err)
+	require.False(s.T(), changed)
+	account, _, err = cache.GetSessionAccountState(s.ctx, 2, key)
+	require.NoError(s.T(), err)
+	require.Zero(s.T(), account, "another group must remain isolated")
 }
 
 func (s *GatewayCacheSuite) TestSessionAccountID_TTL() {

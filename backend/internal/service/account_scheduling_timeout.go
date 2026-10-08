@@ -173,6 +173,7 @@ func (body *fastestFailoverReadCloser) Read(buffer []byte) (int, error) {
 }
 
 func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c *gin.Context, account *Account, body []byte, attempt *fastestFailoverAttempt, forwardErr error) error {
+	forwardErr = limitFastestFailoverRetry(ctx, forwardErr, 1)
 	if attempt == nil {
 		return forwardErr
 	}
