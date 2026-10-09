@@ -32,7 +32,7 @@ BEGIN
     THEN
         DELETE FROM new_api_account_bindings WHERE account_id = OLD.id;
         IF FOUND AND NEW.extra ? 'upstream_balance_probe' THEN
-            NEW.extra := jsonb_set(NEW.extra, '{upstream_balance_probe}', NEW.extra -> 'upstream_balance_probe' - 'snapshot');
+            NEW.extra := jsonb_set(NEW.extra, '{upstream_balance_probe}', (NEW.extra -> 'upstream_balance_probe') - 'snapshot');
         END IF;
     END IF;
     RETURN NEW;

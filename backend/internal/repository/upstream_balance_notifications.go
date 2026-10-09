@@ -41,6 +41,8 @@ func (r *upstreamBalanceNotificationRepository) ListAccounts(ctx context.Context
 }
 
 func (r *upstreamBalanceNotificationRepository) Observe(ctx context.Context, observation service.UpstreamBalanceNotificationObservation, notifyRecovery bool) error {
+	// PostgreSQL rounds timestamps to microseconds, including the initial monitor row.
+	observation.ObservedAt = observation.ObservedAt.Round(time.Microsecond)
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

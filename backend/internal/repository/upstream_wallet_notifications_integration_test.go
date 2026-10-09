@@ -67,7 +67,7 @@ func TestBalanceNotificationDurableEpisodesReceiptsAndExclusiveClaims(t *testing
 	ctx := context.Background()
 	account := walletNotificationTestAccount(t)
 	repo := NewUpstreamBalanceNotificationRepository(integrationDB)
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond).Add(999 * time.Nanosecond)
 	observation := service.UpstreamBalanceNotificationObservation{AccountID: account.ID, AccountName: account.Name, Scope: "wallet", Currency: "USD", Remaining: 1, Threshold: 5, Criteria: "test-criteria", ObservedAt: now, FreshUntil: now.Add(time.Hour)}
 	require.NoError(t, repo.Observe(ctx, observation, true))
 	require.NoError(t, repo.Observe(ctx, observation, true))
