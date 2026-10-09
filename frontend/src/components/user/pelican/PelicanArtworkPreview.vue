@@ -22,14 +22,22 @@
         />
       </div>
     </div>
+    <span v-if="quality" class="pointer-events-none absolute right-3 top-3 z-10 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm" :class="badgeClass" role="status" data-testid="pelican-quality-badge">
+      {{ t('pelicanTests.assessment.provider') }} · {{ t(`pelicanTests.assessment.${quality}`) }}
+    </span>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { getPelicanAssessmentQuality, stripPelicanAssessment } from '@/utils/pelicanHtml'
 import { createPelicanPreviewChannel, createPelicanPreviewDocument, fitPelicanArtwork, getPelicanViewport, readPelicanSizeMessage, type PelicanPreviewMode } from '@/utils/pelicanPreview'
 
 const props = withDefaults(defineProps<{ html: string; title: string; mode?: PelicanPreviewMode; interactive?: boolean }>(), { mode: 'fit', interactive: true })
+const { t } = useI18n()
+const quality = computed(() => getPelicanAssessmentQuality(props.html))
+const badgeClass = computed(() => ({ normal: 'bg-emerald-100 text-emerald-800', degraded: 'bg-red-100 text-red-800', unknown: 'bg-slate-100 text-slate-600' }[quality.value || 'unknown']))
 const containerRef = ref<HTMLElement | null>(null)
 const frameRef = ref<HTMLIFrameElement | null>(null)
 const available = ref({ width: 0, height: 0 })
@@ -45,7 +53,7 @@ watch(() => props.html, (html) => {
   updates = 0
   viewport.value = getPelicanViewport(html)
   artwork.value = { ...viewport.value }
-  srcdoc.value = createPelicanPreviewDocument(html, channel)
+  srcdoc.value = createPelicanPreviewDocument(stripPelicanAssessment(html), channel)
 }, { immediate: true })
 
 const fitted = computed(() => fitPelicanArtwork(artwork.value, available.value, props.mode))

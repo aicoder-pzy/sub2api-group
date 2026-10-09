@@ -26,7 +26,7 @@
               <p>{{ t('admin.accounts.pelicanTest.generatedAt') }}：{{ formatDate(card.record.startedAt) }}</p>
             </div>
             <div class="mt-3 aspect-[4/3] overflow-hidden rounded-xl bg-gray-50">
-              <iframe v-if="card.record.html" :srcdoc="card.record.html" class="pointer-events-none h-full w-full border-0" tabindex="-1" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="card.account.name" />
+              <PelicanArtworkPreview v-if="card.record.html" :html="card.record.html" :interactive="false" :title="card.account.name" />
               <p v-else-if="!card.loaded && !card.loadError" class="p-4 text-sm text-gray-500">{{ t('common.loading') }}...</p>
               <pre v-else-if="card.record.output && !card.record.html" class="whitespace-pre-wrap break-words p-4 text-sm">{{ card.record.output }}</pre>
               <p v-else class="p-4 text-sm text-red-500">{{ card.loadError || card.record.error || t('admin.accounts.pelicanTest.invalidHtml') }}</p>
@@ -51,7 +51,7 @@
           <button type="button" class="btn btn-secondary" @click="selected = null">{{ t('common.close') }}</button>
         </header>
         <PelicanAssessment v-if="selected.loaded && selected.record.html" :output="selected.record.output" />
-        <iframe v-if="selected.record.html" :srcdoc="selected.record.html" class="min-h-0 w-full flex-1 border-0" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="selected.account.name" />
+        <div v-if="selected.record.html" class="min-h-0 w-full flex-1"><PelicanArtworkPreview :html="selected.record.html" :title="selected.account.name" /></div>
         <p v-else-if="!selected.loaded && !selected.loadError" class="p-4">{{ t('common.loading') }}...</p>
         <pre v-else class="overflow-auto whitespace-pre-wrap p-4 text-sm">{{ detailText(selected) }}</pre>
       </div>
@@ -65,6 +65,7 @@ import { scheduledTestsAPI } from '@/api/admin/scheduledTests'
 import type { PelicanHistoryResult } from '@/api/admin/scheduledTests'
 import { extractPelicanHtml } from '@/utils/pelicanHtml'
 import PelicanAssessment from './PelicanAssessment.vue'
+import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
 import { isTextAnswerKind, stateProbeVerdict, type StateProbeVerdict } from '@/utils/intelligenceTest'
 import type { Account, AccountListItem, PelicanTestConfig, ScheduledTestResult } from '@/types'
 

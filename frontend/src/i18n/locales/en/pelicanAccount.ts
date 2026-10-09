@@ -29,7 +29,7 @@ pelicanTest: {
         menu: 'Intelligence test',
         title: 'Intelligence test',
         subtitle: 'Choose a question and compare parallel responses',
-        noScoring: 'No automatic scoring',
+        noScoring: 'Artwork is assessed after generation',
         promptLabel: 'Test message',
         promptHint: 'The same prompt is sent unchanged to every parallel run.',
         model: 'Model',

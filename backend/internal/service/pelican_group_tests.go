@@ -144,13 +144,14 @@ type pelicanGroupTestGroups interface {
 }
 
 type PelicanGroupTestService struct {
-	repo       PelicanGroupTestRepository
-	groups     pelicanGroupTestGroups
-	router     pelicanGroupRouter
-	runAccount func(ctx context.Context, accountID int64, model string, cfg *PelicanTestConfig) (*ScheduledTestResult, error)
-	showcase   *PelicanShowcaseService
-	billing    *BillingService
-	now        func() time.Time
+	repo         PelicanGroupTestRepository
+	groups       pelicanGroupTestGroups
+	router       pelicanGroupRouter
+	runAccount   func(ctx context.Context, accountID int64, model string, cfg *PelicanTestConfig) (*ScheduledTestResult, error)
+	assessOutput func(context.Context, string) string
+	showcase     *PelicanShowcaseService
+	billing      *BillingService
+	now          func() time.Time
 	// runs tracks background runs so tests can wait for them.
 	runs sync.WaitGroup
 }
@@ -165,14 +166,19 @@ func NewPelicanGroupTestService(
 	showcase *PelicanShowcaseService,
 	billing *BillingService,
 ) *PelicanGroupTestService {
+	var assessment *PelicanAssessmentService
+	if accountTest != nil {
+		assessment = accountTest.pelicanAssessment
+	}
 	return &PelicanGroupTestService{
-		repo:       repo,
-		groups:     groupRepo,
-		router:     &gatewayPelicanGroupRouter{gateway: gateway, openai: openai, concurrency: concurrency, slotWait: pelicanGroupTestSlotWait},
-		runAccount: accountTest.RunPelicanBackground,
-		showcase:   showcase,
-		billing:    billing,
-		now:        time.Now,
+		repo:         repo,
+		groups:       groupRepo,
+		router:       &gatewayPelicanGroupRouter{gateway: gateway, openai: openai, concurrency: concurrency, slotWait: pelicanGroupTestSlotWait},
+		runAccount:   accountTest.RunPelicanBackground,
+		assessOutput: assessment.AssessOutput,
+		showcase:     showcase,
+		billing:      billing,
+		now:          time.Now,
 	}
 }
 
@@ -460,7 +466,8 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 					priced = true
 				}
 			}()
-			sample, err = s.runAccount(context.WithValue(ctx, pelicanTestUsageKey{}, usage), route.account.ID, route.model, plan.PelicanConfig)
+			generationCtx := context.WithValue(ctx, pelicanDeferAssessmentKey{}, true)
+			sample, err = s.runAccount(context.WithValue(generationCtx, pelicanTestUsageKey{}, usage), route.account.ID, route.model, plan.PelicanConfig)
 		}()
 		if err != nil || sample == nil {
 			sample = &ScheduledTestResult{Status: "failed", ErrorMessage: fmt.Sprint(err)}
@@ -472,6 +479,11 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			result = s.newResult(plan, started, s.now(), sample.ErrorMessage)
 			result.Status = sample.Status
 			result.ResponseText = sample.ResponseText
+			// The channel's concurrency slot has already been released. Assessment
+			// never holds a generation slot or causes a switch to another account.
+			if sample.Status == "success" && s.assessOutput != nil {
+				result.ResponseText = s.assessOutput(ctx, sample.ResponseText)
+			}
 			result.LatencyMs = sample.LatencyMs
 			result.AccountID, result.AccountName, result.Attempts = route.account.ID, route.account.Name, attempts
 			return result

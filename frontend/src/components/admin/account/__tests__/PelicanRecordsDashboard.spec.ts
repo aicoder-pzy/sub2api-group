@@ -20,7 +20,7 @@ describe('Pelican record dashboard', () => {
     await wrapper.get('article button').trigger('click')
     expect(wrapper.get('[data-testid="record-detail"] iframe').attributes('srcdoc')).toContain('MANUAL-ANIMATION')
     expect(wrapper.get('[data-testid="record-detail"] iframe').attributes('srcdoc')).toContain('Content-Security-Policy')
-    expect(wrapper.get('article iframe').classes()).toContain('pointer-events-none')
+    expect((wrapper.get('article iframe').element as HTMLIFrameElement).style.pointerEvents).toBe('none')
     wrapper.unmount()
   })
   it('keeps local records if the server API fails and omits empty accounts', async () => {

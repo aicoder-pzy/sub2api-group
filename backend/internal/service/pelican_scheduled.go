@@ -38,6 +38,8 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 		return nil, fmt.Errorf("pelican configuration required")
 	}
 	started := time.Now()
+	deferred, _ := ctx.Value(pelicanDeferAssessmentKey{}).(bool)
+	ctx = context.WithValue(ctx, pelicanDeferAssessmentKey{}, true)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	w := &pelicanRecorder{ResponseRecorder: httptest.NewRecorder(), cancel: cancel}
@@ -64,6 +66,9 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 	finished := time.Now()
 	snapshot := *cfg
 	snapshot.ModelID = model
+	if status == "success" && cfg.QuestionKind != "candy" && !isBuiltinCandyPlan(cfg) && !deferred {
+		output = s.pelicanAssessment.AssessOutput(ctx, output)
+	}
 	return &ScheduledTestResult{Status: status, ResponseText: output, ErrorMessage: message, LatencyMs: finished.Sub(started).Milliseconds(), StartedAt: started, FinishedAt: finished, PelicanConfig: &snapshot}, nil
 }
 

@@ -2,6 +2,8 @@ import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import PelicanArtworkPreview from '../PelicanArtworkPreview.vue'
 
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+
 let wrapper: ReturnType<typeof mount> | undefined
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -14,6 +16,15 @@ function mountPreview(mode: 'fit' | 'actual' = 'fit', ancestorScale = 1) {
 }
 
 describe('PelicanArtworkPreview', () => {
+  it('shows a readable corner badge outside the scaled artwork, without uploading or duplicating it', async () => {
+    const preview = mountPreview()
+    await preview.setProps({ html: '<html><body><!--sub2api:pelican-assessment:start--><aside data-sub2api-quality="degraded">badge</aside><!--sub2api:pelican-assessment:end--><svg></svg></body></html>' })
+    expect(preview.get('[data-testid="pelican-quality-badge"]').text()).toContain('pelicanTests.assessment.degraded')
+    expect(preview.get('[data-testid="pelican-quality-badge"]').classes()).toContain('right-3')
+    expect(preview.get('iframe').attributes('srcdoc')).not.toContain('data-sub2api-quality')
+    await preview.setProps({ html: '<html><body>old artwork</body></html>' })
+    expect(preview.find('[data-testid="pelican-quality-badge"]').exists()).toBe(false)
+  })
   it('fits the logical client area even when the dialog enters with an ancestor scale transform', async () => {
     const preview = mountPreview('fit', 0.95)
     await preview.vm.$nextTick()

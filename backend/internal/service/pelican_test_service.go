@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -16,6 +17,28 @@ import (
 const pelicanClaudeMaxTokens = 32000
 
 type pelicanTestContextKey struct{}
+type pelicanDeferAssessmentKey struct{}
+
+// Forward the generation stream while retaining a bounded copy for the
+// post-generation HTML-only evaluation. Ordinary connection tests never use it.
+type pelicanCaptureWriter struct {
+	gin.ResponseWriter
+	body     bytes.Buffer
+	overflow bool
+}
+
+func (w *pelicanCaptureWriter) Write(data []byte) (int, error) {
+	if !w.overflow && w.body.Len()+len(data) <= 4<<20 {
+		_, _ = w.body.Write(data)
+	} else {
+		w.overflow = true
+	}
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *pelicanCaptureWriter) WriteString(data string) (int, error) {
+	return w.Write([]byte(data))
+}
 
 type pelicanTestOptions struct {
 	prompt          string
@@ -40,7 +63,23 @@ func (s *AccountTestService) TestPelicanAccountConnection(c *gin.Context, accoun
 	options.reasoningEffort = normalizePelicanReasoningEffort(reasoningEffort)
 	ctx := withPelicanTestOptions(c.Request.Context(), options)
 	c.Request = c.Request.WithContext(ctx)
-	return s.TestAccountConnection(c, accountID, modelID, options.prompt, AccountTestModeDefault, AccountTestOptions{Prompt: options.prompt, ReasoningEffort: options.reasoningEffort})
+	deferred, _ := ctx.Value(pelicanDeferAssessmentKey{}).(bool)
+	if deferred {
+		return s.TestAccountConnection(c, accountID, modelID, options.prompt, AccountTestModeDefault, AccountTestOptions{Prompt: options.prompt, ReasoningEffort: options.reasoningEffort})
+	}
+	writer := c.Writer
+	capture := &pelicanCaptureWriter{ResponseWriter: writer}
+	c.Writer = capture
+	defer func() { c.Writer = writer }()
+	err := s.TestAccountConnection(c, accountID, modelID, options.prompt, AccountTestModeDefault, AccountTestOptions{Prompt: options.prompt, ReasoningEffort: options.reasoningEffort})
+	c.Writer = writer
+	output, message := parsePelicanOutput(capture.body.String())
+	if err == nil && message == "" && !capture.overflow && pelicanHTMLPattern.MatchString(output) {
+		s.sendEvent(c, TestEvent{Type: "pelican_assessing"})
+		evaluated := s.pelicanAssessment.AssessOutput(ctx, output)
+		s.sendEvent(c, TestEvent{Type: "pelican_assessment", Text: evaluated})
+	}
+	return err
 }
 
 func normalizePelicanReasoningEffort(value string) string {

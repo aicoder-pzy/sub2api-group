@@ -11,6 +11,31 @@ vi.mock('../PelicanAssessment.vue', () => ({ default: { props: ['output'], templ
 
 describe('PelicanTestModal',()=>{
  afterEach(()=>{vi.unstubAllGlobals();localStorage.clear()})
+ it('waits for automatic evaluation before displaying and saving the annotated artwork', async () => {
+  const source = '<html><body><svg></svg></body></html>'
+  const badge = '<!--sub2api:pelican-assessment:start--><aside data-sub2api-quality="normal">正常</aside><!--sub2api:pelican-assessment:end-->'
+  const evaluated = source.replace('<body>', '<body>' + badge)
+  let stream!: ReadableStreamDefaultController<Uint8Array>
+  const encoder = new TextEncoder()
+  const send = (event: unknown) => stream.enqueue(encoder.encode('data: ' + JSON.stringify(event) + '\n\n'))
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({ start(controller) { stream = controller } }))))
+  const wrapper = mount(PelicanTestModal, { props: { show: true, account: { id: 41, name: 'Test', platform: 'openai', type: 'oauth' } as never }, global: { stubs: { BaseDialog: { template: '<div><slot/><slot name="footer"/></div>' }, Icon: true } } })
+  await flushPromises()
+  await wrapper.findAll('button').find(b => b.classes().includes('btn-primary'))!.trigger('click')
+  await flushPromises()
+  send({ type: 'content', text: source })
+  send({ type: 'test_complete', success: true })
+  send({ type: 'pelican_assessing' })
+  await flushPromises()
+  expect(wrapper.find('iframe').exists()).toBe(false)
+  expect(wrapper.text()).toContain('pelicanTests.assessment.running')
+  send({ type: 'pelican_assessment', text: evaluated })
+  stream.close()
+  await flushPromises()
+  expect(wrapper.get('[data-testid="pelican-quality-badge"]').text()).toContain('pelicanTests.assessment.normal')
+  expect(localStorage.getItem('sub2api-pelican-test:41')).toContain('data-sub2api-quality')
+  wrapper.unmount()
+ })
  it.each([false,true])('requires a completed stream for a usable drawing (%s)',async(completed)=>{
   const html='<html><body><svg><circle r="20" /></svg></body></html>'
   const events=[{type:'content',text:html},...(completed?[{type:'test_complete',success:true}]:[])]

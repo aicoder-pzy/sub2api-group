@@ -149,6 +149,7 @@ type AccountTestService struct {
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
 	settingService            *SettingService
+	pelicanAssessment         *PelicanAssessmentService
 	tlsFPProfileService       *TLSFingerprintProfileService
 	modelMetadataRegistryMu   sync.Mutex
 	modelMetadataRegistry     map[string]modelsDevProvider

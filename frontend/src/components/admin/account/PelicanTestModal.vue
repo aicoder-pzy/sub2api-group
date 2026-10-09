@@ -121,7 +121,7 @@
                 <span class="text-sm font-medium text-gray-800 dark:text-gray-100">{{ t('admin.accounts.pelicanTest.output') }} {{ index + 1 }}</span>
               </div>
               <div class="flex items-center gap-1">
-                <span v-if="run.status === 'running'" class="text-xs text-amber-600 dark:text-amber-300">{{ t('admin.accounts.pelicanTest.runningShort') }}</span>
+                <span v-if="run.status === 'running'" class="text-xs text-amber-600 dark:text-amber-300">{{ t(run.assessing ? 'pelicanTests.assessment.running' : 'admin.accounts.pelicanTest.runningShort') }}</span>
                 <span v-else-if="run.status === 'success'" class="text-xs text-emerald-600 dark:text-emerald-300">{{ t('admin.accounts.pelicanTest.success') }}</span>
                 <span v-else class="text-xs text-red-600 dark:text-red-300">{{ t('admin.accounts.pelicanTest.failed') }}</span>
                 <button v-if="run.html" type="button" class="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-300" :title="t('admin.accounts.pelicanTest.download')" @click="downloadHtml(run)">
@@ -135,7 +135,7 @@
               <div>{{ t('admin.accounts.pelicanTest.duration') }}：{{ run.durationMs == null ? '—' : `${(run.durationMs / 1000).toFixed(1)} s` }}</div>
             </div>
             <div v-if="run.html" class="aspect-[4/3] bg-white dark:bg-white">
-              <iframe :srcdoc="run.html" class="h-full w-full border-0" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="`${t('admin.accounts.pelicanTest.output')} ${index + 1}`"></iframe>
+              <PelicanArtworkPreview :html="run.html" :title="`${t('admin.accounts.pelicanTest.output')} ${index + 1}`" />
             </div>
             <p v-if="run.error" role="alert" class="border-t border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{{ run.error }}</p>
             <PelicanAssessment v-if="run.html && run.status !== 'running'" :output="run.output" />
@@ -169,6 +169,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { extractPelicanHtml as extractHtml } from '@/utils/pelicanHtml'
 import PelicanAssessment from './PelicanAssessment.vue'
+import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
 import { CANDY_PROMPT } from '@/utils/intelligenceTest'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Input from '@/components/common/Input.vue'
@@ -195,6 +196,7 @@ interface TestRun {
   output: string
   html: string
   error: string
+  assessing?: boolean
   source?: 'manual' | 'scheduled'
   startedAt?: string
   finishedAt?: string
@@ -366,6 +368,11 @@ async function consumeRun(run: TestRun, signal: AbortSignal) {
     if (event.type === 'test_complete') {
       completed = true
       if (!event.success) throw new Error(event.error || t('admin.accounts.pelicanTest.failed'))
+    }
+    if (event.type === 'pelican_assessing') run.assessing = true
+    if (event.type === 'pelican_assessment' && event.text) {
+      run.output = event.text
+      run.assessing = false
     }
     if (event.type === 'error') throw new Error(event.error || t('admin.accounts.pelicanTest.failed'))
   }

@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { extractPelicanHtml, extractPelicanSource } from '../pelicanHtml'
+import { extractPelicanHtml, extractPelicanSource, getPelicanAssessmentQuality } from '../pelicanHtml'
 
 function parse(html: string) {
   return new DOMParser().parseFromString(html, 'text/html')
 }
 
 describe('extractPelicanHtml', () => {
+  it('keeps the badge in downloadable HTML but removes it from assessment source', () => {
+    const source = '<!doctype html><html><body><svg></svg></body></html>'
+    const badge = '<!--sub2api:pelican-assessment:start--><aside data-sub2api-quality="normal">满血 AI · 正常</aside><!--sub2api:pelican-assessment:end-->'
+    const decorated = source.replace('<body>', '<body>' + badge)
+    expect(extractPelicanSource(decorated)).toBe(source)
+    expect(getPelicanAssessmentQuality(extractPelicanHtml(decorated))).toBe('normal')
+    expect(parse(extractPelicanHtml(decorated)).querySelector('[data-sub2api-quality]')?.textContent).toContain('正常')
+    expect(extractPelicanHtml(decorated).match(/data-sub2api-quality/g)).toHaveLength(1)
+  })
   it('extracts raw assessment source without preview scripts or CSP', () => {
     const source = '<!DOCTYPE html><html><body><svg></svg></body></html>'
     expect(extractPelicanSource(`Answer:\n\`\`\`html\n${source}\n\`\`\``)).toBe(source)

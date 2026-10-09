@@ -29,7 +29,7 @@ pelicanTest: {
         menu: '智商测试',
         title: '智商测试',
         subtitle: '选择题目并行测试，比较模型回答',
-        noScoring: '不自动评分',
+        noScoring: '作品生成后自动评估',
         promptLabel: '测试消息',
         promptHint: '同一题目会原样发给每个并行任务。',
         model: '模型',
