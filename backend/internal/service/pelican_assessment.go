@@ -57,7 +57,11 @@ type PelicanAssessmentService struct {
 }
 
 func NewPelicanAssessmentService(repo PelicanAssessmentRepository) *PelicanAssessmentService {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		transport = &http.Transport{}
+	}
+	transport = transport.Clone()
 	transport.Proxy = nil
 	return &PelicanAssessmentService{
 		repo: repo, active: make(map[string]bool),
@@ -237,7 +241,7 @@ func (s *PelicanAssessmentService) request(ctx context.Context, method, target s
 		return nil, assessmentUnavailable("could not reach the HTML assessment service")
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK && !(method == http.MethodPost && resp.StatusCode == http.StatusAccepted) {
+	if resp.StatusCode != http.StatusOK && (method != http.MethodPost || resp.StatusCode != http.StatusAccepted) {
 		failure := assessmentUnavailable("HTML assessment service rejected the request")
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
 			delay := 5
