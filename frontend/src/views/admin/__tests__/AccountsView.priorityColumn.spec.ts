@@ -10,6 +10,7 @@ const { listAccounts } = vi.hoisted(() => ({
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
+      getBalanceSettings: async () => ({ low_balance_threshold: 5 }),
       list: listAccounts,
       listWithEtag: vi.fn(),
       getBatchTodayStats: vi.fn().mockResolvedValue({ stats: {} }),
