@@ -71,6 +71,8 @@ var ProviderSet = wire.NewSet(
 	NewAdminGroupRepository,
 	NewCompositeModelRouteRepository,
 	NewAccountRepository,
+	NewNewAPIAuthorizationRepository,
+	NewUpstreamBalanceNotificationRepository,
 	NewAdminAccountRepository,
 	NewPelicanGroupTestRepository,
 	NewPelicanShowcaseRepository,

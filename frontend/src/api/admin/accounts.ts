@@ -6,6 +6,34 @@
 import { apiClient } from '../client'
 import type { OpenAIReferralRefreshResult, OpenAIReferralSendResult } from '@/types/openaiReferrals'
 import type { UpstreamBalanceConfig, UpstreamBalanceSettings, UpstreamBalanceState, UpstreamBalanceProbeResult } from '@/types'
+import type { NewAPIUpstreamConfig, NewAPIUpstreamConfigRequest, NewAPIUpstreamPreview } from '@/types'
+import type { BalanceNotificationSettings, BalanceNotificationEvent } from '@/types'
+
+export async function getBalanceNotificationSettings(): Promise<BalanceNotificationSettings> {
+  return (await apiClient.get('/admin/accounts/upstream-balance/notifications')).data
+}
+export async function saveBalanceNotificationSettings(settings: BalanceNotificationSettings): Promise<BalanceNotificationSettings> {
+  return (await apiClient.put('/admin/accounts/upstream-balance/notifications', settings)).data
+}
+export async function testBalanceNotification(id: string): Promise<void> {
+  await apiClient.post(`/admin/accounts/upstream-balance/notifications/${id}/test`, undefined, { timeout: 30_000 })
+}
+export async function getBalanceNotificationHistory(): Promise<BalanceNotificationEvent[]> {
+  return (await apiClient.get('/admin/accounts/upstream-balance/notifications/history')).data
+}
+
+export async function getNewAPIUpstreamConfig(id: number): Promise<NewAPIUpstreamConfig> {
+  return (await apiClient.get(`/admin/accounts/${id}/upstream-balance/newapi`)).data
+}
+export async function previewNewAPIUpstreamConfig(id: number, request: NewAPIUpstreamConfigRequest): Promise<NewAPIUpstreamPreview> {
+  return (await apiClient.post(`/admin/accounts/${id}/upstream-balance/newapi/preview`, request, { timeout: 90_000 })).data
+}
+export async function saveNewAPIUpstreamConfig(id: number, request: NewAPIUpstreamConfigRequest): Promise<NewAPIUpstreamPreview> {
+  return (await apiClient.put(`/admin/accounts/${id}/upstream-balance/newapi`, request, { timeout: 90_000 })).data
+}
+export async function deleteNewAPIUpstreamConfig(id: number): Promise<void> {
+  await apiClient.delete(`/admin/accounts/${id}/upstream-balance/newapi`)
+}
 import type {
   Account,
   AccountListItem,

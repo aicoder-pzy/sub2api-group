@@ -27,11 +27,13 @@ type UpstreamBalanceSettings struct {
 }
 
 type UpstreamBalanceConfig struct {
-	Enabled           bool    `json:"enabled"`
-	Provider          string  `json:"provider"`
-	Currency          string  `json:"currency"`
-	QuotaPerUnit      float64 `json:"quota_per_unit"`
-	PauseOnExhaustion bool    `json:"pause_on_exhaustion"`
+	Enabled               bool     `json:"enabled"`
+	Provider              string   `json:"provider"`
+	Currency              string   `json:"currency"`
+	QuotaPerUnit          float64  `json:"quota_per_unit"`
+	PauseOnExhaustion     bool     `json:"pause_on_exhaustion"`
+	NotificationEnabled   *bool    `json:"notification_enabled,omitempty"`
+	NotificationThreshold *float64 `json:"notification_threshold,omitempty"`
 }
 
 type UpstreamBalanceAmount struct {
@@ -45,16 +47,17 @@ type UpstreamBalanceAmount struct {
 }
 
 type UpstreamBalanceSnapshot struct {
-	Status        string                  `json:"status"`
-	Provider      string                  `json:"provider,omitempty"`
-	Amounts       []UpstreamBalanceAmount `json:"amounts,omitempty"`
-	ReceivedAt    *time.Time              `json:"received_at,omitempty"`
-	FreshUntil    *time.Time              `json:"fresh_until,omitempty"`
-	LastAttemptAt time.Time               `json:"last_attempt_at"`
-	NextProbeAt   time.Time               `json:"next_probe_at"`
-	FailureCount  int                     `json:"failure_count,omitempty"`
-	HTTPStatus    int                     `json:"http_status,omitempty"`
-	LastError     string                  `json:"last_error,omitempty"`
+	Status         string                  `json:"status"`
+	Provider       string                  `json:"provider,omitempty"`
+	Amounts        []UpstreamBalanceAmount `json:"amounts,omitempty"`
+	ReceivedAt     *time.Time              `json:"received_at,omitempty"`
+	FreshUntil     *time.Time              `json:"fresh_until,omitempty"`
+	LastAttemptAt  time.Time               `json:"last_attempt_at"`
+	NextProbeAt    time.Time               `json:"next_probe_at"`
+	FailureCount   int                     `json:"failure_count,omitempty"`
+	HTTPStatus     int                     `json:"http_status,omitempty"`
+	LastError      string                  `json:"last_error,omitempty"`
+	SourceIdentity string                  `json:"source_identity,omitempty"`
 }
 
 type UpstreamBalanceState struct {
@@ -83,6 +86,9 @@ func DefaultUpstreamBalanceConfig() UpstreamBalanceConfig {
 }
 
 func (c UpstreamBalanceConfig) Validate() error {
+	if !balanceNotificationThresholdValid(c.NotificationThreshold) {
+		return infraerrors.BadRequest("INVALID_BALANCE_NOTIFICATION_THRESHOLD", "notification_threshold must be 0-1e9")
+	}
 	if c.Provider != "auto" && c.Provider != "sub2api" && c.Provider != "newapi" {
 		return infraerrors.BadRequest("INVALID_BALANCE_PROVIDER", "provider must be auto, sub2api or newapi")
 	}
@@ -300,10 +306,29 @@ func (s *UpstreamBillingProbeService) probeLoadedBalance(ctx context.Context, ac
 	previous := state.Snapshot
 	snapshot := &UpstreamBalanceSnapshot{Status: UpstreamBillingProbeStatusFailed, LastAttemptAt: now, NextProbeAt: now.Add(nextProbeDelay(interval, 0))}
 	if previous != nil {
-		snapshot.Amounts, snapshot.ReceivedAt, snapshot.FreshUntil, snapshot.Provider = previous.Amounts, previous.ReceivedAt, previous.FreshUntil, previous.Provider
+		snapshot.Amounts, snapshot.ReceivedAt, snapshot.FreshUntil, snapshot.Provider, snapshot.SourceIdentity = previous.Amounts, previous.ReceivedAt, previous.FreshUntil, previous.Provider, previous.SourceIdentity
 		snapshot.FailureCount = previous.FailureCount + 1
 	}
 	state.Snapshot = snapshot
+	var binding *NewAPIAccountBinding
+	if s.newAPIRepo != nil && state.Provider != "sub2api" {
+		var err error
+		binding, err = s.newAPIRepo.GetBinding(ctx, account.ID)
+		if err != nil {
+			return nil, newAPIError("storage_unavailable")
+		}
+	}
+	save := func() error {
+		if binding != nil {
+			return s.newAPIRepo.WriteSnapshot(ctx, account, binding, &state)
+		}
+		if writer, ok := s.accountRepo.(interface {
+			UpdateUpstreamBalanceProbeState(context.Context, *Account, *UpstreamBalanceState) error
+		}); ok {
+			return writer.UpdateUpstreamBalanceProbeState(ctx, account, &state)
+		}
+		return s.saveBalanceState(ctx, account, &state)
+	}
 	fail := func(reason string, status int) (*UpstreamBalanceState, error) {
 		snapshot.LastError, snapshot.HTTPStatus = reason, status
 		if snapshot.FailureCount == 0 {
@@ -313,7 +338,18 @@ func (s *UpstreamBillingProbeService) probeLoadedBalance(ctx context.Context, ac
 			snapshot.Status = UpstreamBillingProbeStatusUnsupported
 			snapshot.NextProbeAt = now.Add(unsupportedProbeDelay(interval, 0))
 		}
-		return &state, s.saveBalanceState(ctx, account, &state)
+		return &state, save()
+	}
+	if binding != nil {
+		amounts, err := s.probeNewAPIWallet(ctx, account, binding)
+		if err != nil {
+			return fail("newapi_wallet_failed", 0)
+		}
+		snapshot.Status, snapshot.Provider, snapshot.Amounts = UpstreamBillingProbeStatusOK, "newapi", amounts
+		snapshot.SourceIdentity = NewAPIAccountFingerprint(account) + ":" + strconv.FormatInt(binding.Profile.ID, 10) + ":" + strconv.FormatInt(binding.TokenID, 10)
+		snapshot.FailureCount = 0
+		snapshot.ReceivedAt, snapshot.FreshUntil = probeTimePtr(now), probeTimePtr(now.Add(2*time.Duration(interval)*time.Minute))
+		return &state, save()
 	}
 	if s.accountTestService == nil || s.accountTestService.httpUpstream == nil {
 		return fail("transport_unavailable", 0)
@@ -402,9 +438,10 @@ func (s *UpstreamBillingProbeService) probeLoadedBalance(ctx context.Context, ac
 			return fail("invalid_response", resp.StatusCode)
 		}
 		snapshot.Status, snapshot.Provider, snapshot.Amounts = UpstreamBillingProbeStatusOK, provider, amounts
+		snapshot.SourceIdentity = NewAPIAccountFingerprint(account)
 		snapshot.FailureCount = 0
 		snapshot.ReceivedAt, snapshot.FreshUntil = probeTimePtr(now), probeTimePtr(now.Add(2*time.Duration(interval)*time.Minute))
-		return &state, s.saveBalanceState(ctx, account, &state)
+		return &state, save()
 	}
 	return fail("unsupported", snapshot.HTTPStatus)
 }

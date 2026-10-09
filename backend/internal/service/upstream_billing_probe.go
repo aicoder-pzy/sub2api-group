@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -238,9 +239,15 @@ func normalizeUpstreamBillingProbeSettings(settings *UpstreamBillingProbeSetting
 
 // UpstreamBillingProbeService discovers a remote Sub2API billing snapshot.
 type UpstreamBillingProbeService struct {
-	accountRepo        AccountRepository
-	accountTestService *AccountTestService
-	settingService     *SettingService
+	accountRepo              AccountRepository
+	accountTestService       *AccountTestService
+	settingService           *SettingService
+	newAPIRepo               NewAPIAuthorizationRepository
+	newAPIEncryptor          SecretEncryptor
+	newAPIFixedKey           bool
+	balanceNotificationRepo  UpstreamBalanceNotificationRepository
+	balanceNotificationEmail *EmailService
+	notificationMu           sync.Mutex
 
 	parentCtx    context.Context
 	parentCancel context.CancelFunc
@@ -298,9 +305,16 @@ func ProvideUpstreamBillingProbeService(
 	settingService *SettingService,
 	lockCache LeaderLockCache,
 	db *sql.DB,
+	cfg *config.Config,
+	newAPIRepo NewAPIAuthorizationRepository,
+	encryptor SecretEncryptor,
+	notificationRepo UpstreamBalanceNotificationRepository,
+	emailService *EmailService,
 ) *UpstreamBillingProbeService {
 	svc := NewUpstreamBillingProbeService(accountRepo, accountTestService, settingService)
 	svc.SetLeaderLock(lockCache, db)
+	svc.SetNewAPIAuthorization(newAPIRepo, encryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured)
+	svc.balanceNotificationRepo, svc.balanceNotificationEmail = notificationRepo, emailService
 	svc.Start()
 	return svc
 }
@@ -339,6 +353,7 @@ func (s *UpstreamBillingProbeService) runLoop() {
 	defer s.wg.Done()
 	_ = s.RunDue(s.parentCtx)
 	_ = s.RunBalanceDue(s.parentCtx)
+	_ = s.RunBalanceNotifications(s.parentCtx)
 	ticker := time.NewTicker(upstreamBillingProbeCycleInterval)
 	defer ticker.Stop()
 	for {
@@ -351,6 +366,9 @@ func (s *UpstreamBillingProbeService) runLoop() {
 			}
 			if err := s.RunBalanceDue(s.parentCtx); err != nil {
 				logger.LegacyPrintf("service.upstream_balance_probe", "run_due_failed: err=%v", err)
+			}
+			if err := s.RunBalanceNotifications(s.parentCtx); err != nil {
+				logger.LegacyPrintf("service.upstream_balance_notifications", "run_failed: err=%v", err)
 			}
 		}
 	}

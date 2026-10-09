@@ -147,19 +147,22 @@ var auditActionOverrides = map[string]string{
 // auditBodyOmittedRoutes 请求体几乎整体由凭证构成的路由（如整块粘贴 auth JSON 的导入接口）。
 // 这类 body 的凭证内嵌在普通字符串值里，键级脱敏无法覆盖，整体不入库。
 var auditBodyOmittedRoutes = map[string]struct{}{
-	"PUT /api/v1/admin/prism/settings":                          {}, // bridge secret
-	"POST /api/v1/admin/prism/accounts/:id/test":                {}, // private test prompt
-	"POST /api/v1/admin/system/mihomo":                          {}, // subscription URLs and dynamic proxy strings contain credentials
-	"POST /api/v1/auth/passkey/login/finish":                    {},
-	"POST /api/v1/user/passkeys/register/finish":                {},
-	"POST /api/v1/admin/accounts/import/codex-session":          {},
-	"PUT /api/v1/admin/accounts/:id/ollama-cloud-usage/session": {},
-	"PUT /api/v1/admin/prompt-audit/config":                     {},
-	"POST /api/v1/admin/prompt-audit/endpoints/probe":           {},
-	"DELETE /api/v1/admin/prompt-audit/events/:id":              {},
-	"POST /api/v1/admin/prompt-audit/events/batch-delete":       {},
-	"POST /api/v1/admin/prompt-audit/events/delete-preview":     {},
-	"POST /api/v1/admin/prompt-audit/events/delete-by-filter":   {},
+	"PUT /api/v1/admin/accounts/upstream-balance/notifications":       {},
+	"PUT /api/v1/admin/accounts/:id/upstream-balance/newapi":          {},
+	"POST /api/v1/admin/accounts/:id/upstream-balance/newapi/preview": {},
+	"PUT /api/v1/admin/prism/settings":                                {}, // bridge secret
+	"POST /api/v1/admin/prism/accounts/:id/test":                      {}, // private test prompt
+	"POST /api/v1/admin/system/mihomo":                                {}, // subscription URLs and dynamic proxy strings contain credentials
+	"POST /api/v1/auth/passkey/login/finish":                          {},
+	"POST /api/v1/user/passkeys/register/finish":                      {},
+	"POST /api/v1/admin/accounts/import/codex-session":                {},
+	"PUT /api/v1/admin/accounts/:id/ollama-cloud-usage/session":       {},
+	"PUT /api/v1/admin/prompt-audit/config":                           {},
+	"POST /api/v1/admin/prompt-audit/endpoints/probe":                 {},
+	"DELETE /api/v1/admin/prompt-audit/events/:id":                    {},
+	"POST /api/v1/admin/prompt-audit/events/batch-delete":             {},
+	"POST /api/v1/admin/prompt-audit/events/delete-preview":           {},
+	"POST /api/v1/admin/prompt-audit/events/delete-by-filter":         {},
 }
 
 // NewAuditLogMiddleware 创建审计中间件。

@@ -17,6 +17,7 @@
     <button type="button" class="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-dark-700" :aria-label="t('admin.accounts.balance.config')" :title="t('admin.accounts.balance.config')" @click="openConfig">
       <Icon name="cog" size="xs" />
     </button>
+    <NewAPIUpstreamConfigDialog :show="showNewAPI" :account="account" @close="showNewAPI = false" @saved="refresh" />
     <BaseDialog :show="showConfig" :title="t('admin.accounts.balance.config')" @close="showConfig = false">
       <form class="space-y-4" @submit.prevent="save">
         <p class="break-all text-sm text-gray-500">{{ account.name }}</p>
@@ -28,7 +29,12 @@
           <label class="block text-sm">{{ t('admin.accounts.balance.currency') }}<input v-model="config.currency" class="input mt-1 w-full" maxlength="3" pattern="[A-Z]{3}" required /></label>
           <label class="block text-sm">{{ t('admin.accounts.balance.conversion') }}<input v-model.number="config.quota_per_unit" class="input mt-1 w-full" type="number" min="0.000001" max="1000000000000" step="any" required /></label>
         </div>
+        <button v-if="config.provider !== 'sub2api'" type="button" class="btn btn-secondary" @click="showConfig = false; showNewAPI = true"><Icon name="link" size="sm" class="mr-2" />{{ t('admin.accounts.balance.newAPI.title') }}</button>
         <label class="flex items-start gap-2"><input v-model="config.pause_on_exhaustion" type="checkbox" :disabled="!config.enabled" class="mt-1" />{{ t('admin.accounts.balance.pauseOnExhaustion') }}</label>
+        <label class="block text-sm">{{ t('admin.accounts.balance.notifications.accountMode') }}
+          <select v-model="notificationMode" class="input mt-1 w-full"><option value="inherit">{{ t('admin.accounts.balance.notifications.inherit') }}</option><option value="enabled">{{ t('common.enabled') }}</option><option value="disabled">{{ t('common.disabled') }}</option></select>
+        </label>
+        <label v-if="notificationMode !== 'disabled'" class="block text-sm">{{ t('admin.accounts.balance.notifications.accountThreshold') }}<input v-model="notificationThreshold" class="input mt-1 w-full" type="number" min="0" max="1000000000" step="any" :placeholder="String(lowThreshold)" /></label>
         <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
         <button type="submit" class="btn btn-primary" :disabled="saving">{{ t(saving ? 'common.saving' : 'common.save') }}</button>
       </form>
@@ -43,6 +49,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIntervalFn } from '@vueuse/core'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import NewAPIUpstreamConfigDialog from './NewAPIUpstreamConfigDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { accountsAPI } from '@/api/admin/accounts'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -62,7 +69,10 @@ const busy = ref(false)
 const saving = ref(false)
 const error = ref('')
 const showConfig = ref(false)
+const showNewAPI = ref(false)
 const config = ref<UpstreamBalanceConfig>({ ...defaults })
+const notificationMode = ref<'inherit' | 'enabled' | 'disabled'>('inherit')
+const notificationThreshold = ref<string | number>('')
 function isLow(amount: UpstreamBalanceAmount) {
   return fresh.value && !amount.unlimited && amount.remaining != null && amount.remaining <= props.lowThreshold && (!amount.reset_at || Date.parse(amount.reset_at) > props.now)
 }
@@ -71,6 +81,8 @@ function formatAmount(amount: UpstreamBalanceAmount) {
 }
 function openConfig() {
   config.value = { ...defaults, ...state.value }
+  notificationMode.value = config.value.notification_enabled == null ? 'inherit' : config.value.notification_enabled ? 'enabled' : 'disabled'
+  notificationThreshold.value = config.value.notification_threshold ?? ''
   error.value = ''
   showConfig.value = true
 }
@@ -79,7 +91,11 @@ async function save() {
   error.value = ''
   const { enabled, provider, currency, quota_per_unit, pause_on_exhaustion } = config.value
   try {
-    emit('updated', await accountsAPI.updateBalanceConfig(props.account.id, { enabled, provider, currency, quota_per_unit, pause_on_exhaustion }))
+    emit('updated', await accountsAPI.updateBalanceConfig(props.account.id, {
+      enabled, provider, currency, quota_per_unit, pause_on_exhaustion,
+      ...(notificationMode.value === 'inherit' ? {} : { notification_enabled: notificationMode.value === 'enabled' }),
+      ...(notificationThreshold.value === '' ? {} : { notification_threshold: Number(notificationThreshold.value) })
+    }))
     showConfig.value = false
   } catch (cause) { error.value = extractApiErrorMessage(cause, t('admin.accounts.balance.requestFailed')) }
   finally { saving.value = false }

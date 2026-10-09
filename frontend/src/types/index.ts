@@ -1076,12 +1076,75 @@ export interface UpstreamBalanceSettings {
   low_balance_threshold: number
 }
 
+export interface NewAPIUpstreamConfigRequest {
+  user_id: number
+  access_token?: string
+  account_ids: number[]
+  token_selections?: Record<string, number>
+}
+
+export interface NewAPIUpstreamConfig {
+  account_id: number
+  site_url: string
+  configured: boolean
+  user_id?: number
+  encryption_key_configured: boolean
+  accounts: Array<{ account_id: number; name: string; configured_user_id?: number }>
+}
+
+export interface NewAPIUpstreamPreview {
+  site_url: string
+  user_id: number
+  wallet: { amount: number; unit: string }
+  accounts: Array<{
+    account_id: number; name: string; matched: boolean; token_id?: number; group?: string; error?: string
+    token_options: Array<{ token_id: number; name: string; group: string; masked_key: string }>
+  }>
+}
+
 export interface UpstreamBalanceConfig {
   enabled: boolean
   provider: 'auto' | 'sub2api' | 'newapi'
   currency: string
   quota_per_unit: number
   pause_on_exhaustion: boolean
+  notification_enabled?: boolean
+  notification_threshold?: number
+}
+
+export interface BalanceNotificationChannel {
+  id: string
+  name: string
+  provider: 'email' | 'wecom' | 'dingtalk' | 'feishu' | 'webhook'
+  enabled: boolean
+  email?: string
+  url?: string
+  secret?: string
+  clear_secret?: boolean
+  url_configured: boolean
+  secret_configured: boolean
+}
+
+export interface BalanceNotificationSettings {
+  enabled: boolean
+  notify_recovery: boolean
+  encryption_key_configured: boolean
+  channels: BalanceNotificationChannel[]
+}
+
+export interface BalanceNotificationEvent {
+  id: string
+  account_id: number
+  account_name: string
+  scope: string
+  currency: string
+  remaining: number
+  threshold: number
+  phase: 'low' | 'recovery'
+  status: 'pending' | 'sending' | 'sent' | 'failed' | 'suppressed'
+  created_at: string
+  observed_at: string
+  deliveries: Record<string, { name: string; provider: string; status: 'sent' | 'failed'; attempts: number; sent_at?: string }>
 }
 
 export interface UpstreamBalanceAmount {

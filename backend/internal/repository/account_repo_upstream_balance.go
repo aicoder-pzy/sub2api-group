@@ -11,6 +11,17 @@ import (
 )
 
 func (r *accountRepository) UpdateUpstreamBalanceState(ctx context.Context, account *service.Account, state *service.UpstreamBalanceState) error {
+	return r.updateUpstreamBalanceState(ctx, account, state, false)
+}
+
+func (r *accountRepository) UpdateUpstreamBalanceProbeState(ctx context.Context, account *service.Account, state *service.UpstreamBalanceState) error {
+	if state == nil {
+		return service.ErrAccountNilInput
+	}
+	return r.updateUpstreamBalanceState(ctx, account, state, state.Provider != "sub2api")
+}
+
+func (r *accountRepository) updateUpstreamBalanceState(ctx context.Context, account *service.Account, state *service.UpstreamBalanceState, unbound bool) error {
 	if account == nil || state == nil {
 		return service.ErrAccountNilInput
 	}
@@ -18,14 +29,14 @@ func (r *accountRepository) UpdateUpstreamBalanceState(ctx context.Context, acco
 		return err
 	}
 	if dbent.TxFromContext(ctx) != nil {
-		return r.updateUpstreamBalanceStateInTx(ctx, account, state)
+		return r.updateUpstreamBalanceStateInTx(ctx, account, state, unbound)
 	}
 	tx, err := r.client.Tx(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := r.updateUpstreamBalanceStateInTx(dbent.NewTxContext(ctx, tx), account, state); err != nil {
+	if err := r.updateUpstreamBalanceStateInTx(dbent.NewTxContext(ctx, tx), account, state, unbound); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -35,7 +46,7 @@ func (r *accountRepository) UpdateUpstreamBalanceState(ctx context.Context, acco
 	return nil
 }
 
-func (r *accountRepository) updateUpstreamBalanceStateInTx(ctx context.Context, account *service.Account, state *service.UpstreamBalanceState) error {
+func (r *accountRepository) updateUpstreamBalanceStateInTx(ctx context.Context, account *service.Account, state *service.UpstreamBalanceState, unbound bool) error {
 	client := clientFromContext(ctx, r.client)
 	proxyMatches, err := lockAndMatchProbeProxyIdentity(ctx, client, account)
 	if err != nil {
@@ -60,13 +71,17 @@ func (r *accountRepository) updateUpstreamBalanceStateInTx(ctx context.Context, 
 	if account.ProxyID != nil {
 		proxyID = *account.ProxyID
 	}
-	result, err := client.ExecContext(ctx, `
+	query := `
 		UPDATE accounts SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
 		WHERE id = $2 AND platform = $3 AND type = $4 AND credentials = $5::jsonb
 		  AND proxy_id IS NOT DISTINCT FROM $6
 		  AND COALESCE(extra -> 'upstream_balance_probe', 'null'::jsonb) = $7::jsonb
 		  AND deleted_at IS NULL
-	`, string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expected))
+	`
+	if unbound {
+		query += ` AND NOT EXISTS (SELECT 1 FROM new_api_account_bindings b WHERE b.account_id=accounts.id)`
+	}
+	result, err := client.ExecContext(ctx, query, string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expected))
 	if err != nil {
 		return err
 	}

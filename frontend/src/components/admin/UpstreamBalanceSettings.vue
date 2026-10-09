@@ -15,6 +15,7 @@
       </fieldset>
       <p v-if="saved" role="status" class="text-sm text-green-600">{{ t('admin.accounts.balance.saved') }}</p>
     </form>
+    <BalanceNotificationSettings />
   </section>
 </template>
 
@@ -24,6 +25,7 @@ import { useI18n } from 'vue-i18n'
 import { accountsAPI } from '@/api/admin/accounts'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import type { UpstreamBalanceSettings } from '@/types'
+import BalanceNotificationSettings from './BalanceNotificationSettings.vue'
 const { t } = useI18n()
 const settings = ref<UpstreamBalanceSettings>({ enabled: true, interval_minutes: 30, low_balance_threshold: 5 })
 const loading = ref(false), loaded = ref(false), saving = ref(false), saved = ref(false), error = ref('')

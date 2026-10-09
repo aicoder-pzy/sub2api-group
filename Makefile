@@ -2,6 +2,7 @@
 
 FRONTEND_CRITICAL_VITEST := \
 	src/components/account/__tests__/UpstreamBalanceCell.spec.ts \
+	src/components/account/__tests__/NewAPIUpstreamConfigDialog.spec.ts \
 	src/views/admin/__tests__/PelicanTestsView.spec.ts \
 	src/views/user/__tests__/PelicanShowcaseView.spec.ts \
 	src/components/user/pelican/__tests__ \
