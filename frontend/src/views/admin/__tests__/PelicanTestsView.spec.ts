@@ -61,6 +61,7 @@ const mountView = () => mount(PelicanTestsView, {
       SmartOpsNav: true,
       RouterLink: RouterLinkStub,
       Icon: true,
+      PelicanAssessment: { props: ['output'], template: '<div data-testid="assessment-control" :data-output="output" />' },
       PlatformIcon: true,
       Select: SelectStub,
       Toggle: ToggleStub,
@@ -288,6 +289,7 @@ describe('PelicanTestsView', () => {
     const frame = wrapper.get('[data-testid="pelican-result-preview"] iframe')
     expect(frame.attributes('sandbox')).toBe('allow-scripts')
     expect(frame.attributes('srcdoc')).toContain('data-answer="90"')
+    expect(wrapper.get('[data-testid="assessment-control"]').attributes('data-output')).toBe('<svg data-answer="90"></svg>')
 
     wrapper.getComponent(Pagination).vm.$emit('update:page', 2)
     await flushPromises()

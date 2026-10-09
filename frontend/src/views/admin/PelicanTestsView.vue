@@ -295,6 +295,7 @@
       @close="preview = null"
     >
       <div v-if="preview" class="flex min-h-0 flex-1 flex-col gap-3" data-testid="pelican-result-preview">
+        <PelicanAssessment v-if="preview.status === 'ready'" :output="preview.result.response_text || ''" />
         <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-900">
           <PelicanArtworkPreview v-if="preview.status === 'ready'" :html="preview.html" :title="previewTitle" />
           <div v-else class="flex h-full items-center justify-center p-6 text-sm text-gray-500">
@@ -343,6 +344,7 @@ import Select from '@/components/common/Select.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
+import PelicanAssessment from '@/components/admin/account/PelicanAssessment.vue'
 import PelicanShowcaseApiDialog from '@/components/user/pelican/PelicanShowcaseApiDialog.vue'
 import { pelicanDurationLabel } from '@/components/user/pelican/pelicanShowcaseFormat'
 import { adminAPI } from '@/api'
@@ -679,7 +681,7 @@ async function openPreview(result: PelicanGroupTestResult) {
     const full = await pelicanTestsAPI.getResult(result.id)
     if (preview.value?.result.id !== result.id) return
     const html = extractPelicanHtml(full.response_text || '')
-    preview.value = { result, html, status: html ? 'ready' : 'invalid' }
+    preview.value = { result: full, html, status: html ? 'ready' : 'invalid' }
   } catch {
     if (preview.value?.result.id === result.id) preview.value = { result, html: '', status: 'error' }
   }

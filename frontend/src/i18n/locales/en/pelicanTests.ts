@@ -1,4 +1,20 @@
 export default {
+  assessment: {
+    provider: 'Manxue AI',
+    evaluate: 'Evaluate artwork',
+    retry: 'Retry evaluation',
+    details: 'Assessment details',
+    submitTitle: 'Send this artwork HTML to Manxue AI without an API key',
+    notEvaluated: 'Not evaluated',
+    running: 'Evaluating',
+    normal: 'Normal',
+    degraded: 'Possibly degraded',
+    unknown: 'Unknown',
+    source: 'Assessment source',
+    failed: 'Evaluation did not complete. Retry later.',
+    loadFailed: 'Could not read the saved assessment. Retry later.',
+    tooLarge: 'Artwork source exceeds the 2 MiB limit.',
+  },
   cost: {
     today: 'Today {amount}',
     total: 'Total {amount}',

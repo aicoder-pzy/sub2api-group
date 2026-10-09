@@ -50,6 +50,7 @@
           </div>
           <button type="button" class="btn btn-secondary" @click="selected = null">{{ t('common.close') }}</button>
         </header>
+        <PelicanAssessment v-if="selected.loaded && selected.record.html" :output="selected.record.output" />
         <iframe v-if="selected.record.html" :srcdoc="selected.record.html" class="min-h-0 w-full flex-1 border-0" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="selected.account.name" />
         <p v-else-if="!selected.loaded && !selected.loadError" class="p-4">{{ t('common.loading') }}...</p>
         <pre v-else class="overflow-auto whitespace-pre-wrap p-4 text-sm">{{ detailText(selected) }}</pre>
@@ -63,6 +64,7 @@ import { useI18n } from 'vue-i18n'
 import { scheduledTestsAPI } from '@/api/admin/scheduledTests'
 import type { PelicanHistoryResult } from '@/api/admin/scheduledTests'
 import { extractPelicanHtml } from '@/utils/pelicanHtml'
+import PelicanAssessment from './PelicanAssessment.vue'
 import { isTextAnswerKind, stateProbeVerdict, type StateProbeVerdict } from '@/utils/intelligenceTest'
 import type { Account, AccountListItem, PelicanTestConfig, ScheduledTestResult } from '@/types'
 

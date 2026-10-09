@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { extractPelicanHtml } from '../pelicanHtml'
+import { extractPelicanHtml, extractPelicanSource } from '../pelicanHtml'
 
 function parse(html: string) {
   return new DOMParser().parseFromString(html, 'text/html')
 }
 
 describe('extractPelicanHtml', () => {
+  it('extracts raw assessment source without preview scripts or CSP', () => {
+    const source = '<!DOCTYPE html><html><body><svg></svg></body></html>'
+    expect(extractPelicanSource(`Answer:\n\`\`\`html\n${source}\n\`\`\``)).toBe(source)
+    expect(extractPelicanSource(source)).not.toContain('Content-Security-Policy')
+  })
   it('puts the CSP ahead of everything the model wrote', () => {
     const out = extractPelicanHtml(
       '<!DOCTYPE html><html lang="zh"><!-- <head> --><script>fetch("https://evil.test")</script><head><title>Pelican</title></head><body><svg></svg></body></html>'

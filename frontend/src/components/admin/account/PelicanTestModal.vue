@@ -138,6 +138,7 @@
               <iframe :srcdoc="run.html" class="h-full w-full border-0" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="`${t('admin.accounts.pelicanTest.output')} ${index + 1}`"></iframe>
             </div>
             <p v-if="run.error" role="alert" class="border-t border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{{ run.error }}</p>
+            <PelicanAssessment v-if="run.html && run.status !== 'running'" :output="run.output" />
             <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words border-t border-gray-200 bg-gray-950 p-3 text-xs leading-relaxed text-gray-200 dark:border-dark-600">{{ run.output || t('admin.accounts.pelicanTest.waiting') }}</pre>
           </article>
         </div>
@@ -167,6 +168,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { extractPelicanHtml as extractHtml } from '@/utils/pelicanHtml'
+import PelicanAssessment from './PelicanAssessment.vue'
 import { CANDY_PROMPT } from '@/utils/intelligenceTest'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Input from '@/components/common/Input.vue'

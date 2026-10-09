@@ -7,6 +7,7 @@ vi.mock('vue-i18n', async () => ({ ...await vi.importActual<typeof import('vue-i
 vi.mock('@/api/admin/accounts',()=>({getAvailableModels:vi.fn(async()=>[{id:'gpt-6-astra'}])}))
 vi.mock('../PelicanScheduledTestsPanel.vue',()=>({default:{template:'<div />'}}))
 vi.mock('../PelicanRecordsDashboard.vue',()=>({default:{template:'<div />'}}))
+vi.mock('../PelicanAssessment.vue', () => ({ default: { props: ['output'], template: '<div data-testid="assessment-control" :data-output="output" />' } }))
 
 describe('PelicanTestModal',()=>{
  afterEach(()=>{vi.unstubAllGlobals();localStorage.clear()})

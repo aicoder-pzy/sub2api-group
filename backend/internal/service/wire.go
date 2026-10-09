@@ -968,6 +968,7 @@ var ProviderSet = wire.NewSet(
 	ProvideIdempotencyCleanupService,
 	ProvideScheduledTestService,
 	NewPelicanGroupTestService,
+	NewPelicanAssessmentService,
 	NewPelicanShowcaseService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,

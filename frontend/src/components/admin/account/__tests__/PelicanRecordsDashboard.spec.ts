@@ -4,6 +4,7 @@ import Dashboard from '../PelicanRecordsDashboard.vue'
 import { scheduledTestsAPI as api } from '@/api/admin/scheduledTests'
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/api/admin/scheduledTests', () => ({ scheduledTestsAPI: { listPelicanHistory: vi.fn(), getResult: vi.fn() } }))
+vi.mock('../PelicanAssessment.vue', () => ({ default: { props: ['output'], template: '<div data-testid="assessment-control" :data-output="output" />' } }))
 const account = { id: 42, name: 'Manual account' } as any
 const manual = { createdAt: '2026-09-23T12:00:00Z', modelId: 'saved-model', reasoningEffort: 'medium', runs: [{ html: '<html><body>MANUAL-ANIMATION</body></html>', output: '', durationMs: 34000, status: 'success' }] }
 function render(extra = {}) { return mount(Dashboard, { props: { accounts: [], account, manualRecord: manual, ...extra } }) }
