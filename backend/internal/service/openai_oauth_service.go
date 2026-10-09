@@ -42,7 +42,17 @@ type OpenAIAuthURLResult struct {
 }
 
 // GenerateAuthURL generates an OpenAI OAuth authorization URL
-func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI, platform string) (*OpenAIAuthURLResult, error) {
+func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI, platform string, oauthClient ...string) (*OpenAIAuthURLResult, error) {
+	profile := "codex"
+	if len(oauthClient) > 0 && strings.TrimSpace(oauthClient[0]) != "" {
+		profile = strings.TrimSpace(oauthClient[0])
+	}
+	if profile != "codex" && profile != "excel" {
+		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_INVALID_CLIENT", "unsupported OAuth client")
+	}
+	if profile == "excel" && redirectURI != "" && redirectURI != openai.ExcelRedirectURI {
+		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_INVALID_REDIRECT", "Excel OAuth requires the official callback URI")
+	}
 	// Generate PKCE values
 	state, err := openai.GenerateState()
 	if err != nil {
@@ -80,6 +90,11 @@ func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 	}
 	normalizedPlatform := normalizeOpenAIOAuthPlatform(platform)
 	clientID, _ := openai.OAuthClientConfigByPlatform(normalizedPlatform)
+	if profile == "excel" {
+		clientID = openai.ExcelClientID
+		redirectURI = openai.ExcelRedirectURI
+		state = "bps." + state + ".PC"
+	}
 
 	// Store session
 	session := &openai.OAuthSession{
@@ -94,6 +109,9 @@ func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 
 	// Build authorization URL
 	authURL := openai.BuildAuthorizationURLForPlatform(state, codeChallenge, redirectURI, normalizedPlatform)
+	if profile == "excel" {
+		authURL = openai.BuildExcelAuthorizationURL(state, codeChallenge)
+	}
 
 	return &OpenAIAuthURLResult{
 		AuthURL:   authURL,
@@ -158,6 +176,9 @@ func (s *OpenAIOAuthService) ExchangeCode(ctx context.Context, input *OpenAIExch
 	// Use redirect URI from session or input
 	redirectURI := session.RedirectURI
 	if input.RedirectURI != "" {
+		if session.ClientID == openai.ExcelClientID && input.RedirectURI != session.RedirectURI {
+			return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_INVALID_REDIRECT", "callback URI does not match the Excel OAuth session")
+		}
 		redirectURI = input.RedirectURI
 	}
 	clientID := strings.TrimSpace(session.ClientID)

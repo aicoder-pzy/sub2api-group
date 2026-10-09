@@ -14,6 +14,9 @@ const {
   showWarningMock,
   importCodexSessionMock,
   createOpenAICodexPATMock,
+  generateAuthUrlMock,
+  exchangeCodeMock,
+  refreshOpenAITokenMock,
   authIsSimpleMode,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
@@ -22,6 +25,9 @@ const {
   showWarningMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
+  generateAuthUrlMock: vi.fn(),
+  exchangeCodeMock: vi.fn(),
+  refreshOpenAITokenMock: vi.fn(),
   authIsSimpleMode: { value: true },
 }))
 
@@ -50,6 +56,9 @@ vi.mock('@/api/admin', () => ({
       checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false }),
       importCodexSession: importCodexSessionMock,
       createOpenAICodexPAT: createOpenAICodexPATMock,
+      generateAuthUrl: generateAuthUrlMock,
+      exchangeCode: exchangeCodeMock,
+      refreshOpenAIToken: refreshOpenAITokenMock,
     },
     settings: {
       getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false, providers: [] }),
@@ -89,9 +98,11 @@ const OAuthAuthorizationFlowStub = defineComponent({
     showAgentIdentityOption: Boolean,
     showCodexPatOption: Boolean,
     initialInputMethod: String,
+    excelOauth: Boolean,
+    showMobileRefreshTokenOption: Boolean,
   },
-  data: () => ({ inputMethod: 'manual' }),
-  emits: ['import-codex-session', 'import-codex-pat'],
+  data: () => ({ inputMethod: 'manual', authCode: '', oauthState: '' }),
+  emits: ['import-codex-session', 'import-codex-pat', 'generate-url', 'validate-refresh-token'],
   template: `
     <div>
       <button data-testid="import-codex-session" @click="$emit('import-codex-session', 'session-json')">session</button>
@@ -215,9 +226,76 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       warnings: [],
     })
     createOpenAICodexPATMock.mockReset().mockResolvedValue({})
+    generateAuthUrlMock.mockReset().mockResolvedValue({ auth_url: 'https://auth.openai.com/api/accounts/authorize?state=bps.test.PC', session_id: 'excel-session' })
+    exchangeCodeMock.mockReset().mockResolvedValue({ access_token: 'excel-at', refresh_token: 'excel-rt', client_id: 'app_fnr0pYvVwwFDocDumLG3H2Bp', expires_at: 1900000000 })
+    refreshOpenAITokenMock.mockReset().mockResolvedValue({ access_token: 'excel-at', refresh_token: 'excel-rt', client_id: 'app_fnr0pYvVwwFDocDumLG3H2Bp', expires_at: 1900000000 })
   })
 
   afterEach(() => vi.useRealTimers())
+
+  it('creates an Excel account with the selected models in the existing BPS configuration', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper.get('[data-testid="openai-bps-oauth"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Excel account')
+    const models = wrapper.get('[data-testid="bps-oauth-models"]').getComponent(ModelWhitelistSelectorStub)
+    models.vm.$emit('update:modelValue', ['gpt-6-astra', 'gpt-6-astra'])
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    const flow = wrapper.getComponent(OAuthAuthorizationFlowStub)
+    expect(flow.props()).toMatchObject({ excelOauth: true, showCodexSessionImportOption: false, showAgentIdentityOption: false, showCodexPatOption: false, showMobileRefreshTokenOption: false })
+    flow.vm.$emit('generate-url')
+    await flushPromises()
+    expect(generateAuthUrlMock).toHaveBeenLastCalledWith('/admin/openai/generate-auth-url', { oauth_client: 'excel' })
+    flow.vm.authCode = 'code'
+    flow.vm.oauthState = 'bps.test.PC'
+    await flushPromises()
+    await selectButtonByText(wrapper, 'admin.accounts.oauth.completeAuth')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0][0]).toMatchObject({
+      type: 'oauth', platform: 'openai',
+      credentials: { client_id: 'app_fnr0pYvVwwFDocDumLG3H2Bp' },
+      extra: { openai_bps_ticket: { bps: true, models: ['gpt-6-astra'], proxy_source: 'account', tickets: false, auto_probe: false, auto_switch: false } }
+    })
+    wrapper.unmount()
+  })
+
+  it('rejects an empty model selection and mismatched Codex credentials', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper.get('[data-testid="openai-bps-oauth"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Excel account')
+    const models = wrapper.get('[data-testid="bps-oauth-models"]').getComponent(ModelWhitelistSelectorStub)
+    models.vm.$emit('update:modelValue', [])
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    expect(wrapper.findComponent(OAuthAuthorizationFlowStub).exists()).toBe(false)
+    models.vm.$emit('update:modelValue', ['gpt-6-astra'])
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    const flow = wrapper.getComponent(OAuthAuthorizationFlowStub)
+    flow.vm.$emit('generate-url')
+    await flushPromises()
+    exchangeCodeMock.mockResolvedValueOnce({ access_token: 'codex-at', client_id: 'app_EMoamEEZ73f0CkXaXp7hrann' })
+    flow.vm.authCode = 'code'
+    flow.vm.oauthState = 'bps.test.PC'
+    await flushPromises()
+    await selectButtonByText(wrapper, 'admin.accounts.oauth.completeAuth')
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each([true, false])('uses the issuing client for manual RT; Excel=%s', async (excel) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    if (excel) await wrapper.get('[data-testid="openai-bps-oauth"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('RT account')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    wrapper.getComponent(OAuthAuthorizationFlowStub).vm.$emit('validate-refresh-token', 'paired-rt')
+    await flushPromises()
+    expect(refreshOpenAITokenMock).toHaveBeenCalledWith('paired-rt', null, '/admin/openai/refresh-token', excel ? 'app_fnr0pYvVwwFDocDumLG3H2Bp' : undefined)
+    expect(createAccountMock.mock.calls[0][0].extra.openai_bps_ticket?.bps).toBe(excel ? true : undefined)
+    wrapper.unmount()
+  })
 
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
