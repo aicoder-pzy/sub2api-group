@@ -95,13 +95,20 @@ func TestResolveOpenAIWSDecisionByClientTransport(t *testing.T) {
 		Reason:    "ws_v2_enabled",
 	}
 
-	httpDecision := resolveOpenAIWSDecisionByClientTransport(base, OpenAIClientTransportHTTP)
+	httpDecision := resolveOpenAIWSDecisionByClientTransport(base, OpenAIClientTransportHTTP, false)
 	require.Equal(t, OpenAIUpstreamTransportHTTPSSE, httpDecision.Transport)
 	require.Equal(t, "client_protocol_http", httpDecision.Reason)
 
-	wsDecision := resolveOpenAIWSDecisionByClientTransport(base, OpenAIClientTransportWS)
+	forcedDecision := resolveOpenAIWSDecisionByClientTransport(base, OpenAIClientTransportHTTP, true)
+	require.Equal(t, OpenAIUpstreamTransportResponsesWebsocketV2, forcedDecision.Transport)
+	require.Equal(t, "http_to_ws_enabled", forcedDecision.Reason)
+
+	disabledDecision := resolveOpenAIWSDecisionByClientTransport(openAIWSHTTPDecision("global_disabled"), OpenAIClientTransportHTTP, true)
+	require.Equal(t, OpenAIUpstreamTransportHTTPSSE, disabledDecision.Transport)
+
+	wsDecision := resolveOpenAIWSDecisionByClientTransport(base, OpenAIClientTransportWS, true)
 	require.Equal(t, base, wsDecision)
 
-	unknownDecision := resolveOpenAIWSDecisionByClientTransport(base, OpenAIClientTransportUnknown)
+	unknownDecision := resolveOpenAIWSDecisionByClientTransport(base, OpenAIClientTransportUnknown, false)
 	require.Equal(t, base, unknownDecision)
 }

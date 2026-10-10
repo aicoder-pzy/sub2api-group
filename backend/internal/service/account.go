@@ -2219,6 +2219,16 @@ func (a *Account) IsOpenAIWSForceHTTPEnabled() bool {
 	return ok && enabled
 }
 
+// IsOpenAIHTTPToWSEnabled opts HTTP Responses requests into the upstream WS pool.
+// Global WS gates and the account's WS mode still apply.
+func (a *Account) IsOpenAIHTTPToWSEnabled() bool {
+	if a == nil || !a.IsOpenAI() || a.Extra == nil {
+		return false
+	}
+	enabled, _ := a.Extra["openai_http_to_ws_enabled"].(bool)
+	return enabled
+}
+
 // IsOpenAIResponsesFlattenNamespacesEnabled 返回账号级"摊平 Codex namespace 工具"开关。
 // 字段：accounts.extra.openai_responses_flatten_namespaces，缺省 false（原样保留）。
 //

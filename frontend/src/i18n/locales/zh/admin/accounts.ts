@@ -945,6 +945,8 @@ export default {
         wsModeDesc:
           '仅对当前 OpenAI 账号类型生效。选择“关闭”可禁用 WS；其余模式需全局 gateway.openai_ws.mode_router_v2_enabled=true 才按所选方式连接，未开启时统一使用上下文池。',
         wsModeOff: '关闭（off）',
+        httpToWS: 'HTTP 请求使用上游 WS',
+        httpToWSDesc: 'WS mode 可用时，将 HTTP Responses 请求通过上游 WS 连接池转发，客户端仍接收 HTTP/SSE。需要上游支持 WS；compact 请求仍使用 HTTP。',
         wsModeCtxPool: '上下文池（ctx_pool）',
         wsModePassthrough: '透传（passthrough）',
         wsModeHttpBridge: 'HTTP 桥接（http_bridge）',

@@ -4,14 +4,103 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestForward_HTTPToWS(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name, path                          string
+		stream, disabled, optedOut, wsError bool
+	}{
+		{name: "stream_passthrough", path: "/v1/responses", stream: true},
+		{name: "nonstream_passthrough", path: "/v1/responses"},
+		{name: "compact_stays_http", path: "/v1/responses/compact"},
+		{name: "global_force_http", path: "/v1/responses", disabled: true},
+		{name: "default_stays_http", path: "/v1/responses", optedOut: true},
+		{name: "ws_error_stays_error", path: "/v1/responses", stream: true, wsError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, tc.path, nil)
+			SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+			cfg := &config.Config{}
+			cfg.Gateway.OpenAIWS.Enabled = true
+			cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+			cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+			cfg.Gateway.OpenAIWS.ForceHTTP = tc.disabled
+			cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+			cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
+			capture := &openAIWSCaptureConn{events: [][]byte{
+				[]byte(`{"type":"response.created","response":{"id":"resp_ws","model":"gpt-6.1-sol"}}`),
+				[]byte(`{"type":"response.output_text.delta","delta":"OK"}`),
+				[]byte(`{"type":"response.completed","response":{"id":"resp_ws","model":"gpt-6.1-sol","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"OK"}]}],"usage":{"input_tokens":12,"output_tokens":7,"input_tokens_details":{"cached_tokens":3}}}}`),
+			}}
+			if tc.wsError {
+				capture.events = [][]byte{[]byte(`{"type":"error","error":{"type":"invalid_request_error","code":"unsupported_ws","message":"WS unavailable"}}`)}
+			}
+			dialer := &openAIWSCaptureDialer{conn: capture}
+			pool := newOpenAIWSConnPool(cfg)
+			pool.setClientDialerForTest(dialer)
+			defer pool.Close()
+			httpUpstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"id":"resp_http","usage":{"input_tokens":12,"output_tokens":7}}`)),
+			}}
+			svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: httpUpstream, cache: &stubGatewayCache{}, openaiWSPool: pool}
+			account := &Account{
+				ID: 118, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+				Credentials: map[string]any{"api_key": "sk-test"},
+				Extra: map[string]any{
+					"openai_http_to_ws_enabled":                     !tc.optedOut,
+					"openai_apikey_responses_websockets_v2_mode":    "ctx_pool",
+					"openai_apikey_responses_websockets_v2_enabled": true,
+					"openai_passthrough":                            true,
+				},
+			}
+			body := []byte(fmt.Sprintf(`{"model":"gpt-6.1-sol","stream":%t,"reasoning":{"effort":"xhigh"},"input":"hello"}`, tc.stream))
+			result, err := svc.Forward(context.Background(), c, account, body)
+			if tc.wsError {
+				require.Error(t, err)
+				require.Nil(t, result)
+				require.Nil(t, httpUpstream.lastReq, "WS errors must not silently fall back to HTTP")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			if tc.disabled || tc.optedOut || strings.HasSuffix(tc.path, "/compact") {
+				require.False(t, result.OpenAIWSMode)
+				require.NotNil(t, httpUpstream.lastReq)
+				require.Zero(t, dialer.DialCount())
+				return
+			}
+			require.True(t, result.OpenAIWSMode)
+			require.Nil(t, httpUpstream.lastReq)
+			require.Equal(t, "gpt-6.1-sol", capture.lastWrite["model"])
+			require.Equal(t, map[string]any{"effort": "xhigh"}, capture.lastWrite["reasoning"])
+			require.Equal(t, 12, result.Usage.InputTokens)
+			require.Equal(t, 7, result.Usage.OutputTokens)
+			require.Equal(t, 3, result.Usage.CacheReadInputTokens)
+			require.Contains(t, rec.Body.String(), "OK")
+			if tc.stream {
+				require.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+				require.Contains(t, rec.Body.String(), "data: ")
+			} else {
+				require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+			}
+		})
+	}
+}
 
 // HTTP POST /v1/responses -> forwardOpenAIWSV2 keeps the canonical outbound
 // tier separate from response.completed.service_tier for usage-time billing.

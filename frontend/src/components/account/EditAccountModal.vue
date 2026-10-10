@@ -1900,6 +1900,18 @@
             <Select v-model="openaiResponsesWebSocketV2Mode" data-testid="edit-openai-ws-mode-select" :options="openAIWSModeOptions" />
           </div>
         </div>
+        <label class="mt-4 flex items-start gap-2">
+          <input
+            v-model="openAIHTTPToWSEnabled"
+            type="checkbox"
+            data-testid="edit-openai-http-to-ws"
+            class="mt-1 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+          <span>
+            <span class="text-sm text-gray-700 dark:text-gray-200">{{ t('admin.accounts.openai.httpToWS') }}</span>
+            <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.httpToWSDesc') }}</span>
+          </span>
+        </label>
       </div>
 
       <!-- OpenAI APIKey Responses API support mode -->
@@ -3738,6 +3750,7 @@ const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
+const openAIHTTPToWSEnabled = ref(false)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
@@ -4255,6 +4268,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     } else if (codexImageGenerationBridgeValue === false) {
       codexImageToolMode.value = 'disabled'
     }
+    openAIHTTPToWSEnabled.value = extra?.openai_http_to_ws_enabled === true
     openaiOAuthResponsesWebSocketV2Mode.value = resolveOpenAIWSModeFromExtra(extra, {
       modeKey: 'openai_oauth_responses_websockets_v2_mode',
       enabledKey: 'openai_oauth_responses_websockets_v2_enabled',
@@ -5702,6 +5716,11 @@ const handleSubmit = async () => {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       const hadCodexCLIOnlyEnabled = currentExtra.codex_cli_only === true
+      if (openAIHTTPToWSEnabled.value) {
+        newExtra.openai_http_to_ws_enabled = true
+      } else {
+        delete newExtra.openai_http_to_ws_enabled
+      }
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
         newExtra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
         newExtra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)

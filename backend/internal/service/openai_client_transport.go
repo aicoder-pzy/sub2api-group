@@ -63,8 +63,13 @@ func normalizeOpenAIClientTransport(transport OpenAIClientTransport) OpenAIClien
 func resolveOpenAIWSDecisionByClientTransport(
 	decision OpenAIWSProtocolDecision,
 	clientTransport OpenAIClientTransport,
+	httpToWSEnabled bool,
 ) OpenAIWSProtocolDecision {
 	if clientTransport == OpenAIClientTransportHTTP {
+		if httpToWSEnabled && decision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2 {
+			decision.Reason = "http_to_ws_enabled"
+			return decision
+		}
 		return openAIWSHTTPDecision("client_protocol_http")
 	}
 	return decision

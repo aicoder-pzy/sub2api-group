@@ -828,6 +828,8 @@ export default {
         wsModeDesc:
           'Applies only to the current OpenAI account type. Select Off to disable WS. Other modes use the selected connection method only when gateway.openai_ws.mode_router_v2_enabled=true; otherwise, they use the context pool.',
         wsModeOff: 'Off (off)',
+        httpToWS: 'Use upstream WS for HTTP requests',
+        httpToWSDesc: 'When WS mode is available, forward HTTP Responses requests through the upstream WS pool and return HTTP/SSE to the client. Requires upstream WS support; compact requests still use HTTP.',
         wsModeCtxPool: 'Context Pool (ctx_pool)',
         wsModePassthrough: 'Passthrough (passthrough)',
         wsModeHttpBridge: 'HTTP Bridge (http_bridge)',
