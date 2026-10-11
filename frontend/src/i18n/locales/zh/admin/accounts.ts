@@ -381,6 +381,7 @@ export default {
         failed: '失败',
         notProbed: '未探测',
         groupRate: '分组默认：{value}x',
+        newAPIGroup: 'NewAPI 钱包授权 · 实时分组：{group}，倍率 {value}x（含用户组调整）',
         userRate: '用户专属倍率：{value}x',
         peakRate: '高峰：{start}-{end}，{value}x（{timezone}）',
         noPeakRate: '高峰倍率：未启用',

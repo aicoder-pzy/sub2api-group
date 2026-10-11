@@ -113,3 +113,9 @@ Adapted from [ranxi2001/sub2api v2.10.1](https://github.com/ranxi2001/sub2api/tr
 especially its NewAPI shared authorization and balance notification behavior.
 The migration uses this custom branch's existing balance runner and amount
 schema. It does not import the reference fork's scheduler or OAuth quota rules.
+
+## NewAPI group billing rates
+
+Wallet authorization also enables the existing upstream billing probe to read the owned API key's live group and `GET /api/user/self/groups` ratio. The user-scoped ratio includes upstream user-group adjustments; no inference request is made. Saved binding group names are not used as current evidence. The account table tooltip shows the source and live group.
+
+The existing global interval, account auto-probe switch, optional cost-rate sync and group rate limit apply. Sync changes the cost multiplier only when enabled and the ratio is in the existing supported range. Failed requests preserve the last valid observation until it expires. Auto groups, cross-group routes, ownership changes and missing/invalid ratios cannot establish a fixed rate and block protected scheduling until a valid probe. Rotating or removing wallet authorization clears billing evidence and rejects in-flight writes from the previous authorization.

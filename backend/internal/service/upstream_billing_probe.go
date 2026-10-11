@@ -106,6 +106,7 @@ type UpstreamBillingProbeSettings struct {
 // UpstreamBillingProbeSnapshot is persisted in accounts.extra. Data is kept as
 // a sanitized map so future response fields do not require a database change.
 type UpstreamBillingProbeSnapshot struct {
+	Source        string         `json:"source,omitempty"`
 	Status        string         `json:"status"`
 	Data          map[string]any `json:"data,omitempty"`
 	ReceivedAt    *time.Time     `json:"received_at,omitempty"`
@@ -121,6 +122,8 @@ type UpstreamBillingProbeSnapshot struct {
 	// stored snapshot always answers "did this probe move the account rate, and
 	// to what" without a separate history table.
 	SyncedRateMultiplier *float64 `json:"synced_rate_multiplier,omitempty"`
+	// Capture authorization identity for transactional write-back; never serialize secrets.
+	NewAPIBinding *NewAPIAccountBinding `json:"-"`
 }
 
 // UpstreamBillingProbeResult is returned by manual probe endpoints.
@@ -639,6 +642,20 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 
 func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, account *Account, intervalMinutes int) (*UpstreamBillingProbeSnapshot, error) {
 	now := s.currentTime().UTC()
+	if s.newAPIRepo != nil {
+		binding, err := s.newAPIRepo.GetBinding(ctx, account.ID)
+		if err != nil {
+			return nil, newAPIError("storage_unavailable")
+		}
+		if binding != nil {
+			data, err := s.probeNewAPIBilling(ctx, account, binding, now)
+			if err != nil {
+				reason := strings.TrimPrefix(infraerrors.FromError(err).Message, "New API verification failed: ")
+				return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, reason, 0, binding)
+			}
+			return s.persistProbeSuccess(ctx, account, intervalMinutes, now, http.StatusOK, data, binding)
+		}
+	}
 	if s.accountTestService == nil || s.accountTestService.httpUpstream == nil {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "transport_unavailable", 0)
 	}
@@ -724,6 +741,10 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	if err != nil {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "invalid_response", retryAfter(resp.Header, now))
 	}
+	return s.persistProbeSuccess(ctx, account, intervalMinutes, now, resp.StatusCode, data, nil)
+}
+
+func (s *UpstreamBillingProbeService) persistProbeSuccess(ctx context.Context, account *Account, intervalMinutes int, now time.Time, statusCode int, data map[string]any, binding *NewAPIAccountBinding) (*UpstreamBillingProbeSnapshot, error) {
 	snapshot := &UpstreamBillingProbeSnapshot{
 		Status:        UpstreamBillingProbeStatusOK,
 		Data:          data,
@@ -731,7 +752,11 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		FreshUntil:    probeTimePtr(now.Add(2 * time.Duration(intervalMinutes) * time.Minute)),
 		LastAttemptAt: now,
 		NextProbeAt:   now.Add(nextProbeDelay(intervalMinutes, 0)),
-		HTTPStatus:    resp.StatusCode,
+		HTTPStatus:    statusCode,
+		NewAPIBinding: binding,
+	}
+	if binding != nil {
+		snapshot.Source = "newapi"
 	}
 	// 账号级值域与精度只在真要写回时才有影响：只观察上游声明、未开启同步的
 	// 账号不因声明值不适配 accounts.rate_multiplier 而被记成探测失败并进入
@@ -777,6 +802,7 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 	statusCode int,
 	reason string,
 	retryAfterDuration time.Duration,
+	bindings ...*NewAPIAccountBinding,
 ) (*UpstreamBillingProbeSnapshot, error) {
 	previous := decodeUpstreamBillingProbeSnapshot(account.Extra)
 	failureCount := 1
@@ -797,12 +823,23 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 		HTTPStatus:    statusCode,
 		LastError:     reason,
 	}
+	if len(bindings) > 0 {
+		snapshot.NewAPIBinding = bindings[0]
+		snapshot.Source = "newapi"
+	}
 	if previous != nil {
 		snapshot.Data = previous.Data
 		snapshot.ReceivedAt = previous.ReceivedAt
 		snapshot.FreshUntil = previous.FreshUntil
 		if snapshot.FreshUntil == nil && previous.Status == UpstreamBillingProbeStatusOK && previous.ReceivedAt != nil {
 			snapshot.FreshUntil = probeTimePtr(previous.ReceivedAt.Add(2 * time.Duration(intervalMinutes) * time.Minute))
+		}
+	}
+	if snapshot.Source == "newapi" && (reason == "dynamic_token_group" || reason == "invalid_group_ratio" || reason == "bound_key_not_owned" || reason == "invalid_response") {
+		snapshot.FreshUntil = probeTimePtr(now)
+		if snapshot.ReceivedAt != nil {
+			// Equality invalidates it even when the clock has not advanced.
+			snapshot.FreshUntil = probeTimePtr(*snapshot.ReceivedAt)
 		}
 	}
 	if err := s.updateSnapshot(ctx, account, snapshot, nil); err != nil {

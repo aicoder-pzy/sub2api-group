@@ -37,6 +37,7 @@ func TestUpdateUpstreamBillingProbeSnapshotRequiresSameIdentityAndSnapshot(t *te
 			mock.ExpectBegin()
 			tx, err := client.Tx(context.Background())
 			require.NoError(t, err)
+			mock.ExpectExec("SELECT id FROM accounts").WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectQuery(`(?s)` + regexp.QuoteMeta("SELECT protocol, host, port") + `.*` + regexp.QuoteMeta("FOR SHARE")).
 				WithArgs(int64(9)).
 				WillReturnRows(sqlmock.NewRows([]string{"protocol", "host", "port", "username", "password", "status"}).
@@ -98,6 +99,7 @@ func TestUpdateUpstreamBillingProbeSnapshotCommitsSnapshotAndOutboxAtomically(t 
 	t.Cleanup(func() { _ = client.Close() })
 
 	mock.ExpectBegin()
+	mock.ExpectExec("SELECT id FROM accounts").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`(?s)`+regexp.QuoteMeta("UPDATE accounts")+`.*`+regexp.QuoteMeta("rate_multiplier = CASE")+`.*`+regexp.QuoteMeta("THEN $10::numeric")+`.*`+regexp.QuoteMeta("AND credentials = $5::jsonb")+`.*`+regexp.QuoteMeta("AND proxy_id IS NOT DISTINCT FROM $6")+`.*`+regexp.QuoteMeta("COALESCE(extra -> 'upstream_billing_probe', 'null'::jsonb) = $7::jsonb")).
 		WithArgs(sqlmock.AnyArg(), int64(17), service.PlatformOpenAI, service.AccountTypeAPIKey, `{"api_key":"sk-test"}`, nil, "null", "true", "true", 0.065).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -140,6 +142,7 @@ func TestUpdateUpstreamBillingProbeSnapshotRejectsChangedProxyIdentity(t *testin
 	mock.ExpectBegin()
 	tx, err := client.Tx(context.Background())
 	require.NoError(t, err)
+	mock.ExpectExec("SELECT id FROM accounts").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`(?s)` + regexp.QuoteMeta("SELECT protocol, host, port") + `.*` + regexp.QuoteMeta("FOR SHARE")).
 		WithArgs(int64(9)).
 		WillReturnRows(sqlmock.NewRows([]string{"protocol", "host", "port", "username", "password", "status"}).
@@ -175,6 +178,7 @@ func TestUpdateUpstreamBillingProbeSnapshotRollsBackWhenOutboxFails(t *testing.T
 	t.Cleanup(func() { _ = client.Close() })
 
 	mock.ExpectBegin()
+	mock.ExpectExec("SELECT id FROM accounts").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`(?s)`+regexp.QuoteMeta("UPDATE accounts")+`.*`+regexp.QuoteMeta("AND proxy_id IS NOT DISTINCT FROM $6")+`.*`+regexp.QuoteMeta("COALESCE(extra -> 'upstream_billing_probe', 'null'::jsonb) = $7::jsonb")).
 		WithArgs(sqlmock.AnyArg(), int64(18), service.PlatformOpenAI, service.AccountTypeAPIKey, `{"api_key":"sk-test"}`, nil, "null", "true", "true", 0.7).
 		WillReturnResult(sqlmock.NewResult(0, 1))

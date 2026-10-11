@@ -59,6 +59,40 @@ const billingData = {
 }
 
 describe('UpstreamBillingRateCell', () => {
+  it('shows the live NewAPI group and avoids claiming a peak schedule', async () => {
+    const wrapper = mount(UpstreamBillingRateCell, {
+      attachTo: document.body,
+      props: {
+        account: makeAccount({
+          extra: {
+            upstream_billing_probe: {
+              status: 'ok',
+              data: {
+                ...billingData,
+                object: 'newapi.key_billing',
+                group_name: 'live-vip',
+                group_rate_multiplier: 0.2,
+                peak_rate_enabled: false,
+                resolved_rate_multiplier: 0.2
+              },
+              received_at: '2026-07-13T00:00:00Z',
+              fresh_until: '2026-07-13T01:00:00Z',
+              last_attempt_at: '2026-07-13T00:00:00Z',
+              next_probe_at: '2026-07-13T00:30:00Z'
+            }
+          }
+        }),
+        now: Date.parse('2026-07-13T00:30:00Z')
+      }
+    })
+    expect(wrapper.text()).toContain('0.20x')
+    await wrapper.get('[data-testid="upstream-billing-details"]').trigger('mouseenter')
+    await flushPromises()
+    const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLElement
+    expect(tooltip.textContent).toContain('newAPIGroup:live-vip,0.2')
+    expect(tooltip.textContent).not.toContain('noPeakRate')
+    wrapper.unmount()
+  })
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-13T00:30:00Z'))

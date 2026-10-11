@@ -282,23 +282,21 @@ func (s *UpstreamBillingProbeService) verifyNewAPIConfig(ctx context.Context, id
 }
 func fmtNewAPIKeyPath(id int64) string { return "/api/token/" + strconv.FormatInt(id, 10) + "/key" }
 
-func (s *UpstreamBillingProbeService) probeNewAPIWallet(ctx context.Context, account *Account, binding *NewAPIAccountBinding) ([]UpstreamBalanceAmount, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
+func (s *UpstreamBillingProbeService) fetchBoundNewAPI(ctx context.Context, account *Account, binding *NewAPIAccountBinding) (*newAPIData, *NewAPIToken, string, error) {
 	if !s.newAPIFixedKey || s.newAPIEncryptor == nil {
-		return nil, ErrNewAPIEncryptionKey
+		return nil, nil, "", ErrNewAPIEncryptionKey
 	}
 	site, err := CanonicalNewAPISite(account.GetCredential("base_url"))
 	if err != nil || site != binding.Profile.SiteURL || binding.Fingerprint != NewAPIAccountFingerprint(account) {
-		return nil, ErrUpstreamBillingProbeIdentityChanged
+		return nil, nil, "", ErrUpstreamBillingProbeIdentityChanged
 	}
 	secret, err := s.newAPIEncryptor.Decrypt(binding.Profile.Ciphertext)
 	if err != nil {
-		return nil, newAPIError("authorization_unavailable")
+		return nil, nil, "", newAPIError("authorization_unavailable")
 	}
 	data, err := s.fetchNewAPI(ctx, account, site, binding.Profile.UserID, secret)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
 	matches := matchNewAPITokens(account, data.tokens)
 	for _, token := range matches {
@@ -313,26 +311,36 @@ func (s *UpstreamBillingProbeService) probeNewAPIWallet(ctx context.Context, acc
 				} `json:"data"`
 			}
 			if err := s.newAPIRequest(ctx, account, site, binding.Profile.UserID, secret, "POST", fmtNewAPIKeyPath(token.ID), &raw); err != nil || !raw.Success || newAPIKey(raw.Data.Key) != newAPIKey(account.GetCredential("api_key")) {
-				return nil, newAPIError("bound_key_not_owned")
+				return nil, nil, "", newAPIError("bound_key_not_owned")
 			}
 		}
-		amounts := []UpstreamBalanceAmount{{Scope: "wallet", Currency: "USD", Remaining: &data.wallet}}
-		// Key limits still constrain a channel even when its shared wallet is funded.
-		if token.UnlimitedQuota != nil {
-			amount := UpstreamBalanceAmount{Scope: "key", Currency: "USD", Unlimited: *token.UnlimitedQuota}
-			if !amount.Unlimited {
-				if token.RemainQuota == nil || !newAPIFinite(*token.RemainQuota) {
-					return nil, newAPIError("invalid_key_quota")
-				}
-				remaining := *token.RemainQuota / data.quotaPerUnit
-				if !newAPIFinite(remaining) || math.Abs(remaining) > 1e12 {
-					return nil, newAPIError("invalid_key_quota")
-				}
-				amount.Remaining = &remaining
-			}
-			amounts = append(amounts, amount)
-		}
-		return amounts, nil
+		return data, &token, secret, nil
 	}
-	return nil, newAPIError("bound_key_not_owned")
+	return nil, nil, "", newAPIError("bound_key_not_owned")
+}
+
+func (s *UpstreamBillingProbeService) probeNewAPIWallet(ctx context.Context, account *Account, binding *NewAPIAccountBinding) ([]UpstreamBalanceAmount, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	data, token, _, err := s.fetchBoundNewAPI(ctx, account, binding)
+	if err != nil {
+		return nil, err
+	}
+	amounts := []UpstreamBalanceAmount{{Scope: "wallet", Currency: "USD", Remaining: &data.wallet}}
+	// Key limits still constrain a channel even when its shared wallet is funded.
+	if token.UnlimitedQuota != nil {
+		amount := UpstreamBalanceAmount{Scope: "key", Currency: "USD", Unlimited: *token.UnlimitedQuota}
+		if !amount.Unlimited {
+			if token.RemainQuota == nil || !newAPIFinite(*token.RemainQuota) {
+				return nil, newAPIError("invalid_key_quota")
+			}
+			remaining := *token.RemainQuota / data.quotaPerUnit
+			if !newAPIFinite(remaining) || math.Abs(remaining) > 1e12 {
+				return nil, newAPIError("invalid_key_quota")
+			}
+			amount.Remaining = &remaining
+		}
+		amounts = append(amounts, amount)
+	}
+	return amounts, nil
 }

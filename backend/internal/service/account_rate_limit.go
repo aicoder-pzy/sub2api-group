@@ -43,6 +43,9 @@ func accountRateForLimit(account *Account, now time.Time) (float64, bool) {
 	}
 	if isUpstreamBillingProbeAccount(account) {
 		snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
+		if snapshot != nil && snapshot.Source == "newapi" && (snapshot.ReceivedAt == nil || len(snapshot.Data) == 0) {
+			return 0, false
+		}
 		if snapshot != nil && snapshot.ReceivedAt != nil && len(snapshot.Data) > 0 {
 			return openAIFreshUpstreamBillingRate(account, now)
 		}

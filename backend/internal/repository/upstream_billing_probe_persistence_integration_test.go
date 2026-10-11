@@ -12,6 +12,49 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewAPIBillingWriteRequiresCurrentAuthorizationAndBinding(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	client := tx.Client()
+	repo := newAccountRepositoryWithSQL(client, tx, nil)
+	initial := 1.0
+	account := mustCreateAccount(t, client, &service.Account{
+		Name: "newapi-billing-cas", Platform: "openai", Type: "apikey", RateMultiplier: &initial,
+		Credentials: map[string]any{"base_url": "https://billing-cas.example", "api_key": "sk-test"},
+		Extra:       map[string]any{service.UpstreamBillingProbeEnabledExtraKey: true, service.UpstreamBillingRateSyncEnabledExtraKey: true},
+	})
+	rows, err := client.QueryContext(ctx, `INSERT INTO new_api_site_authorizations(site_url,upstream_user_id,access_token_ciphertext) VALUES($1,7,'encrypted') RETURNING id`, "https://billing-cas.example")
+	require.NoError(t, err)
+	require.True(t, rows.Next())
+	var profileID int64
+	require.NoError(t, rows.Scan(&profileID))
+	require.NoError(t, rows.Close())
+	binding := &service.NewAPIAccountBinding{AccountID: account.ID, TokenID: 3, Fingerprint: service.NewAPIAccountFingerprint(account), Profile: service.NewAPISiteAuthorization{ID: profileID, Revision: 1}}
+	_, err = client.ExecContext(ctx, `INSERT INTO new_api_account_bindings(account_id,authorization_id,upstream_token_id,account_fingerprint) VALUES($1,$2,$3,$4)`, account.ID, profileID, binding.TokenID, binding.Fingerprint)
+	require.NoError(t, err)
+	loaded, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	rate := 0.2
+	snapshot := &service.UpstreamBillingProbeSnapshot{Status: "ok", Source: "newapi", NewAPIBinding: binding}
+	// A legacy result that started before wallet binding must not overwrite it.
+	require.ErrorIs(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, &service.UpstreamBillingProbeSnapshot{Status: "ok"}, &rate), service.ErrUpstreamBillingProbeIdentityChanged)
+	_, err = client.ExecContext(ctx, `UPDATE new_api_site_authorizations SET revision=2 WHERE id=$1`, profileID)
+	require.NoError(t, err)
+	require.ErrorIs(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshot, &rate), service.ErrUpstreamBillingProbeIdentityChanged)
+	binding.Profile.Revision = 2
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshot, &rate))
+	loaded, err = repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, rate, *loaded.RateMultiplier)
+	_, err = client.ExecContext(ctx, `DELETE FROM new_api_account_bindings WHERE account_id=$1`, account.ID)
+	require.NoError(t, err)
+	rate = 0.5
+	require.ErrorIs(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshot, &rate), service.ErrUpstreamBillingProbeIdentityChanged)
+	got, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0.2, *got.RateMultiplier)
+}
+
 func TestAccountUpdatePreservesConcurrentProbeSnapshot(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)

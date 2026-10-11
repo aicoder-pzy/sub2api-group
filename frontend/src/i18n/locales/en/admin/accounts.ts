@@ -535,6 +535,7 @@ export default {
         failed: 'Failed',
         notProbed: 'Not probed',
         groupRate: 'Group default: {value}x',
+        newAPIGroup: 'NewAPI wallet authorization · Live group: {group}, rate {value}x (including user-group adjustments)',
         userRate: 'User rate: {value}x',
         peakRate: 'Peak: {start}-{end}, {value}x ({timezone})',
         noPeakRate: 'Peak rate: disabled',

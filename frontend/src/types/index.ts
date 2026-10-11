@@ -1068,7 +1068,8 @@ export interface TempUnschedulableStatus {
 }
 
 export interface UpstreamBillingData {
-  object: 'sub2api.key_billing'
+  object: 'sub2api.key_billing' | 'newapi.key_billing'
+  group_name?: string
   schema_version: 1
   billing_scope: 'token'
   group_rate_multiplier: number

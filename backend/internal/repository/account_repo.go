@@ -2900,6 +2900,28 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 		return err
 	}
 	client := clientFromContext(ctx, r.client)
+	binding := snapshot.NewAPIBinding
+	if binding != nil {
+		rows, err := client.QueryContext(ctx, `SELECT revision FROM new_api_site_authorizations WHERE id=$1 FOR SHARE`, binding.Profile.ID)
+		if err != nil {
+			return err
+		}
+		var revision int64
+		matches := rows.Next() && rows.Scan(&revision) == nil && revision == binding.Profile.Revision
+		rowErr := rows.Err()
+		_ = rows.Close()
+		if rowErr != nil {
+			return rowErr
+		}
+		if !matches || binding.AccountID != account.ID {
+			return service.ErrUpstreamBillingProbeIdentityChanged
+		}
+	}
+	// Lock before evaluating binding predicates. A concurrent save/unbind may
+	// finish while this lock waits; the following statement sees its new binding.
+	if _, err := client.ExecContext(ctx, `SELECT id FROM accounts WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, account.ID); err != nil {
+		return err
+	}
 	proxyMatches, err := lockAndMatchProbeProxyIdentity(ctx, client, account)
 	if err != nil {
 		return err
@@ -2910,6 +2932,12 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	var proxyID any
 	if account.ProxyID != nil {
 		proxyID = *account.ProxyID
+	}
+	args := []any{string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON), string(expectedRateSyncEnabledJSON), rateMultiplier}
+	bindingPredicate := ` AND NOT EXISTS (SELECT 1 FROM new_api_account_bindings b WHERE b.account_id=accounts.id)`
+	if binding != nil {
+		bindingPredicate = ` AND EXISTS (SELECT 1 FROM new_api_account_bindings b WHERE b.account_id=accounts.id AND b.authorization_id=$11 AND b.upstream_token_id=$12 AND b.account_fingerprint=$13)`
+		args = append(args, binding.Profile.ID, binding.TokenID, binding.Fingerprint)
 	}
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
@@ -2932,7 +2960,7 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 			AND COALESCE(extra -> 'upstream_billing_probe_enabled', 'null'::jsonb) = $8::jsonb
 			AND COALESCE(extra -> 'upstream_billing_rate_sync_enabled', 'null'::jsonb) = $9::jsonb
 			AND deleted_at IS NULL
-	`, string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON), string(expectedRateSyncEnabledJSON), rateMultiplier)
+	`+bindingPredicate, args...)
 	if err != nil {
 		return err
 	}
