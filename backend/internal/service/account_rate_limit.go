@@ -62,7 +62,7 @@ func accountRateLimitVeto(limit *float64, account *Account, now time.Time) (bool
 	if !known {
 		return true, accountRateLimitUnknown
 	}
-	if math.IsNaN(*limit) || math.IsInf(*limit, 0) || rate >= *limit {
+	if math.IsNaN(*limit) || math.IsInf(*limit, 0) || rate > *limit {
 		return true, accountRateLimitExceeded
 	}
 	return false, ""

@@ -35,7 +35,7 @@ func TestAccountRateLimitSubmissionCompletesThenNextRequestIsRejected(t *testing
 	require.NoError(t, err)
 	send := func(req *http.Request) (*http.Response, error) {
 		sends++
-		account = rateLimitProbeAccount(0.21, time.Now())
+		account = rateLimitProbeAccount(0.22, time.Now())
 		require.NoError(t, req.Context().Err(), "a submitted request is allowed to finish")
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("complete response"))}, nil
 	}
@@ -53,7 +53,7 @@ func TestAccountRateLimitSubmissionCompletesThenNextRequestIsRejected(t *testing
 	require.Equal(t, GatewayFailureScopeRequest, failover.Scope)
 	require.EqualValues(t, accountRateLimitExceeded, failover.Reason)
 	require.Equal(t, 1, sends, "the next request must not reach the frozen upstream")
-	account = rateLimitProbeAccount(0.19, time.Now())
+	account = rateLimitProbeAccount(limit, time.Now())
 	require.NoError(t, checkAccountRateLimitLatest(ctx, account.ID), "a fresh qualifying probe restores eligibility")
 	gate.readAccount = func(context.Context, int64) (*Account, error) { return nil, errors.New("cache unavailable") }
 	require.ErrorAs(t, checkAccountRateLimitLatest(ctx, account.ID), &failover)
@@ -84,14 +84,16 @@ func rateLimitProbeAccount(rate float64, now time.Time) *Account {
 		Extra: map[string]any{UpstreamBillingProbeExtraKey: data}}
 }
 
-func TestAccountRateLimitUsesActualRateAndStrictBoundary(t *testing.T) {
+func TestAccountRateLimitUsesActualRateAndInclusiveBoundary(t *testing.T) {
 	now, limit := time.Now(), 0.21
 	for _, test := range []struct {
-		rate float64
-		veto bool
-	}{{0, false}, {0.20, false}, {0.21, true}, {0.22, true}} {
-		vetoed, _ := accountRateLimitVeto(&limit, rateLimitProbeAccount(test.rate, now), now)
-		require.Equal(t, test.veto, vetoed, "rate=%v", test.rate)
+		limit float64
+		rate  float64
+		veto  bool
+	}{{0.21, 0, false}, {0.21, 0.20, false}, {0.21, 0.21, false}, {0.21, 0.22, true},
+		{0.10, 0.09, false}, {0.10, 0.10, false}, {0.10, 0.1001, true}} {
+		vetoed, _ := accountRateLimitVeto(&test.limit, rateLimitProbeAccount(test.rate, now), now)
+		require.Equal(t, test.veto, vetoed, "rate=%v limit=%v", test.rate, test.limit)
 	}
 	account := rateLimitProbeAccount(0.15, now)
 	snapshot := account.Extra[UpstreamBillingProbeExtraKey].(map[string]any)
@@ -145,7 +147,7 @@ func TestAccountRateLimitLiveSelectionSwitchesAndRecovers(t *testing.T) {
 		for _, mode := range []string{AccountSchedulingModeFastestFailover, AccountSchedulingModePriority} {
 			for _, loadBatch := range []bool{false, true} {
 				t.Run(platform+"/"+mode+"/"+map[bool]string{false: "legacy", true: "load_aware"}[loadBatch], func(t *testing.T) {
-					groupID, rateA, rateB := int64(105), 0.20, 0.10
+					groupID, rateA, rateB := int64(105), 0.21, 0.10
 					group := &Group{ID: groupID, Platform: platform, Status: StatusActive, Hydrated: true,
 						AccountSchedulingMode: mode, AccountRateLimitEnabled: true, AccountRateLimitMultiplier: 0.21}
 					ctx := context.WithValue(context.Background(), ctxkey.Group, group)
@@ -189,11 +191,11 @@ func TestAccountRateLimitLiveSelectionSwitchesAndRecovers(t *testing.T) {
 						confirmGroupModelSchedulingAccount(requestCtx, "model-a", selected.Account.ID)
 					}
 					selectID(1)
-					rateA = 0.21
+					rateA = 0.22
 					selectID(2)
 					rateB = 0.25
 					selectID(0)
-					rateA = 0.19
+					rateA = 0.21
 					selectID(1)
 				})
 			}
