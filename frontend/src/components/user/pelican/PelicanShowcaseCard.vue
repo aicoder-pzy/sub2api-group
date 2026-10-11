@@ -8,6 +8,8 @@
       <PelicanArtworkPreview
         v-if="body?.status === 'ready'"
         :html="body.html"
+        :quality="item.quality_verdict"
+        :reason="item.quality_reason"
         :interactive="false"
         :title="label"
       />

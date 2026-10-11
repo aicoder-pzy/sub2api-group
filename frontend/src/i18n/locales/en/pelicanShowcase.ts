@@ -48,8 +48,8 @@ pelicanShowcase: {
       itemExample: 'Read content',
       cacheExample: 'Conditional request',
       copyExample: 'Copy request example',
-      manifestHint: 'data.groups contains result metadata for each group. Fetch each content_url for full HTML/SVG, which is omitted from the manifest.',
-      itemHint: 'Use an ID from the manifest; replace RESULT_ID if no results exist yet. data.response_text is the raw output and may contain code fences. Removed or expired results return 404.',
+      manifestHint: 'data.groups includes result metadata, quality_verdict (normal, degraded, or unknown), and quality_reason. Fetch each content_url for content.',
+      itemHint: 'Use an ID from the manifest. Set a sandboxed iframe srcdoc to data.preview_html for the same artwork preview and assessment badge as this site. data.response_text preserves the original output. Removed or expired results return 404.',
       cacheHint: 'Replace YOUR_ETAG with the complete ETag value from the previous response, including W/ and quotes. Keep your local manifest on 304; on 200, download only results you have not saved.',
       polling: 'Poll every 60 seconds or longer with ETag and If-None-Match. Manifest and content support GET/HEAD. Follow Retry-After on 429/503 responses.',
       keySafety: 'Keep your API Key on the calling backend instead of in public frontend code. Cross-origin browser requests should omit cookies; display artwork in an isolated iframe.'

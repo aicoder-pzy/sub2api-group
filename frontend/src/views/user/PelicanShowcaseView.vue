@@ -187,6 +187,8 @@
           <PelicanArtworkPreview
             v-if="previewBody?.status === 'ready'"
             :html="previewBody.html"
+            :quality="preview.item.quality_verdict"
+            :reason="preview.item.quality_reason"
             :mode="previewMode"
             :title="previewTitle"
           />

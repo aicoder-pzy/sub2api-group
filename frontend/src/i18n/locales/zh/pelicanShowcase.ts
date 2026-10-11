@@ -48,8 +48,8 @@ pelicanShowcase: {
       itemExample: '读取正文',
       cacheExample: '条件请求',
       copyExample: '复制调用示例',
-      manifestHint: 'data.groups 包含各分组的作品摘要。清单不含完整 HTML/SVG，按作品 content_url 获取正文。',
-      itemHint: '作品 ID 以清单为准；没有作品时请替换 RESULT_ID。data.response_text 是原始输出，可能含代码围栏。作品移除或过期后返回 404。',
+      manifestHint: 'data.groups 包含各分组作品摘要，以及 quality_verdict（normal 正常、degraded 疑似降智、unknown 无法判定）和 quality_reason。按 content_url 获取正文。',
+      itemHint: '作品 ID 以清单为准。将 data.preview_html 作为隔离 iframe 的 srcdoc，即可使用与本站一致的作品预览和判断角标；data.response_text 保留原始输出。作品移除或过期返回 404。',
       cacheHint: '将 YOUR_ETAG 替换为上次响应 ETag 的完整原值，包括 W/ 和双引号。返回 304 时沿用本地清单；返回 200 时只下载尚未保存的作品。',
       polling: '建议每 60 秒或更久轮询，使用 ETag 和 If-None-Match 检查变化。清单和正文均支持 GET/HEAD；遇到 429/503 请遵守 Retry-After。',
       keySafety: '建议在调用端后端保存 API Key，避免放入公开前端。跨域浏览器请求应不携带 Cookie；显示作品时使用隔离 iframe。'

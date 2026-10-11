@@ -12,6 +12,8 @@ export interface PelicanShowcaseItem {
   reasoning_effort: string
   latency_ms: number
   generated_at: string
+  quality_verdict?: 'normal' | 'degraded' | 'unknown'
+  quality_reason?: string
   /** Raw model output; only returned by getItem. Render through extractPelicanHtml. */
   response_text?: string
 }

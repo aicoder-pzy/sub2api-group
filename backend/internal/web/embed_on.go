@@ -409,3 +409,9 @@ func HasEmbeddedFrontend() bool {
 	_, err := frontendFS.ReadFile("dist/index.html")
 	return err == nil
 }
+
+// PelicanRendererScript is the exact drawing renderer used by the site.
+func PelicanRendererScript() string {
+	data, _ := frontendFS.ReadFile("dist/pelican-renderer.js")
+	return string(data)
+}

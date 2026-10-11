@@ -127,6 +127,53 @@ func TestPelicanPublicManifestAndBody(t *testing.T) {
 	require.EqualValues(t, 1, source.itemReads.Load())
 }
 
+func TestPelicanPublicQualityAndPreview(t *testing.T) {
+	h, source := newPublicPelicanFixture()
+	manifestETag, itemETag := "", ""
+	for _, verdict := range []string{"", "normal", "degraded", "unknown"} {
+		source.item.QualityVerdict = verdict
+		source.item.QualityReason = "assessment: " + verdict
+		// Refreshing the shared generation also drops cached item bodies.
+		if h.public.snapshot != nil {
+			h.public.snapshot.expiresAt = time.Now().Add(-time.Second)
+		}
+		list := publicPelicanRequest(h, http.MethodGet, "", map[string]string{"If-None-Match": manifestETag})
+		body := publicPelicanRequest(h, http.MethodGet, "7", map[string]string{"If-None-Match": itemETag})
+		require.Equal(t, http.StatusOK, list.Code)
+		require.Equal(t, http.StatusOK, body.Code)
+		var manifest struct {
+			Data pelicanPublicManifest `json:"data"`
+		}
+		var detail struct {
+			Data pelicanPublicItem `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(list.Body.Bytes(), &manifest))
+		require.NoError(t, json.Unmarshal(body.Body.Bytes(), &detail))
+		expected := verdict
+		if expected == "" {
+			expected = "unknown"
+		}
+		require.Equal(t, expected, detail.Data.QualityVerdict)
+		require.Equal(t, source.item.QualityReason, detail.Data.QualityReason)
+		require.Equal(t, detail.Data.QualityVerdict, manifest.Data.Groups[0].Items[0].QualityVerdict)
+		require.Equal(t, detail.Data.QualityReason, manifest.Data.Groups[0].Items[0].QualityReason)
+		require.NotContains(t, list.Body.String(), "preview_html")
+		manifestETag, itemETag = list.Header().Get("ETag"), body.Header().Get("ETag")
+	}
+
+	attack := `</script><img src=x onerror=alert(1)>`
+	item := publicPelicanItem(source.item)
+	item.ResponseText = &attack
+	item.QualityReason = attack
+	preview := pelicanPreviewHTML(item, `var Sub2APIPelican={}; const closing="</script>";`)
+	require.NotContains(t, preview, attack, "untrusted output must stay inside JSON until the nested sandbox")
+	require.Contains(t, preview, `\u003c/script\u003e`)
+	require.Contains(t, preview, `<\/script>`)
+	require.Contains(t, preview, `connect-src 'none'; frame-src about:`)
+	require.Contains(t, preview, `"quality":"unknown"`)
+	require.Equal(t, 1, strings.Count(preview, "</script>"))
+}
+
 func TestPelicanPublicConditionalReadsAndCompression(t *testing.T) {
 	h, source := newPublicPelicanFixture()
 	for _, id := range []string{"", "7"} {

@@ -47,10 +47,12 @@ func TestPelicanShowcaseRepo_PublishListGetPrune(t *testing.T) {
 	base := time.Date(2026, 9, 20, 8, 0, 0, 0, time.UTC)
 	publish := func(resultID, groupID int64, maxItems int) {
 		t.Helper()
+		verdict := []string{"unknown", "degraded", "normal"}[resultID%3]
 		require.NoError(t, repo.Publish(ctx, service.PelicanShowcaseSnapshot{
 			GroupID: groupID, SourceResultID: resultID, ModelID: "gpt-6-astra", ReasoningEffort: "high",
 			ResponseText: fmt.Sprintf(`<svg data-result="%d"></svg>`, resultID), LatencyMs: resultID * 100,
-			GeneratedAt: base.Add(time.Duration(resultID) * time.Hour),
+			GeneratedAt:    base.Add(time.Duration(resultID) * time.Hour),
+			QualityVerdict: verdict, QualityReason: "saved " + verdict,
 		}, maxItems))
 	}
 	sourcesOf := func(groupID int64) []int64 {
@@ -105,6 +107,9 @@ func TestPelicanShowcaseRepo_PublishListGetPrune(t *testing.T) {
 	}
 	require.Equal(t, base.Add(5*time.Hour), items[0].GeneratedAt.UTC())
 	require.EqualValues(t, 500, items[0].LatencyMs)
+	require.Equal(t, "normal", items[0].QualityVerdict)
+	require.Equal(t, "saved normal", items[0].QualityReason)
+	require.Equal(t, "degraded", items[1].QualityVerdict)
 	items, err = repo.ListItems(ctx, []int64{groupA.ID}, 3, base.Add(4*time.Hour))
 	require.NoError(t, err)
 	require.Len(t, items, 2, "items older than the retention cutoff are hidden")
@@ -121,6 +126,8 @@ func TestPelicanShowcaseRepo_PublishListGetPrune(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, item)
 	require.Equal(t, `<svg data-result="3"></svg>`, item.ResponseText)
+	require.Equal(t, "unknown", item.QualityVerdict)
+	require.Equal(t, "saved unknown", item.QualityReason, "assessment survives independently of admin history")
 	for _, hidden := range []struct {
 		id       int64
 		maxItems int

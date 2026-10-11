@@ -2,7 +2,7 @@
 
 面向下游的只读接口：读取 `/pelican-showcase` 已收录的测试作品，不发起测试、不调用上游模型、不扣 API Key 余额。需要本站用户的 API Key，支持浏览器跨域 GET/HEAD。
 
-采用 **JSON 结果清单 + 按 ID 按需获取正文**。清单仅含元数据，完整 HTML/SVG 保存在单条结果的 `response_text` 中，不重复内联到清单、不转换为截图或 Base64。新生成的作品先经 HTML-only 评估，再写入右上角结果角标；下游解析 JSON 后得到含角标的作品 HTML。已有作品不自动重新评估。
+采用 **JSON 结果清单 + 按 ID 按需获取正文**。清单含元数据和结构化降智判断，完整 HTML/SVG 保存在单条结果的 `response_text` 中，不重复内联到清单、不转换为截图或 Base64。单条结果另提供 `preview_html`，使用与本站相同的预览代码。新生成作品先经 HTML-only 评估，再保存结论；已有作品沿用已保存的结论，不自动重新评估。
 
 ## 管理与接入入口
 
@@ -53,6 +53,8 @@ Accept-Encoding: gzip
             "model_id": "示例模型",
             "reasoning_effort": "high",
             "status": "success",
+            "quality_verdict": "degraded",
+            "quality_reason": "作品缺少自行车结构",
             "latency_ms": 1200,
             "generated_at": "2026-09-30T12:00:00Z",
             "content_url": "/api/v1/public/pelican-showcase/items/7"
@@ -69,6 +71,7 @@ Accept-Encoding: gzip
 - `content_url` 是相对于 API 站点根路径的地址，用 API origin 解析，读取正文同样需要附带 API Key。
 - `generated_at` 沿用展示页口径，通常是该次测试的开始时间；`latency_ms` 为该份测试耗时（毫秒）。`latest_generated_at` 是当前作品中最大的生成时间；没有作品时为 `null`。它不是删除/设置变动游标，应使用 ETag 检查清单变化。
 - `result_scope=published_successes` 表示只包含已成功生成 HTML/SVG 并发布的作品，**不是全部测试记录，不是成功率、可用性或智力分数**。不公开账号身份、管理员错误记录、提示词配置和成本字段。
+- 清单和正文均返回 `quality_verdict`：`normal` 正常、`degraded` 疑似降智、`unknown` 无法判定。`quality_reason` 是保存的判断原因，没有原因时为 `""`。`status=success` 仅指作品生成成功，不能据此判断是否降智；历史作品未评估或评估失败均归入 `unknown`，不当作正常。结论随展示快照独立保存，管理员历史清理后仍保留。
 - 保留数量、天数和分组可见性与展示页一致。`retention_days=0` 表示关闭按天清理，仍受每组数量上限约束。管理员删除、计划删除、分组停用、作品过期或收紧保留数量后，该作品会移出清单。
 - API 开关关闭时，清单和正文接口均返回 403（`reason=PELICAN_SHOWCASE_API_DISABLED`），GET/HEAD、缓存命中和条件请求都受此开关控制。API 开关开启但展示开关关闭时返回 `enabled=false, groups=[]`，正文接口返回 404；同时开启两个开关后，已发布作品可供通过 API Key 鉴权的下游读取。
 
@@ -80,7 +83,20 @@ Authorization: Bearer <API_KEY>
 Accept-Encoding: gzip
 ```
 
-`data` 包含清单中的该条元数据，以及 `response_text` 字符串，内容为原始模型输出（可能带 Markdown 代码围栏）。内容以 `application/json` 返回，不以可执行 HTML 返回。下游如需展示，应提取 HTML 后放入隔离 iframe 并设置 CSP，沿用本站展示页的隔离方式。
+`data` 包含清单中的该条元数据，以及 `response_text` 和 `preview_html` 字符串。`response_text` 保留原始模型输出（可能带 Markdown 代码围栏和已保存的角标），适合存档或下载。`preview_html` 是可直接放入隔离 iframe 的完整预览文档，复用本站同一渲染器：保持逻辑画布，等比适应窗口，自动测量超出画布和延迟出现的内容，保留动画，在缩放画布外显示可读的判断角标。判断使用保存的结构化结论，未从作品任意标签推断。
+
+显示时使用 `preview_html`，不要直接缩放原始 `response_text`；否则长图、SVG 尺寸及角标可能与本站不同。相同浏览器和容器尺寸下，作品画布与本站“适应窗口”模式一致。文档包含渲染代码和作品，不下载外部资源、不访问网络、不需要 API Key。API 仍以 `application/json` 返回；没有内嵌前端的开发版不提供 `preview_html`。
+
+```html
+<iframe id="artwork" title="鹈鹕作品" sandbox="allow-scripts"
+        referrerpolicy="no-referrer" style="width:100%;height:480px;border:0"></iframe>
+<script>
+// payload 是后端用 API Key 获取的单条 JSON 响应，不在前端暴露 Key。
+document.getElementById('artwork').srcdoc = payload.data.preview_html;
+</script>
+```
+
+必须保留 `sandbox="allow-scripts"`，不要添加 `allow-same-origin` 或通过 `innerHTML` 注入父页面。预览文档内部再将作品放入独立沙箱，并先插入限制网络访问的 CSP。外层容器大小由下游页面控制，不会把本站账号信息或管理接口传入作品。
 
 不存在、已移除、超出保留窗口或展示关闭的作品返回 404；非法 ID 返回 400。清单和正文之间若遇到清理，404 属于正常竞争情况，刷新清单即可。该 API 是当前展示窗口，不是永久存档。需要长期保留时应由下游在窗口内存储正文。
 

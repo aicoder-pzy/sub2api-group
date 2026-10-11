@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/web"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/singleflight"
 )
@@ -40,6 +42,9 @@ type pelicanPublicItem struct {
 	GeneratedAt     time.Time `json:"generated_at"`
 	ContentURL      string    `json:"content_url"`
 	ResponseText    *string   `json:"response_text,omitempty"`
+	QualityVerdict  string    `json:"quality_verdict"`
+	QualityReason   string    `json:"quality_reason"`
+	PreviewHTML     string    `json:"preview_html,omitempty"`
 }
 
 type pelicanPublicGroup struct {
@@ -61,12 +66,40 @@ type pelicanPublicManifest struct {
 }
 
 func publicPelicanItem(item *service.PelicanShowcaseItem) pelicanPublicItem {
+	verdict := item.QualityVerdict
+	if verdict != "normal" && verdict != "degraded" {
+		verdict = "unknown"
+	}
 	return pelicanPublicItem{
 		ID: item.ID, GroupID: item.GroupID, ModelID: item.ModelID,
 		ReasoningEffort: item.ReasoningEffort, Status: "success",
 		LatencyMs: item.LatencyMs, GeneratedAt: item.GeneratedAt,
-		ContentURL: pelicanPublicPath + "/items/" + strconv.FormatInt(item.ID, 10),
+		ContentURL:     pelicanPublicPath + "/items/" + strconv.FormatInt(item.ID, 10),
+		QualityVerdict: verdict, QualityReason: item.QualityReason,
 	}
+}
+
+var pelicanRendererScript = web.PelicanRendererScript()
+var pelicanScriptEnd = regexp.MustCompile(`(?i)</script`)
+
+// The model's output is JSON-escaped into the trusted renderer, and only runs
+// in its nested opaque sandbox. The preview is self-contained: no keys or assets.
+func pelicanPreviewHTML(item pelicanPublicItem, renderer string) string {
+	if renderer == "" {
+		return ""
+	}
+	options, err := json.Marshal(struct {
+		HTML    *string `json:"html"`
+		Title   string  `json:"title"`
+		Quality string  `json:"quality"`
+		Reason  string  `json:"reason"`
+	}{item.ResponseText, item.ModelID, item.QualityVerdict, item.QualityReason})
+	if err != nil {
+		return ""
+	}
+	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src about:; object-src 'none'; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#artwork{margin:0;width:100%;height:100%}body{overflow:hidden}</style></head><body><div id="artwork"></div><script>` +
+		pelicanScriptEnd.ReplaceAllString(renderer, `<\/script`) +
+		`Sub2APIPelican.mountPelicanArtwork(document.getElementById('artwork'),` + string(options) + `);</script></body></html>`
 }
 
 type pelicanPublicSource interface {
@@ -277,6 +310,7 @@ func (p *pelicanPublicCache) item(ctx context.Context, snapshot *pelicanPublicSn
 		}
 		publicItem := publicPelicanItem(item)
 		publicItem.ResponseText = &item.ResponseText
+		publicItem.PreviewHTML = pelicanPreviewHTML(publicItem, pelicanRendererScript)
 		body, err := newPelicanPublicBody(publicItem)
 		if err != nil {
 			return nil, err

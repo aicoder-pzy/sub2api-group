@@ -19,6 +19,8 @@ type PelicanShowcaseItem struct {
 	ReasoningEffort string    `json:"reasoning_effort"`
 	LatencyMs       int64     `json:"latency_ms"`
 	GeneratedAt     time.Time `json:"generated_at"`
+	QualityVerdict  string    `json:"quality_verdict"`
+	QualityReason   string    `json:"quality_reason"`
 	// ResponseText is the raw model output; only the single-item read fills it.
 	ResponseText string `json:"response_text,omitempty"`
 }
@@ -48,6 +50,8 @@ type PelicanShowcaseSnapshot struct {
 	ResponseText    string
 	LatencyMs       int64
 	GeneratedAt     time.Time
+	QualityVerdict  string
+	QualityReason   string
 }
 
 // PelicanShowcaseRepository stores gallery snapshots. The gallery shows the groups that
@@ -105,6 +109,8 @@ func (s *PelicanShowcaseService) PublishGroupResult(ctx context.Context, groupID
 		ResponseText:   result.ResponseText,
 		LatencyMs:      result.LatencyMs,
 		GeneratedAt:    result.StartedAt,
+		QualityVerdict: result.QualityVerdict,
+		QualityReason:  result.QualityReason,
 	}
 	if cfg := result.PelicanConfig; cfg != nil {
 		snapshot.ModelID, snapshot.ReasoningEffort = cfg.ModelID, cfg.ReasoningEffort

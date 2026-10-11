@@ -93,7 +93,7 @@ func TestPelicanShowcaseHandler_ListExposesNoAccountIdentity(t *testing.T) {
 	generated := time.Date(2026, 9, 24, 8, 30, 0, 0, time.UTC)
 	repo := &showcaseHandlerRepo{
 		groups: []*service.PelicanShowcaseGroup{{ID: 3, Name: "VIP", Platform: "openai"}},
-		items:  []*service.PelicanShowcaseItem{{ID: 7, GroupID: 3, ModelID: "gpt-6-astra", ReasoningEffort: "high", LatencyMs: 4200, GeneratedAt: generated}},
+		items:  []*service.PelicanShowcaseItem{{ID: 7, GroupID: 3, ModelID: "gpt-6-astra", ReasoningEffort: "high", LatencyMs: 4200, GeneratedAt: generated, QualityVerdict: "degraded", QualityReason: "missing details"}},
 	}
 	h := newShowcaseHandler(map[string]string{
 		service.SettingKeyPelicanShowcaseEnabled: "true",
@@ -107,7 +107,7 @@ func TestPelicanShowcaseHandler_ListExposesNoAccountIdentity(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.JSONEq(t, `{"code":0,"message":"success","data":{"enabled":true,"api_enabled":true,"max_items":10,"retention_days":5,"groups":[
 		{"id":3,"name":"VIP","platform":"openai","items":[
-			{"id":7,"group_id":3,"model_id":"gpt-6-astra","reasoning_effort":"high","latency_ms":4200,"generated_at":"2026-09-24T08:30:00Z"}
+			{"id":7,"group_id":3,"model_id":"gpt-6-astra","reasoning_effort":"high","latency_ms":4200,"generated_at":"2026-09-24T08:30:00Z","quality_verdict":"degraded","quality_reason":"missing details"}
 		]}]}}`, w.Body.String())
 }
 

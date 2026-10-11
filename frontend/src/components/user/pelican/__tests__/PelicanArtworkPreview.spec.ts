@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import PelicanArtworkPreview from '../PelicanArtworkPreview.vue'
+import { mountPelicanArtwork } from '@/utils/pelicanRenderer'
 
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
@@ -16,6 +17,29 @@ function mountPreview(mode: 'fit' | 'actual' = 'fit', ancestorScale = 1) {
 }
 
 describe('PelicanArtworkPreview', () => {
+  it('uses the same geometry for raw API code fences and the site preview', async () => {
+    const preview = mountPreview()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const portable = mountPelicanArtwork(container, { html: '```html\n<svg viewBox="0 0 1200 600"></svg>\n```', quality: 'normal' })
+    try {
+      const frame = container.querySelector('iframe')!
+      expect(frame.style.width).toBe(preview.get('iframe').element.style.width)
+      expect(frame.style.height).toBe(preview.get('iframe').element.style.height)
+      expect(frame.style.transform).toBe(preview.get('iframe').element.style.transform)
+      expect(frame.getAttribute('sandbox')).toBe('allow-scripts')
+      expect(container.querySelector('[data-quality="normal"]')?.textContent).toContain('正常')
+    } finally { portable.destroy(); container.remove() }
+  })
+  it('prefers the stored verdict over an artwork badge and preserves the SVG viewport', async () => {
+    const preview = mountPreview()
+    await preview.setProps({ html: '<html><body><!--sub2api:pelican-assessment:start--><aside data-sub2api-quality="normal">badge</aside><!--sub2api:pelican-assessment:end--><svg viewBox="0 0 600 1200"></svg></body></html>', quality: 'degraded', reason: 'missing bicycle' })
+    expect(preview.get('[data-testid="pelican-quality-badge"]').text()).toContain('pelicanTests.assessment.degraded')
+    expect(preview.get('[data-testid="pelican-quality-badge"]').attributes('title')).toBe('missing bicycle')
+    expect(preview.get('iframe').element.style.width).toBe('600px')
+    expect(preview.get('iframe').element.style.height).toBe('1200px')
+    expect(preview.get('iframe').attributes('srcdoc')).not.toContain('data-sub2api-quality')
+  })
   it('shows a readable corner badge outside the scaled artwork, without uploading or duplicating it', async () => {
     const preview = mountPreview()
     await preview.setProps({ html: '<html><body><!--sub2api:pelican-assessment:start--><aside data-sub2api-quality="degraded">badge</aside><!--sub2api:pelican-assessment:end--><svg></svg></body></html>' })

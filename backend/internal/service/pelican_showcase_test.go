@@ -136,10 +136,12 @@ func TestPelicanShowcasePublishesOnlyHTMLGroupAnswers(t *testing.T) {
 	settings.runtime.Enabled = false
 	svc := &PelicanShowcaseService{repo: repo, settings: settings}
 	result := groupTestSuccess(55, "<!DOCTYPE html><html><body><svg></svg></body></html>")
+	result.QualityVerdict, result.QualityReason = "degraded", "missing details"
 	svc.PublishGroupResult(ctx, 4, result)
 	require.Equal(t, []publishCall{{snapshot: PelicanShowcaseSnapshot{
 		GroupID: 4, SourceResultID: 55, ModelID: "gpt-6-astra", ReasoningEffort: "high",
 		ResponseText: result.ResponseText, LatencyMs: 1200, GeneratedAt: result.StartedAt,
+		QualityVerdict: "degraded", QualityReason: "missing details",
 	}, maxItems: 12}}, repo.published, "a gallery opened later starts with recent answers")
 
 	var nilService *PelicanShowcaseService
