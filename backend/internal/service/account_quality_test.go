@@ -47,6 +47,34 @@ func TestQualityPreferenceEvidenceRankingAndRecovery(t *testing.T) {
 	require.Equal(t, int64(3), orderQualityCandidates(accounts, quality, 10)[0].ID, "all degraded uses speed")
 }
 
+func TestQualityPreferenceHonorsManualPreferenceWithoutBypassingHealth(t *testing.T) {
+	now := time.Now()
+	accounts := []*Account{{ID: 1}, {ID: 2, Priority: 2, Extra: map[string]any{"scheduling_preferred": true}}, {ID: 3, Priority: 1}}
+	quality := map[int64]GroupModelAccountQuality{
+		1: {Successes: 300, Quality: &AccountQualityEvidence{LatestVerdict: "normal", LatestAt: &now, NormalStreak: 2, LatencyP95MS: 100}},
+		2: {Successes: 100, Quality: &AccountQualityEvidence{LatencyP95MS: 200}},
+		3: {Successes: 100, Quality: &AccountQualityEvidence{LatestVerdict: "normal", LatestAt: &now, NormalStreak: 2, LatencyP95MS: 300}},
+	}
+	first := func() int64 { return orderQualityCandidates(accounts, quality, 10)[0].ID }
+	require.Equal(t, int64(2), first(), "manual preference precedes automatic ranking even with unknown quality")
+	quality[2].Quality.LatestVerdict, quality[2].Quality.LatestAt = "degraded", &now
+	require.Equal(t, int64(1), first(), "preference cannot bypass degradation")
+	quality[2].Quality.LatestVerdict = "normal"
+	quality[2].Quality.NormalStreak = 2
+	failed := quality[2]
+	failed.Successes, failed.Failures = 0, 10
+	quality[2] = failed
+	require.Equal(t, int64(1), first(), "preference cannot bypass known transport failures")
+	failed.Successes, failed.Failures = 100, 0
+	quality[2] = failed
+	accounts[2].Extra = map[string]any{"scheduling_preferred": true}
+	require.Equal(t, int64(3), first(), "multiple preferred accounts honor the lower priority number")
+	for _, sample := range quality {
+		sample.Quality.LatestVerdict, sample.Quality.LatestAt = "degraded", &now
+	}
+	require.Equal(t, int64(1), first(), "all degraded uses speed before manual preference or priority")
+}
+
 func TestQualityPreferencePromotionReadOnlyAndRotation(t *testing.T) {
 	now := time.Now()
 	older := now.Add(-time.Hour)
@@ -71,6 +99,7 @@ func TestQualityPreferencePromotionReadOnlyAndRotation(t *testing.T) {
 	quality[1].Quality.LatestVerdict = "degraded"
 	cache.ready = false
 	require.Equal(t, int64(2), order(true)[0].ID, "degradation bypasses hold")
+	accounts[0].Extra = map[string]any{"scheduling_preferred": true}
 	ctx = context.WithValue(ctx, qualitySchedulingProbeKey{}, &qualityProbeReservations{accounts: make(map[int64]bool)})
 	require.Equal(t, int64(3), order(false)[0].ID, "never-tested channels are tested first")
 	require.Equal(t, int64(2), order(false)[0].ID, "parallel samples reserve distinct candidates")

@@ -6,11 +6,13 @@
 import { apiClient } from '../client'
 
 export interface SchedulingCandidateStatus {
+	scheduling_preferred?: boolean
+	priority?: number
 	quality?: {
 		successes_7d: number; failures_7d: number; successes_1h: number; failures_1h: number
 		normal: number; degraded: number; unknown: number; failed_tests: number; normal_streak: number
 		answer_normal: number; answer_degraded: number
-		latest_verdict: string; latest_at: string | null; last_test_at: string | null; effort: string
+		latest_verdict: string; latest_at: string | null; last_test_at: string | null; effort: string; test_effort?: string
 		latency_p50_ms: number; latency_p95_ms: number; latency_samples: number
 		success_lower_bound: number; quality_lower_bound: number
 		tier: 'verified' | 'provisional' | 'unknown' | 'degraded'

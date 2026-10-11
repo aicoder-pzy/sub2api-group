@@ -9,7 +9,14 @@ import (
 )
 
 func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Context, groupID int64, model, effort string) (map[int64]service.GroupModelAccountQuality, error) {
-	key := fmt.Sprintf("quality:%d:%s:%s", groupID, model, effort)
+	// A saved test must affect the next selection, including on another server
+	// replica, rather than waiting for the statistics cache to expire.
+	var revision int64
+	if err := scanSingleRow(ctx, r.sql, `SELECT COALESCE(MAX(id),0) FROM upstream_quality_samples
+ WHERE model=$2 AND (group_id=$1 OR group_id IS NULL) AND sampled_at>=NOW()-INTERVAL '7 days'`, []any{groupID, model}, &revision); err != nil {
+		return nil, err
+	}
+	key := fmt.Sprintf("quality:%d:%s:%s:%d", groupID, model, effort, revision)
 	if value, ok := r.schedulingQuality.Get(key); ok {
 		if samples, ok := value.(map[int64]service.GroupModelAccountQuality); ok {
 			return samples, nil
@@ -42,8 +49,8 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
  AND created_at>=NOW()-INTERVAL '24 hours' GROUP BY reasoning_effort ORDER BY COUNT(*) DESC,reasoning_effort LIMIT 1),'') AS effort
 ), evidence AS (
  SELECT s.*,ROW_NUMBER() OVER (PARTITION BY account_id,kind ORDER BY sampled_at DESC,id DESC) AS position
- FROM upstream_quality_samples s,chosen c WHERE model=$2 AND sampled_at>=NOW()-INTERVAL '7 days'
- AND (group_id=$1 OR group_id IS NULL) AND (s.effort=c.effort OR c.effort='')
+ FROM upstream_quality_samples s WHERE model=$2 AND sampled_at>=NOW()-INTERVAL '7 days'
+ AND (group_id=$1 OR group_id IS NULL)
 ), history AS (
  SELECT account_id,COUNT(*) FILTER(WHERE kind='pelican' AND verdict='normal') AS normal,
  COUNT(*) FILTER(WHERE kind='pelican' AND verdict='degraded') AS degraded,
@@ -54,9 +61,10 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
  COALESCE(MIN(position) FILTER(WHERE kind='pelican' AND verdict<>'normal')-1,COUNT(*) FILTER(WHERE kind='pelican')) AS streak,
  MAX(verdict) FILTER(WHERE kind='pelican' AND position=1) AS latest_verdict,
  MAX(reason) FILTER(WHERE kind='pelican' AND position=1) AS latest_reason,
- MAX(latency_ms) FILTER(WHERE kind='pelican' AND position=1) AS test_latency,
+ MAX(latency_ms) FILTER(WHERE kind='pelican' AND position=1 AND (e.effort=c.effort OR c.effort='')) AS test_latency,
+ MAX(e.effort) FILTER(WHERE kind='pelican' AND position=1) AS test_effort,
  MAX(sampled_at) FILTER(WHERE kind='pelican' AND position=1) AS latest_at,
- MAX(sampled_at) AS last_test_at FROM evidence GROUP BY account_id
+ MAX(sampled_at) AS last_test_at FROM evidence e CROSS JOIN chosen c GROUP BY account_id
 ), speed AS (
  SELECT u.account_id,COUNT(*) AS samples,
  percentile_cont(0.5) WITHIN GROUP(ORDER BY u.first_token_ms) AS p50,
@@ -75,7 +83,7 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
 )
  SELECT COALESCE(h.account_id,s.account_id),COALESCE(h.normal,0),COALESCE(h.degraded,0),COALESCE(h.unknown,0),COALESCE(h.failed,0),
  COALESCE(h.answer_normal,0),COALESCE(h.answer_degraded,0),COALESCE(h.streak,0),COALESCE(h.latest_verdict,''),COALESCE(h.latest_reason,''),COALESCE(h.test_latency,0),h.latest_at,h.last_test_at,
- COALESCE(s.samples,0),COALESCE(s.p50,0),COALESCE(s.p95,0),c.effort
+ COALESCE(s.samples,0),COALESCE(s.p50,0),COALESCE(s.p95,0),c.effort,COALESCE(h.test_effort,'')
  FROM history h FULL OUTER JOIN speed s USING(account_id) CROSS JOIN chosen c`, groupID, model, effort)
 	if err != nil {
 		return nil, err
@@ -85,7 +93,7 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
 		var id int64
 		var e service.AccountQualityEvidence
 		if err := rows.Scan(&id, &e.Normal, &e.Degraded, &e.Unknown, &e.FailedTests, &e.AnswerNormal, &e.AnswerDegraded, &e.NormalStreak,
-			&e.LatestVerdict, &e.LatestReason, &e.TestLatencyMS, &e.LatestAt, &e.LastTestAt, &e.LatencySamples, &e.LatencyP50MS, &e.LatencyP95MS, &e.Effort); err != nil {
+			&e.LatestVerdict, &e.LatestReason, &e.TestLatencyMS, &e.LatestAt, &e.LastTestAt, &e.LatencySamples, &e.LatencyP50MS, &e.LatencyP95MS, &e.Effort, &e.TestEffort); err != nil {
 			return nil, err
 		}
 		s := result[id]

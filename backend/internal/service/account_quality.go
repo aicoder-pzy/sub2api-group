@@ -30,6 +30,7 @@ type AccountQualityEvidence struct {
 	LatestAt          *time.Time `json:"latest_at"`
 	LastTestAt        *time.Time `json:"last_test_at"`
 	Effort            string     `json:"effort"`
+	TestEffort        string     `json:"test_effort"`
 	LatencyP50MS      float64    `json:"latency_p50_ms"`
 	LatencyP95MS      float64    `json:"latency_p95_ms"`
 	LatencySamples    int64      `json:"latency_samples"`
@@ -116,6 +117,18 @@ func orderQualityCandidates(candidates []*Account, samples map[int64]GroupModelA
 		if allDegraded {
 			return qualityLatencyLess(x, y, a.ID, b.ID)
 		}
+		if (x.Quality.tier(now) == 3) != (y.Quality.tier(now) == 3) {
+			return x.Quality.tier(now) != 3
+		}
+		if (x.reliabilityTier(minimum) == 3) != (y.reliabilityTier(minimum) == 3) {
+			return x.reliabilityTier(minimum) != 3
+		}
+		if accountSchedulingPreferred(a) != accountSchedulingPreferred(b) {
+			return accountSchedulingPreferred(a)
+		}
+		if accountSchedulingPreferred(a) && a.Priority != b.Priority {
+			return a.Priority < b.Priority
+		}
 		if x.Quality.tier(now) != y.Quality.tier(now) {
 			return x.Quality.tier(now) < y.Quality.tier(now)
 		}
@@ -132,7 +145,6 @@ func orderQualityCandidates(candidates []*Account, samples map[int64]GroupModelA
 			return x.RecentFailures < y.RecentFailures
 		}
 		if x.Quality != nil && y.Quality != nil {
-			// Quality and transport reliability take precedence over manual priority.
 			if qualityBucket(x.Quality.QualityLowerBound) != qualityBucket(y.Quality.QualityLowerBound) {
 				return x.Quality.QualityLowerBound > y.Quality.QualityLowerBound
 			}
@@ -148,6 +160,9 @@ func orderQualityCandidates(candidates []*Account, samples map[int64]GroupModelA
 		}
 		if x.Quality != nil && y.Quality != nil && qualityBucket(x.Quality.SuccessLowerBound) != qualityBucket(y.Quality.SuccessLowerBound) {
 			return x.Quality.SuccessLowerBound > y.Quality.SuccessLowerBound
+		}
+		if a.Priority != b.Priority {
+			return a.Priority < b.Priority
 		}
 		return qualityLatencyLess(x, y, a.ID, b.ID)
 	})
@@ -287,6 +302,12 @@ func orderSchedulingCandidates(ctx context.Context, cache GatewayCache, groupID 
 		return ordered
 	}
 	winner := ordered[0]
+	// An explicit preference applies to new sessions without the automatic
+	// challenger delay. Normal existing sessions were preserved above.
+	active := ordered[activeIndex]
+	if accountSchedulingPreferred(winner) && (!accountSchedulingPreferred(active) || winner.Priority < active.Priority) {
+		return ordered
+	}
 	better := winner.ID != activeID && qualitySignificantlyBetter(samples[winner.ID], current)
 	ready := false
 	if state, ok := cache.(QualityChallengerCache); ok && groupID != nil {

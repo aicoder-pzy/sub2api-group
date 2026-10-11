@@ -12,6 +12,8 @@ import (
 type SchedulingCandidateStatus struct {
 	Quality               *AccountQualityEvidence `json:"quality,omitempty"`
 	AccountID             int64                   `json:"account_id"`
+	SchedulingPreferred   bool                    `json:"scheduling_preferred"`
+	Priority              int                     `json:"priority"`
 	Name                  string                  `json:"name"`
 	Current               bool                    `json:"current"`
 	Eligible              bool                    `json:"eligible"`
@@ -86,6 +88,7 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 		account := &accounts[i]
 		sample := quality[account.ID]
 		status := SchedulingCandidateStatus{AccountID: account.ID, Name: account.Name, Current: account.ID == activeID,
+			SchedulingPreferred: accountSchedulingPreferred(account), Priority: account.Priority,
 			Quality:    sample.Quality,
 			Confidence: sample.confidence(int64(settings.MinimumSamples)), Samples: sample.attempts(), RecentFailures: sample.RecentFailures,
 			LastSuccessAt: sample.LastSuccessAt, LastFailureAt: sample.LastFailureAt,

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestQualityHistorySurvivesPruningAndIsolatesGroupModelEffort(t *testing.T) {
+func TestQualityHistorySurvivesPruningAndSharesModelVerdictsAcrossEfforts(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Microsecond)
 	account := mustCreateAccount(t, testEntClient(t), &service.Account{Name: "quality-history"})
@@ -30,20 +30,35 @@ func TestQualityHistorySurvivesPruningAndIsolatesGroupModelEffort(t *testing.T) 
 		require.NoError(t, err)
 	}
 	require.NoError(t, repo.PruneResults(ctx, plan.ID, 1))
+	usage := newUsageLogRepositoryWithSQL(nil, integrationDB)
 	read := func(group int64, model, effort string) map[int64]service.GroupModelAccountQuality {
-		data, err := newUsageLogRepositoryWithSQL(nil, integrationDB).GetQualityPreferredAccountQuality(ctx, group, model, effort)
+		data, err := usage.GetQualityPreferredAccountQuality(ctx, group, model, effort)
 		require.NoError(t, err)
 		return data
 	}
 	e := read(groups[0].ID, "quality-model", "xhigh")[account.ID].Quality
 	require.NotNil(t, e)
 	require.EqualValues(t, 2, e.Normal)
-	require.EqualValues(t, 1, e.Degraded)
-	require.EqualValues(t, 2, e.NormalStreak)
-	require.Equal(t, "verified", e.Tier)
+	require.EqualValues(t, 2, e.Degraded)
+	require.Zero(t, e.NormalStreak)
+	require.Equal(t, "degraded", e.Tier, "medium degradation must also protect xhigh requests")
+	require.Equal(t, "medium", e.TestEffort)
+	require.Zero(t, e.TestLatencyMS, "medium generation time cannot stand in for xhigh speed")
 	require.EqualValues(t, 1, read(groups[1].ID, "quality-model", "xhigh")[account.ID].Quality.Degraded)
-	require.Equal(t, "degraded", read(groups[0].ID, "quality-model", "medium")[account.ID].Quality.Tier)
+	medium := read(groups[0].ID, "quality-model", "medium")[account.ID].Quality
+	require.Equal(t, e.Tier, medium.Tier)
+	require.Equal(t, float64(100), medium.TestLatencyMS)
 	require.Empty(t, read(groups[0].ID, "other-model", "xhigh"))
+	for i := 6; i < 8; i++ {
+		_, err = repo.CreateResult(ctx, &service.PelicanGroupTestResult{PlanID: plan.ID, AccountID: account.ID, Status: "success", QualityModelID: "quality-model", QualityVerdict: "normal", PelicanConfig: &service.PelicanTestConfig{ModelID: "quality-model", ReasoningEffort: "medium"}, StartedAt: now.Add(time.Duration(i) * time.Second), FinishedAt: now.Add(time.Duration(i) * time.Second)})
+		require.NoError(t, err)
+	}
+	e = read(groups[0].ID, "quality-model", "xhigh")[account.ID].Quality
+	require.EqualValues(t, 2, e.NormalStreak)
+	require.Equal(t, "verified", e.Tier, "a cached xhigh selection sees newly saved medium recovery immediately")
+	_, err = repo.CreateResult(ctx, &service.PelicanGroupTestResult{PlanID: plan.ID, AccountID: account.ID, Status: "success", QualityModelID: "quality-model", QualityVerdict: "degraded", PelicanConfig: &service.PelicanTestConfig{ModelID: "quality-model", ReasoningEffort: "medium"}, StartedAt: now.Add(8 * time.Second), FinishedAt: now.Add(8 * time.Second)})
+	require.NoError(t, err)
+	require.Equal(t, "degraded", read(groups[0].ID, "quality-model", "xhigh")[account.ID].Quality.Tier, "new degradation also bypasses a warm statistics cache")
 	manual := &accountRepository{sql: integrationDB}
 	require.NoError(t, manual.SavePelicanAccountQuality(ctx, account.ID, "manual-model", &service.PelicanAssessment{Quality: "degraded"}, now.Add(-time.Hour), 100))
 	require.NoError(t, manual.SavePelicanAccountQuality(ctx, account.ID, "manual-model", &service.PelicanAssessment{Quality: "normal"}, now, 100))

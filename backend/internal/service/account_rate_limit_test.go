@@ -144,7 +144,7 @@ func TestAccountRateLimitAppliesAlongsideProfitControl(t *testing.T) {
 
 func TestAccountRateLimitLiveSelectionSwitchesAndRecovers(t *testing.T) {
 	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic} {
-		for _, mode := range []string{AccountSchedulingModeFastestFailover, AccountSchedulingModePriority} {
+		for _, mode := range []string{AccountSchedulingModeFastestFailover, AccountSchedulingModePriority, AccountSchedulingModeQualityPreferred} {
 			for _, loadBatch := range []bool{false, true} {
 				t.Run(platform+"/"+mode+"/"+map[bool]string{false: "legacy", true: "load_aware"}[loadBatch], func(t *testing.T) {
 					groupID, rateA, rateB := int64(105), 0.21, 0.10
@@ -152,7 +152,7 @@ func TestAccountRateLimitLiveSelectionSwitchesAndRecovers(t *testing.T) {
 						AccountSchedulingMode: mode, AccountRateLimitEnabled: true, AccountRateLimitMultiplier: 0.21}
 					ctx := context.WithValue(context.Background(), ctxkey.Group, group)
 					ctx, _ = WithGatewayTokenRequestPricing(ctx)
-					accounts := []Account{{ID: 1, Priority: 0, RateMultiplier: &rateA}, {ID: 2, Priority: 1, RateMultiplier: &rateB}}
+					accounts := []Account{{ID: 1, Priority: 0, RateMultiplier: &rateA, Extra: map[string]any{"scheduling_preferred": true}}, {ID: 2, Priority: 1, RateMultiplier: &rateB}}
 					byID := make(map[int64]*Account)
 					for i := range accounts {
 						accounts[i].Platform, accounts[i].Type, accounts[i].Status = platform, AccountTypeAPIKey, StatusActive
@@ -168,6 +168,7 @@ func TestAccountRateLimitLiveSelectionSwitchesAndRecovers(t *testing.T) {
 					concurrency := NewConcurrencyService(schedulerTestConcurrencyCache{})
 					groups := &mockGroupRepoForGateway{groups: map[int64]*Group{groupID: group}}
 					openai := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cache: cache, cfg: cfg, concurrencyService: concurrency}
+					require.NoError(t, openai.setStickySessionAccountID(ctx, &groupID, "old-session", 1, time.Minute))
 					gateway := &GatewayService{accountRepo: &mockAccountRepoForPlatform{accounts: accounts, accountsByID: byID}, groupRepo: groups, cache: cache, cfg: cfg, concurrencyService: concurrency}
 					selectID := func(want int64) {
 						requestCtx := WithFastestFailoverRequestState(ctx)

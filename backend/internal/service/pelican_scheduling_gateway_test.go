@@ -4,9 +4,11 @@ package service
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFastestFailoverPelicanUsesLiveSchedulerPaths(t *testing.T) {
@@ -43,23 +45,38 @@ func TestFastestFailoverPelicanUsesLiveSchedulerPaths(t *testing.T) {
 					concurrency := NewConcurrencyService(schedulerTestConcurrencyCache{})
 					groups := &mockGroupRepoForGateway{groups: map[int64]*Group{groupID: group}}
 					openai := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cache: cache, cfg: cfg, concurrencyService: concurrency, usageLogRepo: accountSchedulingQualityStub{quality: quality}}
+					require.NoError(t, openai.setStickySessionAccountID(ctx, &groupID, "old-session", 1, time.Minute))
 					gateway := &GatewayService{accountRepo: &mockAccountRepoForPlatform{accounts: accounts, accountsByID: accountsByID}, groupRepo: groups, cache: cache, cfg: cfg, concurrencyService: concurrency, usageLogRepo: accountSchedulingQualityStub{quality: quality}}
-					for _, want := range []int64{2, 3, 1} {
+					selectID := func(want int64, session string) {
 						requestCtx := WithFastestFailoverRequestState(ctx)
 						var selected *AccountSelectionResult
 						var err error
 						if platform == PlatformOpenAI {
-							selected, _, err = openai.SelectAccountWithScheduler(requestCtx, &groupID, "", "old-session", "claude-sonnet-4-5", nil, OpenAIUpstreamTransportAny, false)
+							selected, _, err = openai.SelectAccountWithScheduler(requestCtx, &groupID, "", session, "claude-sonnet-4-5", nil, OpenAIUpstreamTransportAny, false)
 						} else {
-							selected, err = gateway.SelectAccountWithLoadAwareness(requestCtx, &groupID, "old-session", "claude-sonnet-4-5", nil, "", 0)
+							selected, err = gateway.SelectAccountWithLoadAwareness(requestCtx, &groupID, session, "claude-sonnet-4-5", nil, "", 0)
 						}
 						if err != nil || selected == nil || selected.Account.ID != want {
-							t.Fatalf("want account %d, selection=%+v error=%v", want, selected, err)
+							t.Fatalf("session %s: want account %d, selection=%+v error=%v", session, want, selected, err)
 						}
 						if selected.ReleaseFunc != nil {
 							selected.ReleaseFunc()
 						}
 						confirmGroupModelSchedulingAccount(requestCtx, "claude-sonnet-4-5", selected.Account.ID)
+					}
+					if mode == AccountSchedulingModeQualityPreferred {
+						accounts[1].Extra = map[string]any{"scheduling_preferred": true}
+						quality[1].Quality.LatestVerdict = "normal"
+						quality[2].Quality.LatestVerdict = "unknown"
+						selectID(2, "new-session")
+						require.Equal(t, int64(2), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "manual preference bypasses automatic hold for new sessions")
+						selectID(1, "old-session")
+						require.Equal(t, int64(2), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "normal existing session cannot overwrite the preferred main binding")
+						quality[1].Quality.LatestVerdict = "degraded"
+						quality[2].Quality.LatestVerdict = "normal"
+					}
+					for _, want := range []int64{2, 3, 1} {
+						selectID(want, "old-session")
 						sample := quality[want]
 						sample.IntelligenceVerdict = "degraded"
 						sample.Quality.LatestVerdict = "degraded"
