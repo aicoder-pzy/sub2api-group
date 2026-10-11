@@ -228,12 +228,37 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 			FROM failure_requests
 			WHERE account_id > 0
 			GROUP BY account_id
-		)
+		), intelligence_samples AS (
+			SELECT results.id, plans.account_id, results.quality_verdict, results.quality_reason, results.finished_at, results.latency_ms
+			FROM scheduled_test_results results JOIN scheduled_test_plans plans ON plans.id = results.plan_id
+			WHERE results.pelican_config IS NOT NULL AND results.status = 'success'
+			  AND results.quality_verdict IN ('normal', 'degraded', 'unknown')
+			  AND results.pelican_config->>'model_id' = $2 AND results.finished_at >= $3
+			UNION ALL
+			SELECT results.id, results.account_id, results.quality_verdict, results.quality_reason, results.finished_at, results.latency_ms
+			FROM pelican_group_test_results results
+			WHERE results.account_id > 0 AND results.status = 'success'
+			  AND results.quality_verdict IN ('normal', 'degraded', 'unknown')
+			  AND results.quality_model_id = $2 AND results.finished_at >= $3
+			UNION ALL
+			SELECT 0, account_id, quality_verdict, quality_reason, sampled_at, latency_ms
+			FROM pelican_manual_account_quality WHERE model_id = $2 AND sampled_at >= $3
+		), intelligence AS (
+			SELECT DISTINCT ON (account_id) account_id, quality_verdict, quality_reason, finished_at, latency_ms
+			FROM intelligence_samples ORDER BY account_id, finished_at DESC, id DESC
+		), availability (account_id, successes, failures, latency_ms, recent_failures, last_success_at, last_failure_at) AS (
 		SELECT COALESCE(successes.account_id, failures.account_id),
 		       COALESCE(successes.successes, 0), COALESCE(failures.failures, 0),
 		       COALESCE(successes.latency_ms, 0), COALESCE(failures.recent_failures, 0),
 		       successes.last_success_at, failures.last_failure_at
 		FROM successes FULL OUTER JOIN failures USING (account_id)
+		)
+		SELECT COALESCE(availability.account_id, intelligence.account_id),
+		       COALESCE(availability.successes, 0), COALESCE(availability.failures, 0),
+		       COALESCE(NULLIF(availability.latency_ms, 0), intelligence.latency_ms, 0),
+		       COALESCE(availability.recent_failures, 0), availability.last_success_at, availability.last_failure_at,
+		       COALESCE(intelligence.quality_verdict, ''), COALESCE(intelligence.quality_reason, ''), intelligence.finished_at
+		FROM availability FULL OUTER JOIN intelligence USING (account_id)
 		`, groupID, model, since)
 	if err != nil {
 		return nil, err
@@ -245,7 +270,8 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 		var accountID int64
 		var sample service.GroupModelAccountQuality
 		if err := rows.Scan(&accountID, &sample.Successes, &sample.Failures, &sample.LatencyMS,
-			&sample.RecentFailures, &sample.LastSuccessAt, &sample.LastFailureAt); err != nil {
+			&sample.RecentFailures, &sample.LastSuccessAt, &sample.LastFailureAt,
+			&sample.IntelligenceVerdict, &sample.IntelligenceReason, &sample.IntelligenceAt); err != nil {
 			return nil, err
 		}
 		quality[accountID] = sample

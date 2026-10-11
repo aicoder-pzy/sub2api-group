@@ -2,6 +2,7 @@ import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PelicanTestsView from '../PelicanTestsView.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import PelicanScheduleWindow from '@/components/admin/PelicanScheduleWindow.vue'
 import type { PelicanGroupTestPlan, PelicanGroupTestResult } from '@/api/admin/pelicanTests'
 
 const api = vi.hoisted(() => ({
@@ -195,11 +196,13 @@ describe('PelicanTestsView', () => {
     await editor.get('[data-testid="pelican-test-model"]').setValue('claude-opus-5-5')
     await selects[2].setValue('0 * * * *')
     expect(editor.find('[data-testid="pelican-test-cron"]').exists()).toBe(false)
+    wrapper.findComponent(PelicanScheduleWindow).vm.$emit('change', { daily_start: '06:00', daily_end: '01:00' })
     await editor.trigger('submit')
     await flushPromises()
     expect(api.createPlan).toHaveBeenCalledTimes(1)
     expect(api.createPlan).toHaveBeenCalledWith(expect.objectContaining({
       group_id: 6, model_id: 'claude-opus-5-5', cron_expression: '0 * * * *', enabled: true, reasoning_effort: 'medium', parallel_count: 1,
+      daily_start: '06:00', daily_end: '01:00',
     }))
     expect(api.createPlan.mock.calls[0][0].prompt).toContain('鹈鹕')
     expect(wrapper.find('[data-testid="pelican-test-editor"]').exists()).toBe(false)
@@ -255,6 +258,7 @@ describe('PelicanTestsView', () => {
     expect(api.updatePlan).toHaveBeenCalledWith(7, {
       group_id: 4, model_id: 'gpt-6-astra', cron_expression: '*/30 * * * *', enabled: false,
       prompt: 'draw a pelican', reasoning_effort: 'high', parallel_count: 2,
+      daily_start: '', daily_end: '',
     })
 
     api.updatePlan.mockClear()

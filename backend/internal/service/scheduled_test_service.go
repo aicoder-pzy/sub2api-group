@@ -39,7 +39,7 @@ func (s *ScheduledTestService) CreatePlan(ctx context.Context, plan *ScheduledTe
 	if err := s.validateQualityAccount(ctx, plan); err != nil {
 		return nil, err
 	}
-	nextRun, err := computeNextRun(plan.CronExpression, time.Now())
+	nextRun, err := computeNextPelicanRun(plan.CronExpression, time.Now(), plan.PelicanConfig)
 	if err != nil {
 		return nil, fmt.Errorf("invalid cron expression: %w", err)
 	}
@@ -70,7 +70,7 @@ func (s *ScheduledTestService) UpdatePlan(ctx context.Context, plan *ScheduledTe
 	if err := s.validateQualityAccount(ctx, plan); err != nil {
 		return nil, err
 	}
-	nextRun, err := computeNextRun(plan.CronExpression, time.Now())
+	nextRun, err := computeNextPelicanRun(plan.CronExpression, time.Now(), plan.PelicanConfig)
 	if err != nil {
 		return nil, fmt.Errorf("invalid cron expression: %w", err)
 	}
@@ -134,6 +134,9 @@ func validateScheduledTestPlan(plan *ScheduledTestPlan) error {
 			return fmt.Errorf("pelican plans cannot include quality judge settings")
 		}
 		cfg := plan.PelicanConfig
+		if err := validatePelicanWindow(cfg); err != nil {
+			return err
+		}
 		cfg.Prompt = strings.TrimSpace(cfg.Prompt)
 		if cfg.Prompt == "" || len(cfg.Prompt) > 32000 {
 			return fmt.Errorf("prompt required (maximum 32000 bytes)")

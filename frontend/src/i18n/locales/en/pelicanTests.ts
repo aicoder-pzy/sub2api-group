@@ -110,6 +110,12 @@ export default {
     saveFailed: 'Failed to save',
     required: 'Select a group and fill in the model, question and schedule',
   },
+  window: {
+    enabled: 'Run within a daily window',
+    start: 'Start (UTC+8)',
+    end: 'End (UTC+8)',
+    hint: 'Applies to automatic tests only. Manual runs are always allowed. An earlier end time means the following day, e.g. 06:00–01:00. Disable for all-day testing.',
+  },
   schedules: {
     every15m: 'Every 15 minutes',
     every30m: 'Every 30 minutes',

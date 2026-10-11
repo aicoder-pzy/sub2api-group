@@ -1158,7 +1158,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		}
 	}
 	if fastestFailoverEnabled(ctx, groupID) {
-		stickyAccountID = groupModelSchedulingActiveAccount(ctx, s.cache, groupID, requestedModel)
+		stickyAccountID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)
 	}
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
 		account, stickyHit, err := s.selectAccountForModelWithExclusionsStickyHit(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability, preferLowUpstreamRate)

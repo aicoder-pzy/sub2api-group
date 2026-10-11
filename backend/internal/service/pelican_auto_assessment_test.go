@@ -72,9 +72,9 @@ func TestPelicanGroupAssessmentReleasesChannelBeforeEvaluating(t *testing.T) {
 		require.Equal(t, true, ctx.Value(pelicanDeferAssessmentKey{}))
 		return &ScheduledTestResult{Status: "success", ResponseText: "<html><body>drawing</body></html>", LatencyMs: 1234}, nil
 	}
-	svc.assessOutput = func(ctx context.Context, source string) string {
+	svc.assessOutput = func(ctx context.Context, source string) (string, *PelicanAssessment) {
 		require.Equal(t, []int64{42}, router.released)
-		return (*PelicanAssessmentService)(nil).AssessOutput(ctx, source)
+		return (*PelicanAssessmentService)(nil).AssessOutputWithQuality(ctx, source)
 	}
 	result := svc.runSample(context.Background(), plan, &Group{ID: plan.GroupID})
 	require.Equal(t, "success", result.Status)
@@ -82,6 +82,7 @@ func TestPelicanGroupAssessmentReleasesChannelBeforeEvaluating(t *testing.T) {
 	require.Equal(t, int64(42), result.AccountID)
 	require.Empty(t, result.Attempts)
 	require.Contains(t, result.ResponseText, `data-sub2api-quality="unknown"`)
+	require.Equal(t, "unknown", result.QualityVerdict)
 }
 
 func TestPelicanAutomaticManualAndScheduledPaths(t *testing.T) {
@@ -103,6 +104,7 @@ func TestPelicanAutomaticManualAndScheduledPaths(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, "success", result.Status)
 				require.Contains(t, result.ResponseText, `data-sub2api-quality="normal"`)
+				require.Equal(t, "normal", result.QualityVerdict)
 			} else {
 				c, recorder := newTestContext()
 				require.NoError(t, svc.TestPelicanAccountConnection(c, account.ID, "claude-opus-5-5", "draw", "medium"))

@@ -22,7 +22,7 @@
             <tbody><tr v-for="candidate in snapshot.candidates" :key="candidate.account_id" class="border-t border-gray-100 dark:border-dark-700">
               <td class="min-w-32 break-words p-2">{{ candidate.name }} (#{{ candidate.account_id }})<p v-if="candidate.reason" class="text-xs text-gray-500">{{ t(`admin.accounts.schedulingStatus.${candidate.reason}`) }}</p></td>
               <td class="whitespace-nowrap p-2">{{ candidate.current ? t('admin.accounts.schedulingStatus.current') : candidate.eligible ? candidate.rank : '-' }}</td>
-              <td class="whitespace-nowrap p-2">{{ t(`admin.accounts.schedulingStatus.${candidate.confidence}`) }}<p class="text-xs text-gray-500">{{ candidate.samples }} / {{ snapshot.minimum_samples }}</p></td>
+              <td class="whitespace-nowrap p-2">{{ t(`admin.accounts.schedulingStatus.${candidate.confidence}`) }}<p class="text-xs text-gray-500">{{ candidate.samples }} / {{ snapshot.minimum_samples }}</p><p v-if="candidate.intelligence_verdict" :title="candidate.intelligence_reason" class="mt-1 text-xs" :class="candidate.intelligence_verdict === 'degraded' ? 'text-red-600' : 'text-gray-500'">{{ t('pelicanTests.title') }}: {{ t(`pelicanTests.assessment.${candidate.intelligence_verdict}`) }}<span v-if="candidate.intelligence_at" class="block">{{ formatDateTime(candidate.intelligence_at) }}</span></p></td>
               <td class="whitespace-nowrap p-2">{{ candidate.success_rate === null ? '-' : `${(candidate.success_rate * 100).toFixed(1)}%` }}</td>
               <td class="p-2">{{ candidate.recent_failures }}</td>
               <td class="whitespace-nowrap p-2">{{ candidate.last_failure_at ? formatDateTime(candidate.last_failure_at) : '-' }}</td>

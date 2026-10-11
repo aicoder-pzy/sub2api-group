@@ -12,6 +12,7 @@
         <Input :model-value="String(modelValue.parallel_count)" type="number" :label="t('admin.accounts.pelicanTest.parallel')" :hint="t('admin.accounts.pelicanTest.parallelHint')" @update:model-value="update('parallel_count', Number($event))" />
       </div>
     </template>
+    <PelicanScheduleWindow v-if="scheduled" :start="modelValue.daily_start" :end="modelValue.daily_end" @change="emit('update:modelValue', { ...modelValue, ...$event })" />
   </div>
 </template>
 <script setup lang="ts">
@@ -22,7 +23,8 @@ import Input from '@/components/common/Input.vue'
 import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import type { PelicanTestConfig } from '@/types'
-const props = defineProps<{ modelValue: PelicanTestConfig }>()
+import PelicanScheduleWindow from '@/components/admin/PelicanScheduleWindow.vue'
+const props = defineProps<{ modelValue: PelicanTestConfig; scheduled?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: PelicanTestConfig] }>()
 const { t } = useI18n()
 const reasoningOptions = computed(() => ['low', 'medium', 'high'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.reasoning${value[0].toUpperCase()}${value.slice(1)}`) })))

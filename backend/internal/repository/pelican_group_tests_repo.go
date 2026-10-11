@@ -156,8 +156,8 @@ func (r *pelicanGroupTestRepository) CreateResult(ctx context.Context, result *s
 	// generations. The group comes from the persisted plan, not caller input.
 	if err := r.db.QueryRowContext(ctx, `WITH saved AS (
  INSERT INTO pelican_group_test_results
- (plan_id, account_id, account_name, attempts, status, response_text, error_message, latency_ms, pelican_config, started_at, finished_at, cost_usd, cost_incomplete)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+ (plan_id, account_id, account_name, attempts, status, response_text, error_message, latency_ms, pelican_config, started_at, finished_at, cost_usd, cost_incomplete, quality_verdict, quality_reason, quality_model_id)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $15, $16, $17)
  RETURNING id, created_at, plan_id, cost_usd, cost_incomplete
 ), costs AS (
  INSERT INTO pelican_group_test_daily_costs (group_id, cost_date, cost_usd, unpriced_count)
@@ -170,7 +170,8 @@ func (r *pelicanGroupTestRepository) CreateResult(ctx context.Context, result *s
 ) SELECT id, created_at FROM saved`,
 		result.PlanID, accountID, result.AccountName, attempts, result.Status, result.ResponseText, result.ErrorMessage,
 		result.LatencyMs, marshalPelicanConfig(result.PelicanConfig), result.StartedAt, result.FinishedAt,
-		result.CostUSD, result.CostIncomplete, result.FinishedAt.In(timezone.Location()).Format(time.DateOnly)).Scan(&saved.ID, &saved.CreatedAt); err != nil {
+		result.CostUSD, result.CostIncomplete, result.FinishedAt.In(timezone.Location()).Format(time.DateOnly),
+		result.QualityVerdict, result.QualityReason, result.QualityModelID).Scan(&saved.ID, &saved.CreatedAt); err != nil {
 		return nil, err
 	}
 	return &saved, nil
@@ -190,7 +191,7 @@ func (r *pelicanGroupTestRepository) PruneExpiredResults(ctx context.Context, be
 }
 
 const pelicanGroupTestResultSelect = `SELECT r.id, r.plan_id, p.group_id, g.name, COALESCE(r.account_id, 0), r.account_name, r.attempts,
- r.status, r.error_message, r.latency_ms, r.pelican_config, r.started_at, r.finished_at, r.created_at, r.cost_usd, r.cost_incomplete`
+ r.status, r.error_message, r.latency_ms, r.pelican_config, r.started_at, r.finished_at, r.created_at, r.cost_usd, r.cost_incomplete, r.quality_verdict, r.quality_reason, r.quality_model_id`
 
 const pelicanGroupTestResultFrom = `
  FROM pelican_group_test_results r
@@ -279,7 +280,7 @@ func scanPelicanGroupTestResult(row scannable, withContent ...bool) (*service.Pe
 	result := &service.PelicanGroupTestResult{}
 	var attempts, config []byte
 	dest := []any{&result.ID, &result.PlanID, &result.GroupID, &result.GroupName, &result.AccountID, &result.AccountName, &attempts,
-		&result.Status, &result.ErrorMessage, &result.LatencyMs, &config, &result.StartedAt, &result.FinishedAt, &result.CreatedAt, &result.CostUSD, &result.CostIncomplete}
+		&result.Status, &result.ErrorMessage, &result.LatencyMs, &config, &result.StartedAt, &result.FinishedAt, &result.CreatedAt, &result.CostUSD, &result.CostIncomplete, &result.QualityVerdict, &result.QualityReason, &result.QualityModelID}
 	if len(withContent) > 0 && withContent[0] {
 		dest = append(dest, &result.ResponseText)
 	}

@@ -12,6 +12,8 @@ export interface PelicanGroupTestConfig {
   reasoning_effort: string
   parallel_count: number
   model_id?: string
+  daily_start?: string
+  daily_end?: string
 }
 
 /** An account a sample left because it failed before producing any output. */
@@ -33,6 +35,8 @@ export interface PelicanGroupTestResult {
   status: 'success' | 'failed'
   /** Raw model output; only getResult returns it. */
   response_text?: string
+  quality_verdict?: 'normal' | 'degraded' | 'unknown'
+  quality_reason?: string
   error_message: string
   latency_ms: number
   /** USD upstream cost; null means usage or pricing was unavailable. */
@@ -76,6 +80,8 @@ export interface PelicanGroupTestPlanInput {
   prompt: string
   reasoning_effort: string
   parallel_count: number
+  daily_start?: string
+  daily_end?: string
 }
 
 export interface PelicanShowcaseSettings {

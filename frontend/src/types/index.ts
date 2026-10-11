@@ -2563,6 +2563,8 @@ export interface PelicanTestConfig {
  reasoning_effort: string
  parallel_count: number
  model_id?: string
+ daily_start?: string
+ daily_end?: string
 }
 
 export interface ScheduledTestPlan {
@@ -2594,7 +2596,7 @@ export interface ScheduledTestResult {
   status: string
   response_text: string
   error_message: string
-  quality_verdict?: 'correct' | 'incorrect' | 'unknown'
+  quality_verdict?: 'correct' | 'incorrect' | 'unknown' | 'normal' | 'degraded'
   quality_reason?: string
   judge_account_id?: number
   latency_ms: number

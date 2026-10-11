@@ -42,9 +42,15 @@ func extractPelicanSource(raw string) string {
 // AssessOutput is called after successful generation, with only the model's
 // drawing. Failure is an unknown badge, never a generation or scheduling error.
 func (s *PelicanAssessmentService) AssessOutput(ctx context.Context, output string) string {
+	decorated, _ := s.AssessOutputWithQuality(ctx, output)
+	return decorated
+}
+
+// Return the service's structured verdict; model-generated HTML is never scheduling evidence.
+func (s *PelicanAssessmentService) AssessOutputWithQuality(ctx context.Context, output string) (string, *PelicanAssessment) {
 	source := extractPelicanSource(output)
 	if source == "" {
-		return output
+		return output, nil
 	}
 	assessment := &PelicanAssessment{Quality: "unknown", Reason: "作品评估未完成", Source: "manxue:unavailable"}
 	if s != nil {
@@ -54,7 +60,7 @@ func (s *PelicanAssessmentService) AssessOutput(ctx context.Context, output stri
 			assessment = result
 		}
 	}
-	return decoratePelicanSource(source, assessment)
+	return decoratePelicanSource(source, assessment), assessment
 }
 
 func (s *PelicanAssessmentService) assessSource(ctx context.Context, source string) (result *PelicanAssessment) {

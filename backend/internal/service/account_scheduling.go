@@ -186,19 +186,21 @@ func rememberGroupModelSchedulingAccount(ctx context.Context, cache GatewayCache
 	_ = cache.SetSessionAccountID(ctx, *groupID, groupModelSchedulingStickyKey(model), accountID, groupModelSchedulingStickyTTL)
 }
 
+// A degraded binding cannot bypass the full candidate ranking via a sticky hit.
+func groupModelSchedulingUsableActiveAccount(ctx context.Context, repo UsageLogRepository, cache GatewayCache, groupID *int64, model string) int64 {
+	activeID := groupModelSchedulingActiveAccount(ctx, cache, groupID, model)
+	if activeID > 0 && groupModelAccountQuality(ctx, repo, groupID, model)[activeID].IntelligenceVerdict == "degraded" {
+		return 0
+	}
+	return activeID
+}
+
 func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository, cache GatewayCache, groupID *int64, model string, candidates []*Account, configured ...FastestFailoverSettings) []*Account {
 	ordered := append([]*Account(nil), candidates...)
 	if len(ordered) == 0 {
 		return ordered
 	}
 	activeID := groupModelSchedulingActiveAccount(ctx, cache, groupID, model)
-	// Healthy traffic does not need a historical query or a new backup ranking.
-	for index, account := range ordered {
-		if account.ID == activeID {
-			ordered = append(ordered[:index], ordered[index+1:]...)
-			return append([]*Account{account}, ordered...)
-		}
-	}
 	quality := groupModelAccountQuality(ctx, repo, groupID, model)
 	settings := DefaultFastestFailoverSettings()
 	if len(configured) > 0 {
@@ -213,12 +215,23 @@ func orderFastestFailoverCandidates(candidates []*Account, quality map[int64]Gro
 	if minimum < 1 {
 		minimum = 10
 	}
+	allDegraded := len(ordered) > 0
+	for _, account := range ordered {
+		allDegraded = allDegraded && quality[account.ID].IntelligenceVerdict == "degraded"
+	}
 	sort.SliceStable(ordered, func(first, second int) bool {
 		candidate, current := ordered[first], ordered[second]
-		if candidate.ID == activeID || current.ID == activeID {
+		candidateSample, currentSample := quality[candidate.ID], quality[current.ID]
+		candidateDegraded, currentDegraded := candidateSample.IntelligenceVerdict == "degraded", currentSample.IntelligenceVerdict == "degraded"
+		if candidateDegraded != currentDegraded {
+			return !candidateDegraded
+		}
+		if allDegraded && candidateSample.LatencyMS != currentSample.LatencyMS {
+			return candidateSample.LatencyMS > 0 && (currentSample.LatencyMS <= 0 || candidateSample.LatencyMS < currentSample.LatencyMS)
+		}
+		if !candidateDegraded && (candidate.ID == activeID || current.ID == activeID) {
 			return candidate.ID != current.ID && candidate.ID == activeID
 		}
-		candidateSample, currentSample := quality[candidate.ID], quality[current.ID]
 		candidateTier, currentTier := candidateSample.reliabilityTier(minimum), currentSample.reliabilityTier(minimum)
 		if candidateTier != currentTier {
 			return candidateTier < currentTier
@@ -251,13 +264,16 @@ func accountSchedulingPreferred(account *Account) bool {
 }
 
 type GroupModelAccountQuality struct {
-	Successes      int64
-	Failures       int64
-	LatencyMS      float64
-	RecentFailures int64
-	LastSuccessAt  *time.Time
-	LastFailureAt  *time.Time
-	ProbeSucceeded bool
+	Successes           int64
+	Failures            int64
+	LatencyMS           float64
+	RecentFailures      int64
+	LastSuccessAt       *time.Time
+	LastFailureAt       *time.Time
+	ProbeSucceeded      bool
+	IntelligenceVerdict string
+	IntelligenceReason  string
+	IntelligenceAt      *time.Time
 }
 
 func (sample GroupModelAccountQuality) attempts() int64 { return sample.Successes + sample.Failures }

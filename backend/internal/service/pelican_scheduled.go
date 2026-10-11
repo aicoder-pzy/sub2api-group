@@ -66,21 +66,33 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 	finished := time.Now()
 	snapshot := *cfg
 	snapshot.ModelID = model
+	var assessment *PelicanAssessment
 	if status == "success" && cfg.QuestionKind != "candy" && !isBuiltinCandyPlan(cfg) && !deferred {
-		output = s.pelicanAssessment.AssessOutput(ctx, output)
+		output, assessment = s.pelicanAssessment.AssessOutputWithQuality(ctx, output)
 	}
-	return &ScheduledTestResult{Status: status, ResponseText: output, ErrorMessage: message, LatencyMs: finished.Sub(started).Milliseconds(), StartedAt: started, FinishedAt: finished, PelicanConfig: &snapshot}, nil
+	result := &ScheduledTestResult{Status: status, ResponseText: output, ErrorMessage: message, LatencyMs: finished.Sub(started).Milliseconds(), StartedAt: started, FinishedAt: finished, PelicanConfig: &snapshot}
+	if assessment != nil {
+		result.QualityVerdict, result.QualityReason = assessment.Quality, assessment.Reason
+	}
+	return result, nil
 }
 
 func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *ScheduledTestPlan) {
 	now := time.Now()
-	next, err := computeNextRun(plan.CronExpression, now)
+	next, err := computeNextPelicanRun(plan.CronExpression, now, plan.PelicanConfig)
 	if err != nil {
 		return
 	}
 	until := now.Add(15 * time.Minute).Truncate(time.Microsecond)
+	allowed := pelicanWindowAllows(plan.PelicanConfig, now)
+	if !allowed {
+		until = now // Advance a missed run without executing or changing last_run_at.
+	}
 	claimed, err := s.planRepo.ClaimPelican(ctx, plan, now, until, next)
 	if err != nil || !claimed {
+		return
+	}
+	if !allowed {
 		return
 	}
 	runCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

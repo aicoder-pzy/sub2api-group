@@ -81,6 +81,9 @@ type PelicanGroupTestResult struct {
 	Attempts       []PelicanGroupTestAttempt `json:"attempts"`
 	Status         string                    `json:"status"`
 	ResponseText   string                    `json:"response_text,omitempty"`
+	QualityVerdict string                    `json:"quality_verdict,omitempty"`
+	QualityReason  string                    `json:"quality_reason,omitempty"`
+	QualityModelID string                    `json:"quality_model_id,omitempty"`
 	ErrorMessage   string                    `json:"error_message"`
 	LatencyMs      int64                     `json:"latency_ms"`
 	CostUSD        *float64                  `json:"cost_usd"`
@@ -100,6 +103,8 @@ type PelicanGroupTestPlanInput struct {
 	Prompt          string `json:"prompt"`
 	ReasoningEffort string `json:"reasoning_effort"`
 	ParallelCount   int    `json:"parallel_count"`
+	DailyStart      string `json:"daily_start,omitempty"`
+	DailyEnd        string `json:"daily_end,omitempty"`
 }
 
 type PelicanGroupTestRepository interface {
@@ -148,7 +153,7 @@ type PelicanGroupTestService struct {
 	groups       pelicanGroupTestGroups
 	router       pelicanGroupRouter
 	runAccount   func(ctx context.Context, accountID int64, model string, cfg *PelicanTestConfig) (*ScheduledTestResult, error)
-	assessOutput func(context.Context, string) string
+	assessOutput func(context.Context, string) (string, *PelicanAssessment)
 	showcase     *PelicanShowcaseService
 	billing      *BillingService
 	now          func() time.Time
@@ -175,7 +180,7 @@ func NewPelicanGroupTestService(
 		groups:       groupRepo,
 		router:       &gatewayPelicanGroupRouter{gateway: gateway, openai: openai, concurrency: concurrency, slotWait: pelicanGroupTestSlotWait},
 		runAccount:   accountTest.RunPelicanBackground,
-		assessOutput: assessment.AssessOutput,
+		assessOutput: assessment.AssessOutputWithQuality,
 		showcase:     showcase,
 		billing:      billing,
 		now:          time.Now,
@@ -270,13 +275,13 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	if plan.CronExpression == "" {
 		plan.CronExpression = pelicanGroupTestDefaultCron
 	}
-	next, err := computeNextRun(plan.CronExpression, s.now())
+	plan.PelicanConfig = &PelicanTestConfig{QuestionKind: "pelican", Prompt: prompt, ReasoningEffort: effort, ParallelCount: parallel, ModelID: plan.ModelID, DailyStart: input.DailyStart, DailyEnd: input.DailyEnd}
+	next, err := computeNextPelicanRun(plan.CronExpression, s.now(), plan.PelicanConfig)
 	if err != nil {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", fmt.Sprintf("invalid schedule: %v", err))
 	}
 	plan.NextRunAt = &next
 	plan.Enabled = input.Enabled
-	plan.PelicanConfig = &PelicanTestConfig{QuestionKind: "pelican", Prompt: prompt, ReasoningEffort: effort, ParallelCount: parallel, ModelID: plan.ModelID}
 	return plan, nil
 }
 
@@ -343,7 +348,7 @@ func (s *PelicanGroupTestService) runScheduled(ctx context.Context, plan *Pelica
 		logger.LegacyPrintf("service.pelican_group_test", "plan=%d skipped: no model", plan.ID)
 		return
 	}
-	next, err := computeNextRun(plan.CronExpression, now)
+	next, err := computeNextPelicanRun(plan.CronExpression, now, plan.PelicanConfig)
 	if err != nil {
 		logger.LegacyPrintf("service.pelican_group_test", "plan=%d invalid schedule: %v", plan.ID, err)
 		return
@@ -351,11 +356,18 @@ func (s *PelicanGroupTestService) runScheduled(ctx context.Context, plan *Pelica
 	// The persisted lease keeps ticks and server replicas from running a plan twice and
 	// expires by itself after a crash.
 	until := now.Add(pelicanGroupTestLease).Truncate(time.Microsecond)
+	allowed := pelicanWindowAllows(plan.PelicanConfig, now)
+	if !allowed {
+		until = now
+	}
 	claimed, err := s.repo.Claim(ctx, plan, now, until, &next)
 	if err != nil {
 		logger.LegacyPrintf("service.pelican_group_test", "plan=%d claim failed: %v", plan.ID, err)
 	}
 	if err != nil || !claimed {
+		return
+	}
+	if !allowed {
 		return
 	}
 	s.execute(plan, until)
@@ -482,10 +494,15 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			// The channel's concurrency slot has already been released. Assessment
 			// never holds a generation slot or causes a switch to another account.
 			if sample.Status == "success" && s.assessOutput != nil {
-				result.ResponseText = s.assessOutput(ctx, sample.ResponseText)
+				var assessment *PelicanAssessment
+				result.ResponseText, assessment = s.assessOutput(ctx, sample.ResponseText)
+				if assessment != nil {
+					result.QualityVerdict, result.QualityReason = assessment.Quality, assessment.Reason
+				}
 			}
 			result.LatencyMs = sample.LatencyMs
 			result.AccountID, result.AccountName, result.Attempts = route.account.ID, route.account.Name, attempts
+			result.QualityModelID = route.model
 			return result
 		}
 		attempts = append(attempts, PelicanGroupTestAttempt{AccountID: route.account.ID, AccountName: route.account.Name, Error: sample.ErrorMessage})

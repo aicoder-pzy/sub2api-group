@@ -111,6 +111,7 @@
                     <span>·</span><span>{{ effortLabel(plan.pelican_config?.reasoning_effort) }}</span>
                     <span>·</span><span>{{ t('pelicanTests.plans.parallel', { count: plan.pelican_config?.parallel_count || 1 }) }}</span>
                     <span>·</span><span>{{ scheduleLabel(plan.cron_expression) }}</span>
+                    <template v-if="plan.pelican_config?.daily_start"><span>·</span><span>{{ plan.pelican_config.daily_start }}–{{ plan.pelican_config.daily_end }} (UTC+8)</span></template>
                   </p>
                   <p v-if="plan.group_status !== 'active'" class="plan-warning">
                     {{ t(plan.group_status === 'deleted' ? 'pelicanTests.plans.groupDeleted' : 'pelicanTests.plans.groupDisabled') }}
@@ -270,6 +271,7 @@
             <p class="field-hint">{{ t('pelicanTests.editor.cronHint') }}</p>
           </template>
         </div>
+        <PelicanScheduleWindow :start="editor.form.daily_start" :end="editor.form.daily_end" @change="Object.assign(editor.form, $event)" />
         <div class="enable-row mb-0">
           <span><strong>{{ t('pelicanTests.editor.enabled') }}</strong></span>
           <Toggle v-model="editor.form.enabled" data-testid="pelican-test-enabled" />
@@ -345,6 +347,7 @@ import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
 import PelicanAssessment from '@/components/admin/account/PelicanAssessment.vue'
+import PelicanScheduleWindow from '@/components/admin/PelicanScheduleWindow.vue'
 import PelicanShowcaseApiDialog from '@/components/user/pelican/PelicanShowcaseApiDialog.vue'
 import { pelicanDurationLabel } from '@/components/user/pelican/pelicanShowcaseFormat'
 import { adminAPI } from '@/api'
@@ -587,6 +590,8 @@ function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
     prompt: plan.pelican_config?.prompt || PELICAN_PROMPT,
     reasoning_effort: plan.pelican_config?.reasoning_effort || 'medium',
     parallel_count: plan.pelican_config?.parallel_count || 1,
+    daily_start: plan.pelican_config?.daily_start || '',
+    daily_end: plan.pelican_config?.daily_end || '',
   }
 }
 

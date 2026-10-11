@@ -140,7 +140,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 	}
 	if group != nil && group.AccountSchedulingMode == AccountSchedulingModeFastestFailover {
-		stickyAccountID = groupModelSchedulingActiveAccount(ctx, s.cache, groupID, requestedModel)
+		stickyAccountID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)
 		stickySource = "group_model"
 	}
 
@@ -1916,7 +1916,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 	fastestFailover := schedGroup != nil && schedGroup.AccountSchedulingMode == AccountSchedulingModeFastestFailover
 	activeID := int64(0)
 	if fastestFailover {
-		activeID = groupModelSchedulingActiveAccount(ctx, s.cache, groupID, requestedModel)
+		activeID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)
 	}
 
 	var accounts []Account
@@ -2203,7 +2203,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 	fastestFailover := schedGroup != nil && schedGroup.AccountSchedulingMode == AccountSchedulingModeFastestFailover
 	activeID := int64(0)
 	if fastestFailover {
-		activeID = groupModelSchedulingActiveAccount(ctx, s.cache, groupID, requestedModel)
+		activeID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)
 	}
 
 	var accounts []Account

@@ -19,6 +19,9 @@ export interface SchedulingCandidateStatus {
   last_failure_at: string | null
   cooldown_seconds: number
   reason?: string
+  intelligence_verdict?: 'normal' | 'degraded' | 'unknown'
+  intelligence_reason?: string
+  intelligence_at?: string
 }
 
 export interface GroupSchedulingStatus {

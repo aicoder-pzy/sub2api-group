@@ -40,6 +40,32 @@ func TestFastestFailoverAvailabilityEvidence(t *testing.T) {
 	require.EqualValues(t, 1, orderFastestFailoverCandidates(candidates, quality, 1, DefaultFastestFailoverSettings())[0].ID, "historical ranking cannot displace an eligible active channel")
 }
 
+func TestFastestFailoverPelicanDegradationAndRecovery(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(77)
+	cache := &accountSchedulingCacheStub{bindings: map[string]int64{groupModelSchedulingStickyKey("model-a"): 1}}
+	candidates := []*Account{{ID: 1, Priority: 0, Extra: map[string]any{"scheduling_preferred": true}}, {ID: 2}, {ID: 3}}
+	quality := map[int64]GroupModelAccountQuality{
+		1: {Successes: 100, LatencyMS: 10, IntelligenceVerdict: "degraded"},
+		2: {Successes: 100, LatencyMS: 20, IntelligenceVerdict: "normal"},
+		3: {Successes: 100, LatencyMS: 30},
+	}
+	repo := accountSchedulingQualityStub{quality: quality}
+	require.Zero(t, groupModelSchedulingUsableActiveAccount(ctx, repo, cache, &groupID, "model-a"), "a sticky binding cannot bypass degradation evidence")
+	choose := func() int64 {
+		return fastestFailoverCandidateOrder(ctx, repo, cache, &groupID, "model-a", candidates)[0].ID
+	}
+	require.EqualValues(t, 2, choose(), "A degraded: use B")
+	quality[2] = GroupModelAccountQuality{Successes: 100, LatencyMS: 20, IntelligenceVerdict: "degraded"}
+	require.EqualValues(t, 3, choose(), "B degraded: use C, even without an assessment")
+	quality[3] = GroupModelAccountQuality{LatencyMS: 5, IntelligenceVerdict: "degraded", Failures: 10}
+	require.EqualValues(t, 3, choose(), "all degraded: fastest overrides binding, preference and reliability ranking")
+	quality[1] = GroupModelAccountQuality{LatencyMS: 10, IntelligenceVerdict: "normal"}
+	require.EqualValues(t, 1, choose(), "a newer normal verdict recovers A")
+	quality[1] = GroupModelAccountQuality{IntelligenceVerdict: "unknown"}
+	require.EqualValues(t, 1, choose(), "unknown is not degradation")
+}
+
 func TestFastestFailoverDiagnosticsDoesNotProbeOrWrite(t *testing.T) {
 	group := &Group{ID: 77, Platform: PlatformAnthropic, Hydrated: true, Status: StatusActive, AccountSchedulingMode: AccountSchedulingModeFastestFailover}
 	accounts := &schedulingRefreshRepo{accounts: []Account{

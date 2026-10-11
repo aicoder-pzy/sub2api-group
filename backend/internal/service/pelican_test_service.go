@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,6 +20,10 @@ const pelicanClaudeMaxTokens = 32000
 
 type pelicanTestContextKey struct{}
 type pelicanDeferAssessmentKey struct{}
+
+type pelicanManualAccountQualityRepository interface {
+	SavePelicanAccountQuality(context.Context, int64, string, *PelicanAssessment, time.Time, int64) error
+}
 
 // Forward the generation stream while retaining a bounded copy for the
 // post-generation HTML-only evaluation. Ordinary connection tests never use it.
@@ -71,12 +77,21 @@ func (s *AccountTestService) TestPelicanAccountConnection(c *gin.Context, accoun
 	capture := &pelicanCaptureWriter{ResponseWriter: writer}
 	c.Writer = capture
 	defer func() { c.Writer = writer }()
+	started := time.Now()
 	err := s.TestAccountConnection(c, accountID, modelID, options.prompt, AccountTestModeDefault, AccountTestOptions{Prompt: options.prompt, ReasoningEffort: options.reasoningEffort})
 	c.Writer = writer
 	output, message := parsePelicanOutput(capture.body.String())
+	finished := time.Now()
 	if err == nil && message == "" && !capture.overflow && pelicanHTMLPattern.MatchString(output) {
 		s.sendEvent(c, TestEvent{Type: "pelican_assessing"})
-		evaluated := s.pelicanAssessment.AssessOutput(ctx, output)
+		evaluated, assessment := s.pelicanAssessment.AssessOutputWithQuality(ctx, output)
+		if repo, ok := s.accountRepo.(pelicanManualAccountQualityRepository); ok && assessment != nil {
+			saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			if err := repo.SavePelicanAccountQuality(saveCtx, accountID, modelID, assessment, finished, finished.Sub(started).Milliseconds()); err != nil {
+				logger.LegacyPrintf("service.pelican_test", "account=%d save assessment failed: %v", accountID, err)
+			}
+			cancel()
+		}
 		s.sendEvent(c, TestEvent{Type: "pelican_assessment", Text: evaluated})
 	}
 	return err
