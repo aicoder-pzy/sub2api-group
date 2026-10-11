@@ -57,7 +57,11 @@ func TestNewAPIWalletSharedRotationCASAndCredentialInvalidation(t *testing.T) {
 	rotated, err := accounts.GetByID(ctx, account.ID)
 	require.NoError(t, err)
 	require.Nil(t, service.DecodeUpstreamBalanceState(rotated.Extra).Snapshot)
-	require.NotContains(t, rotated.Extra, service.UpstreamBillingProbeExtraKey)
+	invalidated := service.BuildUpstreamBillingRateSnapshotItems([]service.Account{*rotated})[0].Snapshot
+	require.Equal(t, "newapi", invalidated.Source)
+	require.Equal(t, "failed", invalidated.Status)
+	require.Empty(t, invalidated.Data)
+	require.Nil(t, invalidated.ReceivedAt)
 	require.ErrorIs(t, accounts.UpdateUpstreamBillingProbeSnapshot(ctx, rotated, &service.UpstreamBillingProbeSnapshot{Status: "ok", Source: "newapi", NewAPIBinding: binding}, nil), service.ErrUpstreamBillingProbeIdentityChanged)
 	require.ErrorIs(t, repo.WriteSnapshot(ctx, rotated, binding, &state), service.ErrUpstreamBillingProbeIdentityChanged)
 	require.ErrorIs(t, accounts.UpdateUpstreamBalanceProbeState(ctx, rotated, &state), service.ErrUpstreamBillingProbeIdentityChanged)

@@ -112,7 +112,7 @@ func (r *newAPIAuthorizationRepository) Save(ctx context.Context, p *service.New
 		return e
 	}
 	// Every rotation invalidates snapshots for other bindings on this profile.
-	rows, e := tx.QueryContext(ctx, `UPDATE accounts a SET extra=(COALESCE(a.extra,'{}'::jsonb)-'upstream_billing_probe') || jsonb_build_object('upstream_balance_probe', COALESCE(a.extra->'upstream_balance_probe','{}'::jsonb)-'snapshot'),updated_at=NOW() FROM new_api_account_bindings b WHERE a.id=b.account_id AND b.authorization_id=$1 RETURNING a.id`, id)
+	rows, e := tx.QueryContext(ctx, `UPDATE accounts a SET extra=COALESCE(a.extra,'{}'::jsonb) || jsonb_build_object('upstream_billing_probe', '{"status":"failed","source":"newapi","last_error":"authorization_changed"}'::jsonb, 'upstream_balance_probe', COALESCE(a.extra->'upstream_balance_probe','{}'::jsonb)-'snapshot'),updated_at=NOW() FROM new_api_account_bindings b WHERE a.id=b.account_id AND b.authorization_id=$1 RETURNING a.id`, id)
 	if e != nil {
 		return e
 	}
@@ -138,7 +138,7 @@ func (r *newAPIAuthorizationRepository) Save(ctx context.Context, p *service.New
 		if e != nil {
 			return e
 		}
-		_, e = tx.ExecContext(ctx, `UPDATE accounts SET extra=(COALESCE(extra,'{}'::jsonb)-'upstream_billing_probe')||jsonb_build_object('upstream_balance_probe', (COALESCE(extra->'upstream_balance_probe','{}'::jsonb)-'snapshot') || '{"provider":"newapi","enabled":true}'::jsonb),updated_at=NOW() WHERE id=$1`, b.Account.ID)
+		_, e = tx.ExecContext(ctx, `UPDATE accounts SET extra=COALESCE(extra,'{}'::jsonb)||jsonb_build_object('upstream_billing_probe', '{"status":"failed","source":"newapi","last_error":"authorization_changed"}'::jsonb, 'upstream_balance_probe', (COALESCE(extra->'upstream_balance_probe','{}'::jsonb)-'snapshot') || '{"provider":"newapi","enabled":true}'::jsonb),updated_at=NOW() WHERE id=$1`, b.Account.ID)
 		if e != nil {
 			return e
 		}
