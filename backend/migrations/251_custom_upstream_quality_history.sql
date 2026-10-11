@@ -68,7 +68,8 @@ BEGIN
             END IF;
         END LOOP;
     END IF;
-    IF target_account IS NULL OR target_account <= 0 OR target_model = '' THEN RETURN NEW; END IF;
+    IF target_account IS NULL OR target_account <= 0 OR target_model = ''
+        OR NOT EXISTS (SELECT 1 FROM accounts WHERE id = target_account) THEN RETURN NEW; END IF;
     sample_verdict := CASE sample_verdict WHEN 'correct' THEN 'normal' WHEN 'incorrect' THEN 'degraded'
         WHEN 'normal' THEN 'normal' WHEN 'degraded' THEN 'degraded' WHEN 'failed' THEN 'failed' ELSE 'unknown' END;
     INSERT INTO upstream_quality_samples(source,source_id,account_id,group_id,model,effort,kind,verdict,reason,latency_ms,sampled_at)
@@ -93,7 +94,8 @@ SELECT 'pelican_group_test_results',r.id::text,r.account_id,p.group_id,
     CASE WHEN r.status <> 'success' THEN 'failed' WHEN r.quality_verdict IN ('normal','degraded') THEN r.quality_verdict ELSE 'unknown' END,
     r.quality_reason,r.latency_ms,r.finished_at
 FROM pelican_group_test_results r JOIN pelican_group_test_plans p ON p.id=r.plan_id
-WHERE r.account_id > 0 AND r.finished_at >= NOW()-INTERVAL '7 days' ON CONFLICT DO NOTHING;
+WHERE EXISTS (SELECT 1 FROM accounts WHERE id=r.account_id)
+    AND r.finished_at >= NOW()-INTERVAL '7 days' ON CONFLICT DO NOTHING;
 
 INSERT INTO upstream_quality_samples(source,source_id,account_id,group_id,model,effort,verdict,sampled_at)
 SELECT 'group_attempt',r.id::text,a.id,p.group_id,
