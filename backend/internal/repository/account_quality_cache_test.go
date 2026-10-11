@@ -16,7 +16,8 @@ func TestQualityChallengerRequiresSustainedAdvantageAndStableBinding(t *testing.
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	cache := NewGatewayCache(client).(*gatewayCache)
+	cache, ok := NewGatewayCache(client).(*gatewayCache)
+	require.True(t, ok)
 	ctx := context.Background()
 	model := "model-a"
 	binding := service.GroupModelSchedulingKeyPrefix + "bW9kZWwtYQ"
