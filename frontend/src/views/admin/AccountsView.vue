@@ -592,7 +592,7 @@ const showModelAccountRouting = ref(false)
 const modelRoutingGroup = computed(() => groupsByID.value.get(Number(params.group)))
 const schedulingGroup = computed(() => {
   const group = groupsByID.value.get(Number(params.group))
-  return group?.account_scheduling_mode === 'fastest_failover' && group.status === 'active' ? group : undefined
+  return group && ['fastest_failover', 'quality_preferred'].includes(group.account_scheduling_mode || '') && group.status === 'active' ? group : undefined
 })
 const accountGroupsForRow = (account: Pick<AccountListItem, 'group_ids'>): AdminGroup[] => {
   const groupIDs = account.group_ids ?? []

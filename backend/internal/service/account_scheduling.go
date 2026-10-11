@@ -56,19 +56,20 @@ type groupModelSchedulingSnapshot struct {
 }
 
 type groupModelSchedulingRequestState struct {
-	mu                  sync.Mutex
-	snapshots           map[groupModelSchedulingScope]groupModelSchedulingSnapshot
-	deadline            time.Time
-	submissions         map[int64]int
-	sharedFailureOrigin int64
-	sharedAlternateID   int64
+	preservedQualityAccountID int64
+	mu                        sync.Mutex
+	snapshots                 map[groupModelSchedulingScope]groupModelSchedulingSnapshot
+	deadline                  time.Time
+	submissions               map[int64]int
+	sharedFailureOrigin       int64
+	sharedAlternateID         int64
 }
 
 // Share the original binding revision across account retries and detached streams.
 func WithFastestFailoverRequestState(ctx context.Context) context.Context {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
-	if group == nil || group.AccountSchedulingMode != AccountSchedulingModeFastestFailover ||
-		ctx.Value(groupModelSchedulingRequestKey{}) != nil || ctx.Value(schedulingEvaluationKey{}) != nil {
+	if group == nil || !usesFailoverScheduling(group.AccountSchedulingMode) ||
+		ctx.Value(groupModelSchedulingRequestKey{}) != nil || ctx.Value(schedulingEvaluationKey{}) != nil || qualityProbe(ctx) || ctx.Value(qualitySchedulingReadOnlyKey{}) != nil {
 		return ctx
 	}
 	return context.WithValue(ctx, groupModelSchedulingRequestKey{}, &groupModelSchedulingRequestState{
@@ -113,14 +114,15 @@ func limitFastestFailoverRetry(ctx context.Context, err error, attempts int, acc
 func confirmGroupModelSchedulingAccount(ctx context.Context, model string, accountID int64) {
 	state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
-	if state == nil || group == nil || accountID <= 0 || ctx.Err() != nil || ctx.Value(schedulingEvaluationKey{}) != nil {
+	if state == nil || group == nil || accountID <= 0 || ctx.Err() != nil || ctx.Value(schedulingEvaluationKey{}) != nil || qualityProbe(ctx) || ctx.Value(qualitySchedulingReadOnlyKey{}) != nil {
 		return
 	}
 	scope := groupModelSchedulingScope{group.ID, model}
 	state.mu.Lock()
 	snapshot, ok := state.snapshots[scope]
+	preserve := state.preservedQualityAccountID == accountID
 	state.mu.Unlock()
-	if !ok || !snapshot.valid || snapshot.accountID == accountID {
+	if !ok || !snapshot.valid || snapshot.accountID == accountID || preserve {
 		return
 	}
 	updateCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -177,7 +179,7 @@ func groupModelSchedulingActiveAccount(ctx context.Context, cache GatewayCache, 
 }
 
 func rememberGroupModelSchedulingAccount(ctx context.Context, cache GatewayCache, groupID *int64, model string, accountID int64) {
-	if ctx.Value(schedulingEvaluationKey{}) != nil {
+	if ctx.Value(schedulingEvaluationKey{}) != nil || qualityProbe(ctx) || ctx.Value(qualitySchedulingReadOnlyKey{}) != nil {
 		return
 	}
 	if cache == nil || groupID == nil || model == "" || accountID <= 0 {
@@ -189,6 +191,9 @@ func rememberGroupModelSchedulingAccount(ctx context.Context, cache GatewayCache
 // A degraded binding cannot bypass the full candidate ranking via a sticky hit.
 func groupModelSchedulingUsableActiveAccount(ctx context.Context, repo UsageLogRepository, cache GatewayCache, groupID *int64, model string) int64 {
 	activeID := groupModelSchedulingActiveAccount(ctx, cache, groupID, model)
+	if qualityPreferredEnabled(ctx) {
+		return 0 // Quality selection must compare the current channel with candidates.
+	}
 	if activeID > 0 && groupModelAccountQuality(ctx, repo, groupID, model)[activeID].IntelligenceVerdict == "degraded" {
 		return 0
 	}
@@ -206,7 +211,7 @@ func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository,
 	if len(configured) > 0 {
 		settings = configured[0]
 	}
-	return orderFastestFailoverCandidates(ordered, quality, activeID, settings)
+	return orderSchedulingCandidates(ctx, cache, groupID, model, ordered, quality, activeID, settings, ctx.Value(schedulingEvaluationKey{}) == nil && ctx.Value(qualitySchedulingReadOnlyKey{}) == nil)
 }
 
 func orderFastestFailoverCandidates(candidates []*Account, quality map[int64]GroupModelAccountQuality, activeID int64, settings FastestFailoverSettings) []*Account {
@@ -264,6 +269,7 @@ func accountSchedulingPreferred(account *Account) bool {
 }
 
 type GroupModelAccountQuality struct {
+	Quality             *AccountQualityEvidence
 	Successes           int64
 	Failures            int64
 	LatencyMS           float64
@@ -324,7 +330,7 @@ func fastestFailoverEnabled(ctx context.Context, groupID *int64) bool {
 		return false
 	}
 	group, ok := ctx.Value(ctxkey.Group).(*Group)
-	return ok && group != nil && group.ID == *groupID && group.AccountSchedulingMode == AccountSchedulingModeFastestFailover
+	return ok && group != nil && group.ID == *groupID && usesFailoverScheduling(group.AccountSchedulingMode)
 }
 
 func groupModelAccountQuality(ctx context.Context, repo UsageLogRepository, groupID *int64, model string) map[int64]GroupModelAccountQuality {
@@ -333,6 +339,21 @@ func groupModelAccountQuality(ctx context.Context, repo UsageLogRepository, grou
 	}
 	if groupID == nil || model == "" {
 		return nil
+	}
+	if qualityPreferredEnabled(ctx) {
+		if qualityRepo, ok := repo.(qualityPreferredRepository); ok {
+			effort := ""
+			if requested := RequestedReasoningEffortFromContext(ctx); requested != nil {
+				effort = *requested
+			}
+			queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			quality, err := qualityRepo.GetQualityPreferredAccountQuality(queryCtx, *groupID, model, effort)
+			if err == nil {
+				return quality
+			}
+		}
+		return nil // Missing evidence must not silently become verified quality.
 	}
 	qualityRepo, ok := repo.(groupModelAccountQualityRepository)
 	if !ok {

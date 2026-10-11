@@ -10,35 +10,39 @@ import (
 )
 
 type SchedulingCandidateStatus struct {
-	AccountID             int64      `json:"account_id"`
-	Name                  string     `json:"name"`
-	Current               bool       `json:"current"`
-	Eligible              bool       `json:"eligible"`
-	Rank                  int        `json:"rank"`
-	Confidence            string     `json:"confidence"`
-	Samples               int64      `json:"samples"`
-	SuccessRate           *float64   `json:"success_rate"`
-	RecentFailures        int64      `json:"recent_failures"`
-	LastSuccessAt         *time.Time `json:"last_success_at"`
-	LastFailureAt         *time.Time `json:"last_failure_at"`
-	CooldownSeconds       int64      `json:"cooldown_seconds"`
-	AccountRateMultiplier *float64   `json:"account_rate_multiplier,omitempty"`
-	AccountRateLimit      *float64   `json:"account_rate_limit,omitempty"`
-	Reason                string     `json:"reason,omitempty"`
-	IntelligenceVerdict   string     `json:"intelligence_verdict,omitempty"`
-	IntelligenceReason    string     `json:"intelligence_reason,omitempty"`
-	IntelligenceAt        *time.Time `json:"intelligence_at,omitempty"`
+	Quality               *AccountQualityEvidence `json:"quality,omitempty"`
+	AccountID             int64                   `json:"account_id"`
+	Name                  string                  `json:"name"`
+	Current               bool                    `json:"current"`
+	Eligible              bool                    `json:"eligible"`
+	Rank                  int                     `json:"rank"`
+	Confidence            string                  `json:"confidence"`
+	Samples               int64                   `json:"samples"`
+	SuccessRate           *float64                `json:"success_rate"`
+	RecentFailures        int64                   `json:"recent_failures"`
+	LastSuccessAt         *time.Time              `json:"last_success_at"`
+	LastFailureAt         *time.Time              `json:"last_failure_at"`
+	CooldownSeconds       int64                   `json:"cooldown_seconds"`
+	AccountRateMultiplier *float64                `json:"account_rate_multiplier,omitempty"`
+	AccountRateLimit      *float64                `json:"account_rate_limit,omitempty"`
+	Reason                string                  `json:"reason,omitempty"`
+	IntelligenceVerdict   string                  `json:"intelligence_verdict,omitempty"`
+	IntelligenceReason    string                  `json:"intelligence_reason,omitempty"`
+	IntelligenceAt        *time.Time              `json:"intelligence_at,omitempty"`
 }
 
 type GroupSchedulingStatus struct {
-	Model            string                          `json:"model"`
-	CurrentAccountID int64                           `json:"current_account_id"`
-	MinimumSamples   int                             `json:"minimum_samples"`
-	Transition       *GroupModelSchedulingTransition `json:"transition"`
-	Candidates       []SchedulingCandidateStatus     `json:"candidates"`
+	SchedulingMode       string                          `json:"scheduling_mode"`
+	RecommendedAccountID int64                           `json:"recommended_account_id"`
+	Model                string                          `json:"model"`
+	CurrentAccountID     int64                           `json:"current_account_id"`
+	MinimumSamples       int                             `json:"minimum_samples"`
+	Transition           *GroupModelSchedulingTransition `json:"transition"`
+	Candidates           []SchedulingCandidateStatus     `json:"candidates"`
 }
 
 func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *AccountTestService, groupID int64, model string) (*GroupSchedulingStatus, error) {
+	ctx = context.WithValue(ctx, qualitySchedulingReadOnlyKey{}, true)
 	if err := ValidateSchedulingProbeModel(model); err != nil {
 		return nil, err
 	}
@@ -46,7 +50,7 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 	if err != nil {
 		return nil, err
 	}
-	if group == nil || group.Status != StatusActive || group.AccountSchedulingMode != AccountSchedulingModeFastestFailover {
+	if group == nil || group.Status != StatusActive || !usesFailoverScheduling(group.AccountSchedulingMode) {
 		return nil, infraerrors.BadRequest("INVALID_SCHEDULING_MODE", "Choose an active fastest failover group")
 	}
 	if !group.ModelAllowlist.Allows(model) {
@@ -66,7 +70,7 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 	settings := s.settingService.FastestFailoverSettings(ctx)
 	quality := groupModelAccountQuality(ctx, s.usageLogRepo, &groupID, upstreamModel)
 	activeID := groupModelSchedulingActiveAccount(ctx, s.cache, &groupID, upstreamModel)
-	result := &GroupSchedulingStatus{Model: model, CurrentAccountID: activeID, MinimumSamples: settings.MinimumSamples, Candidates: make([]SchedulingCandidateStatus, 0, len(accounts))}
+	result := &GroupSchedulingStatus{SchedulingMode: group.AccountSchedulingMode, Model: model, CurrentAccountID: activeID, MinimumSamples: settings.MinimumSamples, Candidates: make([]SchedulingCandidateStatus, 0, len(accounts))}
 	if reader, ok := s.cache.(GroupModelSchedulingHistoryReader); ok {
 		result.Transition, err = reader.GetGroupModelSchedulingTransition(ctx, groupID, upstreamModel)
 		if err != nil {
@@ -82,6 +86,7 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 		account := &accounts[i]
 		sample := quality[account.ID]
 		status := SchedulingCandidateStatus{AccountID: account.ID, Name: account.Name, Current: account.ID == activeID,
+			Quality:    sample.Quality,
 			Confidence: sample.confidence(int64(settings.MinimumSamples)), Samples: sample.attempts(), RecentFailures: sample.RecentFailures,
 			LastSuccessAt: sample.LastSuccessAt, LastFailureAt: sample.LastFailureAt,
 			IntelligenceVerdict: sample.IntelligenceVerdict, IntelligenceReason: sample.IntelligenceReason, IntelligenceAt: sample.IntelligenceAt}
@@ -124,7 +129,10 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 		}
 		statuses[account.ID] = status
 	}
-	for index, account := range orderFastestFailoverCandidates(eligible, quality, activeID, settings) {
+	for index, account := range orderSchedulingCandidates(ctx, s.cache, &groupID, upstreamModel, eligible, quality, activeID, settings, false) {
+		if index == 0 {
+			result.RecommendedAccountID = account.ID
+		}
 		status := statuses[account.ID]
 		status.Rank = index + 1
 		result.Candidates = append(result.Candidates, status)

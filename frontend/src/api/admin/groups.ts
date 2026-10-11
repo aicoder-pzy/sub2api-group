@@ -6,6 +6,15 @@
 import { apiClient } from '../client'
 
 export interface SchedulingCandidateStatus {
+	quality?: {
+		successes_7d: number; failures_7d: number; successes_1h: number; failures_1h: number
+		normal: number; degraded: number; unknown: number; failed_tests: number; normal_streak: number
+		answer_normal: number; answer_degraded: number
+		latest_verdict: string; latest_at: string | null; last_test_at: string | null; effort: string
+		latency_p50_ms: number; latency_p95_ms: number; latency_samples: number
+		success_lower_bound: number; quality_lower_bound: number
+		tier: 'verified' | 'provisional' | 'unknown' | 'degraded'
+	}
   account_id: number
   name: string
   current: boolean
@@ -27,6 +36,8 @@ export interface SchedulingCandidateStatus {
 }
 
 export interface GroupSchedulingStatus {
+	scheduling_mode?: string
+	recommended_account_id?: number
   model: string
   current_account_id: number
   minimum_samples: number
@@ -34,8 +45,8 @@ export interface GroupSchedulingStatus {
   candidates: SchedulingCandidateStatus[]
 }
 
-export async function getGroupSchedulingStatus(groupID: number, model: string): Promise<GroupSchedulingStatus> {
-  const { data } = await apiClient.get<GroupSchedulingStatus>(`/admin/groups/${groupID}/scheduling-status`, { params: { model } })
+export async function getGroupSchedulingStatus(groupID: number, model: string, effort?: string): Promise<GroupSchedulingStatus> {
+  const { data } = await apiClient.get<GroupSchedulingStatus>(`/admin/groups/${groupID}/scheduling-status`, { params: { model, ...(effort ? { effort } : {}) } })
   return data
 }
 import type {

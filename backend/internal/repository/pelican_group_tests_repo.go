@@ -187,6 +187,11 @@ func (r *pelicanGroupTestRepository) PruneResults(ctx context.Context, planID in
 func (r *pelicanGroupTestRepository) PruneExpiredResults(ctx context.Context, before time.Time) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM pelican_group_test_results WHERE id IN (
  SELECT id FROM pelican_group_test_results WHERE created_at < $1 LIMIT 1000)`, before)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `DELETE FROM upstream_quality_samples WHERE id IN (
+ SELECT id FROM upstream_quality_samples WHERE sampled_at < $1 LIMIT 1000)`, before)
 	return err
 }
 

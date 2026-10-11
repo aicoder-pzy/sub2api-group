@@ -145,18 +145,23 @@ type Group struct {
 }
 
 const (
-	AccountSchedulingModePriority        = "priority"
-	AccountSchedulingModeFastestFailover = "fastest_failover"
+	AccountSchedulingModePriority         = "priority"
+	AccountSchedulingModeFastestFailover  = "fastest_failover"
+	AccountSchedulingModeQualityPreferred = "quality_preferred"
 )
 
 func normalizeAccountSchedulingMode(mode string) (string, error) {
 	if mode == "" {
 		return AccountSchedulingModePriority, nil
 	}
-	if mode != AccountSchedulingModePriority && mode != AccountSchedulingModeFastestFailover {
+	if mode != AccountSchedulingModePriority && !usesFailoverScheduling(mode) {
 		return "", fmt.Errorf("invalid account_scheduling_mode: %s", mode)
 	}
 	return mode, nil
+}
+
+func usesFailoverScheduling(mode string) bool {
+	return mode == AccountSchedulingModeFastestFailover || mode == AccountSchedulingModeQualityPreferred
 }
 
 // IsGroupBindableInSimpleMode is the shared policy for groups that may be

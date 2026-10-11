@@ -68,6 +68,7 @@ func (s *AccountTestService) TestPelicanAccountConnection(c *gin.Context, accoun
 	options.prompt = strings.TrimSpace(prompt)
 	options.reasoningEffort = normalizePelicanReasoningEffort(reasoningEffort)
 	ctx := withPelicanTestOptions(c.Request.Context(), options)
+	ctx = WithRequestedReasoningEffort(ctx, options.reasoningEffort)
 	c.Request = c.Request.WithContext(ctx)
 	deferred, _ := ctx.Value(pelicanDeferAssessmentKey{}).(bool)
 	if deferred {

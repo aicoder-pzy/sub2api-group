@@ -48,7 +48,7 @@ func fastestFailoverAttemptFromContext(ctx context.Context) *fastestFailoverAtte
 
 func beginFastestFailoverAttempt(ctx context.Context, account *Account, settingsService ...*SettingService) (context.Context, *fastestFailoverAttempt) {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
-	if group == nil || group.AccountSchedulingMode != AccountSchedulingModeFastestFailover || account == nil || fastestFailoverAttemptFromContext(ctx) != nil {
+	if group == nil || !usesFailoverScheduling(group.AccountSchedulingMode) || account == nil || fastestFailoverAttemptFromContext(ctx) != nil {
 		return ctx, nil
 	}
 	settings := DefaultFastestFailoverSettings()

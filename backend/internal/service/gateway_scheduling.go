@@ -65,6 +65,11 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 		platform = PlatformAnthropic
 	}
 	ctx = s.withGatewayProfitControlGate(ctx, groupID)
+	if qualityPreferredEnabled(ctx) && !qualityProbe(ctx) && s.cache != nil && sessionHash != "" {
+		if accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash); err == nil {
+			ctx = context.WithValue(ctx, qualitySessionBindingKey{}, accountID)
+		}
+	}
 
 	// Claude Code 限制可能已将 groupID 解析为 fallback group，
 	// 渠道限制预检查必须使用解析后的分组。
@@ -139,7 +144,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			stickySource = "cache"
 		}
 	}
-	if group != nil && group.AccountSchedulingMode == AccountSchedulingModeFastestFailover {
+	if group != nil && usesFailoverScheduling(group.AccountSchedulingMode) {
+		if qualityPreferredEnabled(ctx) && !qualityProbe(ctx) {
+			ctx = context.WithValue(ctx, qualitySessionBindingKey{}, stickyAccountID)
+		}
 		stickyAccountID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)
 		stickySource = "group_model"
 	}
@@ -1165,7 +1173,7 @@ func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Conte
 		return false
 	}
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
-	if group != nil && group.AccountSchedulingMode == AccountSchedulingModeFastestFailover && s.accountRepo != nil {
+	if group != nil && usesFailoverScheduling(group.AccountSchedulingMode) && s.accountRepo != nil {
 		// Candidate snapshots can predate a timeout on another in-flight request.
 		latest, err := s.accountRepo.GetByID(ctx, account.ID)
 		if err != nil || latest == nil || !latest.IsSchedulableForModelWithContext(ctx, requestedModel) {
@@ -1913,7 +1921,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 	if groupID != nil && s.groupRepo != nil {
 		schedGroup, _ = s.groupRepo.GetByIDLite(ctx, *groupID)
 	}
-	fastestFailover := schedGroup != nil && schedGroup.AccountSchedulingMode == AccountSchedulingModeFastestFailover
+	fastestFailover := schedGroup != nil && usesFailoverScheduling(schedGroup.AccountSchedulingMode)
 	activeID := int64(0)
 	if fastestFailover {
 		activeID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)
@@ -2200,7 +2208,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 	if groupID != nil && s.groupRepo != nil {
 		schedGroup, _ = s.groupRepo.GetByIDLite(ctx, *groupID)
 	}
-	fastestFailover := schedGroup != nil && schedGroup.AccountSchedulingMode == AccountSchedulingModeFastestFailover
+	fastestFailover := schedGroup != nil && usesFailoverScheduling(schedGroup.AccountSchedulingMode)
 	activeID := int64(0)
 	if fastestFailover {
 		activeID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)

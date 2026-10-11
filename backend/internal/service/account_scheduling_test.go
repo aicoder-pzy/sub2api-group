@@ -21,6 +21,10 @@ func (repo accountSchedulingQualityStub) GetGroupModelAccountQuality(context.Con
 	return repo.quality, nil
 }
 
+func (repo accountSchedulingQualityStub) GetQualityPreferredAccountQuality(context.Context, int64, string, string) (map[int64]GroupModelAccountQuality, error) {
+	return repo.quality, nil
+}
+
 func TestFastestFailoverQualityPriceAndPreference(t *testing.T) {
 	for _, scenario := range []struct {
 		name      string

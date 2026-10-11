@@ -173,7 +173,7 @@ func (s *GatewayService) RefreshGroupScheduling(ctx context.Context, tests *Acco
 	if err != nil {
 		return err
 	}
-	if group == nil || group.AccountSchedulingMode != AccountSchedulingModeFastestFailover || group.Status != StatusActive {
+	if group == nil || !usesFailoverScheduling(group.AccountSchedulingMode) || group.Status != StatusActive {
 		return infraerrors.BadRequest("INVALID_SCHEDULING_MODE", "Choose an active group using fastest failover scheduling")
 	}
 	if !group.ModelAllowlist.Allows(model) {
@@ -295,7 +295,7 @@ func (s *GatewayService) RefreshGroupScheduling(ctx context.Context, tests *Acco
 	if err != nil {
 		return err
 	}
-	if group.AccountSchedulingMode != AccountSchedulingModeFastestFailover || group.Status != StatusActive || !group.ModelAllowlist.Allows(model) || !s.isAccountInGroup(fresh, &groupID) || !fresh.IsSchedulableForModelWithContext(ctx, probeModel) {
+	if !usesFailoverScheduling(group.AccountSchedulingMode) || group.Status != StatusActive || !group.ModelAllowlist.Allows(model) || !s.isAccountInGroup(fresh, &groupID) || !fresh.IsSchedulableForModelWithContext(ctx, probeModel) {
 		return errors.New("group or account changed during evaluation; previous binding retained")
 	}
 	if err := ctx.Err(); err != nil {

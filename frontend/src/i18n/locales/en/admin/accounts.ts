@@ -173,6 +173,13 @@ export default {
         interrupted: 'Connection interrupted without completion confirmation. Refresh the account list to check the current binding.'
       },
       schedulingStatus: {
+        effort: 'Reasoning effort to compare', autoEffort: 'Auto: most used effort in the last 24 hours',
+        qualityPolicy: 'Quality ranking is separate from the current binding. Prefer sustained quality over reliability and speed at the same effort. An improvement must persist for 5 minutes after a 30-minute minimum hold. Degradation, faults or ineligibility bypass the delay. This view sends no tests and changes no scheduling state.',
+        recommended: 'Quality recommendation', weekRate: '7-day success rate', hourRate: '1-hour success rate',
+        qualityEvidence: 'Quality evidence', qualityHistory: '7-day quality history', speed: 'First token at the same effort', lastTest: 'Last test',
+        quality_verified: 'Verified sustained quality', quality_provisional: 'One normal result; validating', quality_unknown: 'Unverified or expired evidence', quality_degraded: 'Degraded or recovery unconfirmed',
+        streak: '{count} consecutive normal results', historyCounts: 'Normal {normal} / degraded {degraded} / unknown {unknown} / failed tests {failed_tests}',
+        answerCounts: 'Answer checks: passed {answer_normal} / failed {answer_degraded}', speedSamples: '{count} request samples',
         title: 'Scheduling status', model: 'Model', current: 'Current channel', unbound: 'Unbound',
         order: 'Candidate order', evidence: 'Sample confidence', successRate: 'Complete success rate', recentFailures: 'Failures in 15 minutes',
         lastFailure: 'Last failure', cooldown: 'Remaining cooldown', measured: 'Sufficient samples', limited: 'Limited samples', unknown: 'Unknown', degraded: 'Recently unstable',

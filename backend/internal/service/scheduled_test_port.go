@@ -7,13 +7,14 @@ import (
 
 // ScheduledTestPlan represents a scheduled test plan domain model.
 type PelicanTestConfig struct {
-	QuestionKind    string `json:"question_kind,omitempty"`
-	Prompt          string `json:"prompt"`
-	ReasoningEffort string `json:"reasoning_effort"`
-	ParallelCount   int    `json:"parallel_count"`
-	ModelID         string `json:"model_id,omitempty"`
-	DailyStart      string `json:"daily_start,omitempty"`
-	DailyEnd        string `json:"daily_end,omitempty"`
+	VerificationTasks bool   `json:"verification_tasks,omitempty"`
+	QuestionKind      string `json:"question_kind,omitempty"`
+	Prompt            string `json:"prompt"`
+	ReasoningEffort   string `json:"reasoning_effort"`
+	ParallelCount     int    `json:"parallel_count"`
+	ModelID           string `json:"model_id,omitempty"`
+	DailyStart        string `json:"daily_start,omitempty"`
+	DailyEnd          string `json:"daily_end,omitempty"`
 }
 
 type ScheduledTestPlan struct {

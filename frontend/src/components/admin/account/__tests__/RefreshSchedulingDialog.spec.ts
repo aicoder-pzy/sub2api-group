@@ -22,6 +22,17 @@ function response(events: object[]) {
 }
 afterEach(() => vi.unstubAllGlobals())
 describe('active scheduling evaluation', () => {
+  it('compares quality at an explicit effort while keeping current and recommended channels separate', async () => {
+    vi.mocked(getGroupSchedulingStatus).mockResolvedValue({ scheduling_mode: 'quality_preferred', recommended_account_id: 2, model: 'model-a', current_account_id: 1, minimum_samples: 10, transition: null, candidates: [] })
+    const wrapper = mount(RefreshSchedulingDialog, { props: { group: { ...group, account_scheduling_mode: 'quality_preferred' }, readOnly: true }, global: { stubs: { BaseDialog: { template: '<div><slot/><slot name="footer"/></div>' } } } })
+    await flushPromises()
+    await wrapper.get('select').setValue('xhigh')
+    await wrapper.findAll('button')[1]!.trigger('click')
+    await flushPromises()
+    expect(getGroupSchedulingStatus).toHaveBeenLastCalledWith(71, 'model-a', 'xhigh')
+    expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.qualityPolicy')
+    wrapper.unmount()
+  })
 	 it('reads scheduling status without sending paid probes or changing the binding', async () => {
 		const fetch = vi.fn()
 		vi.stubGlobal('fetch', fetch)

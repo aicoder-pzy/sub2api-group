@@ -97,15 +97,16 @@ type PelicanGroupTestResult struct {
 
 // PelicanGroupTestPlanInput is what an admin edits; the question is always the HTML drawing kind.
 type PelicanGroupTestPlanInput struct {
-	GroupID         int64  `json:"group_id"`
-	ModelID         string `json:"model_id"`
-	CronExpression  string `json:"cron_expression"`
-	Enabled         bool   `json:"enabled"`
-	Prompt          string `json:"prompt"`
-	ReasoningEffort string `json:"reasoning_effort"`
-	ParallelCount   int    `json:"parallel_count"`
-	DailyStart      string `json:"daily_start,omitempty"`
-	DailyEnd        string `json:"daily_end,omitempty"`
+	VerificationTasks bool   `json:"verification_tasks,omitempty"`
+	GroupID           int64  `json:"group_id"`
+	ModelID           string `json:"model_id"`
+	CronExpression    string `json:"cron_expression"`
+	Enabled           bool   `json:"enabled"`
+	Prompt            string `json:"prompt"`
+	ReasoningEffort   string `json:"reasoning_effort"`
+	ParallelCount     int    `json:"parallel_count"`
+	DailyStart        string `json:"daily_start,omitempty"`
+	DailyEnd          string `json:"daily_end,omitempty"`
 }
 
 type PelicanGroupTestRepository interface {
@@ -276,7 +277,7 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	if plan.CronExpression == "" {
 		plan.CronExpression = pelicanGroupTestDefaultCron
 	}
-	plan.PelicanConfig = &PelicanTestConfig{QuestionKind: "pelican", Prompt: prompt, ReasoningEffort: effort, ParallelCount: parallel, ModelID: plan.ModelID, DailyStart: input.DailyStart, DailyEnd: input.DailyEnd}
+	plan.PelicanConfig = &PelicanTestConfig{VerificationTasks: input.VerificationTasks, QuestionKind: "pelican", Prompt: prompt, ReasoningEffort: effort, ParallelCount: parallel, ModelID: plan.ModelID, DailyStart: input.DailyStart, DailyEnd: input.DailyEnd}
 	next, err := computeNextPelicanRun(plan.CronExpression, s.now(), plan.PelicanConfig)
 	if err != nil {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", fmt.Sprintf("invalid schedule: %v", err))
@@ -416,6 +417,9 @@ func (s *PelicanGroupTestService) runSamples(ctx context.Context, plan *PelicanG
 		count = plan.PelicanConfig.ParallelCount
 	}
 	results := make([]*PelicanGroupTestResult, count)
+	if group.AccountSchedulingMode == AccountSchedulingModeQualityPreferred {
+		ctx = context.WithValue(ctx, qualitySchedulingProbeKey{}, &qualityProbeReservations{accounts: make(map[int64]bool)})
+	}
 	var wg sync.WaitGroup
 	for i := range results {
 		wg.Add(1)
@@ -433,6 +437,12 @@ func (s *PelicanGroupTestService) runSamples(ctx context.Context, plan *PelicanG
 // too; an answer that is not HTML is the group's real answer and is kept. Each sample runs
 // in its own goroutine outside Gin's recovery, so a panic becomes a failed result.
 func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGroupTestPlan, group *Group) (result *PelicanGroupTestResult) {
+	if plan.PelicanConfig != nil {
+		ctx = WithRequestedReasoningEffort(ctx, plan.PelicanConfig.ReasoningEffort)
+	}
+	if group.AccountSchedulingMode == AccountSchedulingModeQualityPreferred && !qualityProbe(ctx) {
+		ctx = context.WithValue(ctx, qualitySchedulingProbeKey{}, true)
+	}
 	started := s.now()
 	var costUSD float64
 	priced, attempted, incomplete := false, false, false
@@ -467,6 +477,11 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			return result
 		}
 		var sample *ScheduledTestResult
+		generationConfig, checks, checkErr := withPelicanQualityChecks(plan.PelicanConfig)
+		if checkErr != nil {
+			route.release()
+			return s.newResult(plan, started, s.now(), "quality_check_generation_failed")
+		}
 		attempted = true
 		usage := &pelicanTestUsageCollector{model: route.account.GetMappedModel(route.model)}
 		func() {
@@ -480,7 +495,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 				}
 			}()
 			generationCtx := context.WithValue(ctx, pelicanDeferAssessmentKey{}, true)
-			sample, err = s.runAccount(context.WithValue(generationCtx, pelicanTestUsageKey{}, usage), route.account.ID, route.model, plan.PelicanConfig)
+			sample, err = s.runAccount(context.WithValue(generationCtx, pelicanTestUsageKey{}, usage), route.account.ID, route.model, generationConfig)
 		}()
 		if err != nil || sample == nil {
 			sample = &ScheduledTestResult{Status: "failed", ErrorMessage: fmt.Sprint(err)}
@@ -494,9 +509,17 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			result.ResponseText = sample.ResponseText
 			// The channel's concurrency slot has already been released. Assessment
 			// never holds a generation slot or causes a switch to another account.
-			if sample.Status == "success" && s.assessOutput != nil {
+			if sample.Status == "success" && (s.assessOutput != nil || checks != nil) {
 				var assessment *PelicanAssessment
-				result.ResponseText, assessment = s.assessOutput(ctx, sample.ResponseText)
+				if s.assessOutput != nil {
+					result.ResponseText, assessment = s.assessOutput(ctx, sample.ResponseText)
+				}
+				if checks != nil {
+					assessment = checks.assess(sample.ResponseText, assessment)
+					if assessment != nil {
+						result.ResponseText = decoratePelicanSource(extractPelicanSource(sample.ResponseText), assessment)
+					}
+				}
 				if assessment != nil {
 					result.QualityVerdict, result.QualityReason = assessment.Quality, assessment.Reason
 				}

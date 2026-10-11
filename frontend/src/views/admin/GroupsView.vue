@@ -4655,6 +4655,7 @@ const platformOptions = computed(() =>
 const accountSchedulingModeOptions = computed(() => [
   { value: "priority", label: t("admin.groups.form.accountSchedulingPriority") },
   { value: "fastest_failover", label: t("admin.groups.form.accountSchedulingFastestFailover") },
+  { value: "quality_preferred", label: t("admin.groups.form.accountSchedulingQualityPreferred") },
 ]);
 
 const platformFilterOptions = computed(() => [
@@ -4981,7 +4982,7 @@ const createForm = reactive({
   name: "",
   description: "",
   platform: "anthropic" as GroupPlatform,
-  account_scheduling_mode: "priority" as "priority" | "fastest_failover",
+  account_scheduling_mode: "priority" as "priority" | "fastest_failover" | "quality_preferred",
   rate_multiplier: 1.0,
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
@@ -5348,7 +5349,7 @@ const editForm = reactive({
   name: "",
   description: "",
   platform: "anthropic" as GroupPlatform,
-  account_scheduling_mode: "priority" as "priority" | "fastest_failover",
+  account_scheduling_mode: "priority" as "priority" | "fastest_failover" | "quality_preferred",
   rate_multiplier: 1.0,
   is_exclusive: false,
   status: "active" as "active" | "inactive",

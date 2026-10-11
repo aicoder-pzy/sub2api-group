@@ -173,10 +173,17 @@ export default {
         interrupted: '测试连接中断，未收到完成确认；请刷新账号列表确认当前调度。'
       },
       schedulingStatus: {
+        effort: '比较思考强度', autoEffort: '自动：使用近 24 小时最常用强度',
+        qualityPolicy: '质量排名与当前绑定分别展示。近 7 天持续正常优先，再比较可靠性与同强度速度；改善持续至少 5 分钟、当前渠道使用至少 30 分钟后接管。降智、故障或资格失效立即避让。查看本页不会发起测试或修改调度。',
+        recommended: '质量首选', weekRate: '7 天成功率', hourRate: '1 小时成功率',
+        qualityEvidence: '质量证据', qualityHistory: '7 天测智记录', speed: '同强度首字速度', lastTest: '最近检测',
+        quality_verified: '已验证持续正常', quality_provisional: '单次正常，继续验证', quality_unknown: '待验证或证据已过期', quality_degraded: '疑似降智或恢复待确认',
+        streak: '连续正常 {count} 次', historyCounts: '正常 {normal} / 降智 {degraded} / 未知 {unknown} / 测试失败 {failed_tests}',
+        answerCounts: '答案核验：通过 {answer_normal} / 未通过 {answer_degraded}', speedSamples: '{count} 个请求样本',
         title: '调度状态', model: '模型', current: '当前渠道', unbound: '尚未绑定',
         order: '候选顺序', evidence: '样本可信度', successRate: '完整成功率', recentFailures: '近 15 分钟故障',
         lastFailure: '最近故障', cooldown: '剩余冷却', measured: '样本充足', limited: '样本不足', unknown: '未知', degraded: '近期不稳定',
-        account_rate_limit_exceeded: '账号倍率达到或超过上限', account_rate_limit_unknown: '账号倍率未知或探测结果已过期',
+        account_rate_limit_exceeded: '账号倍率超过上限', account_rate_limit_unknown: '账号倍率未知或探测结果已过期',
         unavailable: '当前不可用', paused: '暂停或停用',
         initial_selection: '首次完整成功绑定', confirmed_failover: '故障后完整成功接管', manual_refresh: '手动更新调度'
       },

@@ -88,7 +88,17 @@ func (h *AccountHandler) GroupSchedulingStatus(c *gin.Context) {
 		response.Error(c, 503, "Scheduling diagnostics unavailable")
 		return
 	}
-	status, err := h.schedulingGateway.GroupSchedulingStatus(c.Request.Context(), h.accountTestService, id, strings.TrimSpace(c.Query("model")))
+	ctx := c.Request.Context()
+	if effort := strings.TrimSpace(c.Query("effort")); effort != "" {
+		switch effort {
+		case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra":
+			ctx = service.WithRequestedReasoningEffort(ctx, effort)
+		default:
+			response.BadRequest(c, "Invalid reasoning effort")
+			return
+		}
+	}
+	status, err := h.schedulingGateway.GroupSchedulingStatus(ctx, h.accountTestService, id, strings.TrimSpace(c.Query("model")))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

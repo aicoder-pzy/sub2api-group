@@ -262,6 +262,7 @@
             <p class="field-hint">{{ t('pelicanTests.editor.parallelHint') }}</p>
           </div>
         </div>
+        <label class="block text-sm"><input v-model="editor.form.verification_tasks" type="checkbox" class="mr-2" />{{ t('pelicanTests.editor.verificationTasks') }}<p class="field-hint">{{ t('pelicanTests.editor.verificationTasksHint') }}</p></label>
         <div>
           <label class="field-label mt-0">{{ t('pelicanTests.editor.schedule') }}</label>
           <Select v-model="editor.schedule" :options="scheduleOptions" :aria-label="t('pelicanTests.editor.schedule')" data-testid="pelican-test-schedule" />
@@ -590,6 +591,7 @@ function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
     prompt: plan.pelican_config?.prompt || PELICAN_PROMPT,
     reasoning_effort: plan.pelican_config?.reasoning_effort || 'medium',
     parallel_count: plan.pelican_config?.parallel_count || 1,
+    ...(plan.pelican_config?.verification_tasks ? { verification_tasks: true } : {}),
     daily_start: plan.pelican_config?.daily_start || '',
     daily_end: plan.pelican_config?.daily_end || '',
   }

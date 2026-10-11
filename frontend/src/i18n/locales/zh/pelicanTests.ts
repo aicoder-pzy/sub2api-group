@@ -90,6 +90,8 @@ export default {
     noAccount: '没有选到可用账号',
   },
   editor: {
+    verificationTasks: '附加推理与代码求值核验',
+    verificationTasksHint: '在同一次作品请求中加入两道随机、可核验答案的小题，不增加生成次数。答错计为疑似降智，缺少有效答案计为未知；测试费用可能因输出及思考增加。质量优选分组会优先轮测最久未测的合格账号。',
     createTitle: '新建分组测试',
     editTitle: '编辑分组测试',
     group: '分组',

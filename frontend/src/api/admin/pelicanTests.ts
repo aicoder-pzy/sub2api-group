@@ -7,6 +7,7 @@ import { apiClient } from '../client'
 import type { PaginatedResponse } from '@/types'
 
 export interface PelicanGroupTestConfig {
+	verification_tasks?: boolean
   question_kind?: string
   prompt: string
   reasoning_effort: string
@@ -73,6 +74,7 @@ export interface PelicanGroupTestPlan {
 
 /** What an admin edits. The group of an existing plan cannot change. */
 export interface PelicanGroupTestPlanInput {
+	verification_tasks?: boolean
   group_id: number
   model_id: string
   cron_expression: string

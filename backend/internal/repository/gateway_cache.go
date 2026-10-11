@@ -159,6 +159,44 @@ func (c *gatewayCache) CompareAndSwapSessionAccountID(ctx context.Context, group
 	return result == 1, err
 }
 
+// An improvement must persist across observations at least five minutes apart.
+// Binding revisions still guard the actual commit after a complete response.
+var qualityChallengerScript = redis.NewScript(`
+if tonumber(redis.call('GET', KEYS[1]) or '0') ~= tonumber(ARGV[1]) then return 0 end
+if ARGV[4] ~= '1' then redis.call('DEL', KEYS[3]); return 0 end
+local now = tonumber(ARGV[3])
+local candidate = redis.call('HGET', KEYS[3], 'candidate')
+local active = redis.call('HGET', KEYS[3], 'active')
+local first = tonumber(redis.call('HGET', KEYS[3], 'first') or '0')
+local last = tonumber(redis.call('HGET', KEYS[3], 'last') or '0')
+if candidate ~= ARGV[2] or active ~= ARGV[1] or now-last > 900 then
+  redis.call('HSET', KEYS[3], 'candidate', ARGV[2], 'active', ARGV[1], 'first', now, 'last', now)
+  redis.call('EXPIRE', KEYS[3], 3600)
+  return 0
+end
+redis.call('HSET', KEYS[3], 'last', now)
+redis.call('EXPIRE', KEYS[3], 3600)
+if now-first >= 300 then return 1 end
+return 0
+`)
+
+func (c *gatewayCache) QualityChallengerReady(ctx context.Context, groupID int64, model string, activeID, candidateID int64, better bool) (bool, error) {
+	key := buildSessionKey(groupID, service.GroupModelSchedulingKeyPrefix+base64.RawURLEncoding.EncodeToString([]byte(model)))
+	transition, err := c.GetGroupModelSchedulingTransition(ctx, groupID, model)
+	if err != nil {
+		return false, err
+	}
+	if transition != nil && time.Since(transition.ChangedAt) < 30*time.Minute {
+		better = false
+	}
+	flag := "0"
+	if better {
+		flag = "1"
+	}
+	ready, err := qualityChallengerScript.Run(ctx, c.rdb, []string{key, key + ":transition", key + ":quality_challenger"}, activeID, candidateID, time.Now().Unix(), flag).Int()
+	return ready == 1, err
+}
+
 func (c *gatewayCache) GetGroupModelSchedulingTransition(ctx context.Context, groupID int64, model string) (*service.GroupModelSchedulingTransition, error) {
 	raw, err := c.rdb.Get(ctx, buildSessionKey(groupID, service.GroupModelSchedulingKeyPrefix+base64.RawURLEncoding.EncodeToString([]byte(model)))+":transition").Bytes()
 	if errors.Is(err, redis.Nil) {

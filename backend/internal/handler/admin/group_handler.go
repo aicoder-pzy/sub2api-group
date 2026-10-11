@@ -182,7 +182,7 @@ func sanitizeUpdateGroupRequestForSimpleMode(req *UpdateGroupRequest) {
 
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
-	AccountSchedulingMode     string                        `json:"account_scheduling_mode" binding:"omitempty,oneof=priority fastest_failover"`
+	AccountSchedulingMode     string                        `json:"account_scheduling_mode" binding:"omitempty,oneof=priority fastest_failover quality_preferred"`
 	Name                      string                        `json:"name" binding:"required"`
 	Description               string                        `json:"description"`
 	Platform                  string                        `json:"platform" binding:"omitempty,group_platform"`
@@ -259,7 +259,7 @@ type CreateGroupRequest struct {
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
-	AccountSchedulingMode     *string                        `json:"account_scheduling_mode" binding:"omitempty,oneof=priority fastest_failover"`
+	AccountSchedulingMode     *string                        `json:"account_scheduling_mode" binding:"omitempty,oneof=priority fastest_failover quality_preferred"`
 	Name                      string                         `json:"name"`
 	Description               *string                        `json:"description"`
 	Platform                  string                         `json:"platform" binding:"omitempty,group_platform"`

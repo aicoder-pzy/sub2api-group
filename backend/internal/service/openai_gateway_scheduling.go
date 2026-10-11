@@ -1158,6 +1158,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		}
 	}
 	if fastestFailoverEnabled(ctx, groupID) {
+		if qualityPreferredEnabled(ctx) && !qualityProbe(ctx) {
+			ctx = context.WithValue(ctx, qualitySessionBindingKey{}, stickyAccountID)
+		}
 		stickyAccountID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)
 	}
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
