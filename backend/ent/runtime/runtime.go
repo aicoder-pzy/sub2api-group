@@ -1231,16 +1231,24 @@ func init() {
 	groupDescReasoningEffortMappings := groupFields[60].Descriptor()
 	// group.DefaultReasoningEffortMappings holds the default value on creation for the reasoning_effort_mappings field.
 	group.DefaultReasoningEffortMappings = groupDescReasoningEffortMappings.Default.([]domain.ReasoningEffortMapping)
+	// groupDescAccountRateLimitEnabled is the schema descriptor for account_rate_limit_enabled field.
+	groupDescAccountRateLimitEnabled := groupFields[61].Descriptor()
+	// group.DefaultAccountRateLimitEnabled holds the default value on creation for the account_rate_limit_enabled field.
+	group.DefaultAccountRateLimitEnabled = groupDescAccountRateLimitEnabled.Default.(bool)
+	// groupDescAccountRateLimitMultiplier is the schema descriptor for account_rate_limit_multiplier field.
+	groupDescAccountRateLimitMultiplier := groupFields[62].Descriptor()
+	// group.DefaultAccountRateLimitMultiplier holds the default value on creation for the account_rate_limit_multiplier field.
+	group.DefaultAccountRateLimitMultiplier = groupDescAccountRateLimitMultiplier.Default.(float64)
 	// groupDescProfitControlEnabled is the schema descriptor for profit_control_enabled field.
-	groupDescProfitControlEnabled := groupFields[61].Descriptor()
+	groupDescProfitControlEnabled := groupFields[63].Descriptor()
 	// group.DefaultProfitControlEnabled holds the default value on creation for the profit_control_enabled field.
 	group.DefaultProfitControlEnabled = groupDescProfitControlEnabled.Default.(bool)
 	// groupDescProfitMinMargin is the schema descriptor for profit_min_margin field.
-	groupDescProfitMinMargin := groupFields[62].Descriptor()
+	groupDescProfitMinMargin := groupFields[64].Descriptor()
 	// group.DefaultProfitMinMargin holds the default value on creation for the profit_min_margin field.
 	group.DefaultProfitMinMargin = groupDescProfitMinMargin.Default.(float64)
 	// groupDescProfitSafetyBuffer is the schema descriptor for profit_safety_buffer field.
-	groupDescProfitSafetyBuffer := groupFields[63].Descriptor()
+	groupDescProfitSafetyBuffer := groupFields[65].Descriptor()
 	// group.DefaultProfitSafetyBuffer holds the default value on creation for the profit_safety_buffer field.
 	group.DefaultProfitSafetyBuffer = groupDescProfitSafetyBuffer.Default.(float64)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()

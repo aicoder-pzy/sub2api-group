@@ -3797,7 +3797,12 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 			WHERE deleted_at IS NULL
 				AND status = 'active'
 				AND type = 'apikey'
-				AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
+				AND (extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
+                    OR EXISTS (
+                        SELECT 1 FROM account_groups memberships JOIN groups protected ON protected.id = memberships.group_id
+                        WHERE memberships.account_id = accounts.id AND protected.deleted_at IS NULL
+                          AND protected.status = 'active' AND protected.account_rate_limit_enabled
+                    ))
 		), parsed AS MATERIALIZED (
 			SELECT
 				id,

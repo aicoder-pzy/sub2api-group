@@ -28,6 +28,9 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 			}
 		}()
 	}
+	if err := checkAccountRateLimitLatest(request.Context(), account.ID); err != nil {
+		return nil, err
+	}
 	if response, handled, err := s.routeBPSTicketHTTP(request, account); handled {
 		return response, err
 	}

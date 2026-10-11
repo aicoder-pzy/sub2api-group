@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"math"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
@@ -23,7 +24,7 @@ func (s *GatewayService) withGatewayProfitControlGate(ctx context.Context, group
 		slog.Warn("profit_control_group_load_failed", "group_id", *groupID, "error", err)
 		return s.clearForeignProfitControlGate(ctx, groupID)
 	}
-	if group == nil || !group.ProfitControlEnabled || !profitControlPlatformSupported(group.Platform) {
+	if group == nil || (!group.ProfitControlEnabled && !group.AccountRateLimitEnabled) || !profitControlPlatformSupported(group.Platform) {
 		return s.clearForeignProfitControlGate(ctx, groupID)
 	}
 
@@ -42,13 +43,18 @@ func (s *GatewayService) withGatewayProfitControlGate(ctx context.Context, group
 		downstream = s.ResolveUserGroupRateMultiplier(ctx, userID, billingGroup.ID, billingGroup.RateMultiplier)
 	}
 	downstream *= billingGroup.PeakMultiplierAt(pricingAt)
-	threshold := clampProfitControlThreshold(downstream * (1 - group.ProfitMinMargin - group.ProfitSafetyBuffer))
+	threshold := math.Inf(1)
+	if group.ProfitControlEnabled {
+		threshold = clampProfitControlThreshold(downstream * (1 - group.ProfitMinMargin - group.ProfitSafetyBuffer))
+	}
 
 	gate := &openAIProfitControlGate{
-		groupID:   group.ID,
-		platform:  group.Platform,
-		threshold: threshold,
-		pricingAt: pricingAt,
+		groupID:          group.ID,
+		platform:         group.Platform,
+		threshold:        threshold,
+		pricingAt:        pricingAt,
+		accountRateLimit: groupAccountRateLimit(group),
+		readAccount:      rateLimitAccountReader(s.schedulerSnapshot, s.accountRepo),
 	}
 	openAIProfitControlObserverInstance.recordInstall(gate.groupID, gate.platform, gate.threshold)
 	return context.WithValue(ctx, openAIProfitControlGateCtxKey{}, gate)
@@ -91,6 +97,9 @@ func profitControlVetoLatest(ctx context.Context, selected *Account, snapshot *S
 		if err != nil || refreshed == nil {
 			slog.Warn("profit_control_account_refresh_failed", "group_id", gate.groupID, "platform", gate.platform, "account_id", selected.ID, "error", err)
 			openAIProfitControlObserverInstance.recordRefreshFailure(gate.groupID, gate.platform, gate.threshold)
+			if gate.accountRateLimit != nil {
+				return latest, true, accountRateLimitUnknown
+			}
 		} else if !refreshed.UpdatedAt.Before(selected.UpdatedAt) {
 			// 选号路径可能已做过 DB recheck，selected 比缓存快照更新鲜；只有
 			// 快照不落后时才替换，避免终检把新鲜账号换回较旧的缓存对象。

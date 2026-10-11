@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -587,6 +588,8 @@ type gatewayPelicanGroupRouter struct {
 }
 
 func (r *gatewayPelicanGroupRouter) route(ctx context.Context, group *Group, model string, excluded map[int64]struct{}) (*pelicanGroupRoute, error) {
+	ctx = context.WithValue(ctx, ctxkey.Group, group)
+	ctx, _ = WithGatewayTokenRequestPricing(ctx)
 	platform, upstreamModel := group.Platform, model
 	if platform == PlatformComposite {
 		decision, matched, err := r.gateway.resolveCompositeRouteDecision(ctx, group, model, CompositeRouteEndpointAny)
@@ -620,7 +623,24 @@ func (r *gatewayPelicanGroupRouter) route(ctx context.Context, group *Group, mod
 	if err != nil {
 		return nil, err
 	}
-	return &pelicanGroupRoute{account: selection.Account, model: upstreamModel, release: release}, nil
+	admissionCtx := ContextWithSelectionProfitGate(ctx, selection)
+	var latest *Account
+	var vetoed bool
+	if isOpenAIResponsesGatewayPlatform(platform) {
+		latest, vetoed, _ = r.openai.ProfitControlVetoLatest(admissionCtx, selection.Account)
+	} else {
+		latest, vetoed, _ = r.gateway.GatewayProfitControlVetoLatest(admissionCtx, selection.Account)
+	}
+	if vetoed {
+		release()
+		nextExcluded := make(map[int64]struct{}, len(excluded)+1)
+		for id := range excluded {
+			nextExcluded[id] = struct{}{}
+		}
+		nextExcluded[selection.Account.ID] = struct{}{}
+		return r.route(ctx, group, model, nextExcluded)
+	}
+	return &pelicanGroupRoute{account: latest, model: upstreamModel, release: release}, nil
 }
 
 // holdSlot returns the slot the scheduler acquired, or waits for one like a queued user

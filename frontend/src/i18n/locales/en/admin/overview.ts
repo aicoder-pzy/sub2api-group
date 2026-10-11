@@ -1135,6 +1135,13 @@ export default {
         peakMultiplier: 'Peak multiplier',
         multiplierHint: 'Applies to token billing multiplier; image tokens in token billing are also affected. 0 means peak token requests are billed at 0x.'
       },
+      accountRateLimit: {
+        status: 'Multiplier {rate}; must be below {limit}',
+        enable: 'Enable account rate limit protection',
+        multiplier: 'Account multiplier upper limit (exclusive)',
+        hint: 'Uses the current upstream probe rate, or the manual rate when probing is unsupported. Rates at or above the limit pause selection in this group; qualifying periodic probes restore eligibility. The current request may finish; later requests are checked again and switch accounts.',
+        invalidMultiplier: 'The multiplier limit must be between 0.0001 and 999999.9999'
+      },
       profitControl: {
         enable: 'Enable profit control',
         enabledHint: 'Scheduling only admits accounts whose account multiplier ≤ the request\'s effective downstream multiplier × (1 − min margin − safety buffer). Account multipliers may be maintained manually or synchronized from probes; existing ordering, stickiness and breakers keep working among qualified accounts. Image/video scheduling is not covered yet.',

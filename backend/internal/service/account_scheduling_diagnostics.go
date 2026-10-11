@@ -10,22 +10,24 @@ import (
 )
 
 type SchedulingCandidateStatus struct {
-	AccountID           int64      `json:"account_id"`
-	Name                string     `json:"name"`
-	Current             bool       `json:"current"`
-	Eligible            bool       `json:"eligible"`
-	Rank                int        `json:"rank"`
-	Confidence          string     `json:"confidence"`
-	Samples             int64      `json:"samples"`
-	SuccessRate         *float64   `json:"success_rate"`
-	RecentFailures      int64      `json:"recent_failures"`
-	LastSuccessAt       *time.Time `json:"last_success_at"`
-	LastFailureAt       *time.Time `json:"last_failure_at"`
-	CooldownSeconds     int64      `json:"cooldown_seconds"`
-	Reason              string     `json:"reason,omitempty"`
-	IntelligenceVerdict string     `json:"intelligence_verdict,omitempty"`
-	IntelligenceReason  string     `json:"intelligence_reason,omitempty"`
-	IntelligenceAt      *time.Time `json:"intelligence_at,omitempty"`
+	AccountID             int64      `json:"account_id"`
+	Name                  string     `json:"name"`
+	Current               bool       `json:"current"`
+	Eligible              bool       `json:"eligible"`
+	Rank                  int        `json:"rank"`
+	Confidence            string     `json:"confidence"`
+	Samples               int64      `json:"samples"`
+	SuccessRate           *float64   `json:"success_rate"`
+	RecentFailures        int64      `json:"recent_failures"`
+	LastSuccessAt         *time.Time `json:"last_success_at"`
+	LastFailureAt         *time.Time `json:"last_failure_at"`
+	CooldownSeconds       int64      `json:"cooldown_seconds"`
+	AccountRateMultiplier *float64   `json:"account_rate_multiplier,omitempty"`
+	AccountRateLimit      *float64   `json:"account_rate_limit,omitempty"`
+	Reason                string     `json:"reason,omitempty"`
+	IntelligenceVerdict   string     `json:"intelligence_verdict,omitempty"`
+	IntelligenceReason    string     `json:"intelligence_reason,omitempty"`
+	IntelligenceAt        *time.Time `json:"intelligence_at,omitempty"`
 }
 
 type GroupSchedulingStatus struct {
@@ -87,6 +89,10 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 			rate := 1 - sample.failureRate()
 			status.SuccessRate = &rate
 		}
+		status.AccountRateLimit = groupAccountRateLimit(group)
+		if rate, ok := accountRateForLimit(account, time.Now()); ok {
+			status.AccountRateMultiplier = &rate
+		}
 		remaining := account.GetModelRateLimitRemainingTimeWithContext(ctx, upstreamModel)
 		for _, until := range []*time.Time{account.RateLimitResetAt, account.OverloadUntil, account.TempUnschedulableUntil} {
 			if until != nil && time.Until(*until) > remaining {
@@ -108,6 +114,9 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 			status.Reason = "unavailable"
 			if status.CooldownSeconds > 0 {
 				status.Reason = "cooldown"
+			}
+			if vetoed, reason := accountRateLimitVeto(status.AccountRateLimit, account, time.Now()); vetoed {
+				status.Reason = reason
 			}
 			if account.Status != StatusActive || !account.Schedulable {
 				status.Reason = "paused"

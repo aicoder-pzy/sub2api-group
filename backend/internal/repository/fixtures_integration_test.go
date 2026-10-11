@@ -94,6 +94,8 @@ func mustCreateGroup(t *testing.T, client *dbent.Client, g *service.Group) *serv
 		SetFreeOpenaiFast(g.FreeOpenAIFast).
 		SetModelAllowlist(service.DomainGroupModelAllowlist(g.ModelAllowlist)).
 		SetCodexModelsManifestConfig(g.CodexModelsManifestConfig).
+		SetAccountRateLimitEnabled(g.AccountRateLimitEnabled).
+		SetAccountRateLimitMultiplier(g.AccountRateLimitMultiplier).
 		SetProfitControlEnabled(g.ProfitControlEnabled).
 		SetProfitMinMargin(g.ProfitMinMargin).
 		SetProfitSafetyBuffer(g.ProfitSafetyBuffer)

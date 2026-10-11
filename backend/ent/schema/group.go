@@ -295,6 +295,11 @@ func (Group) Fields() []ent.Field {
 
 		// 分组利润控制（migration 192/193）：openai/anthropic/gemini/grok/antigravity
 		// 的 token 分组可启用，composite 分组不能直接启用。
+		field.Bool("account_rate_limit_enabled").Default(false),
+		field.Float("account_rate_limit_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(0.21),
+
 		field.Bool("profit_control_enabled").
 			Default(false).
 			Comment("是否启用利润控制：调度时仅允许账号计费倍率满足毛利率要求的账号进入候选池"),

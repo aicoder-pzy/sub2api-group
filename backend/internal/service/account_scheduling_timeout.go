@@ -242,6 +242,9 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 			Kind: string(failoverErr.Reason), Scope: "request", Reason: string(failoverErr.Reason), Message: "Request retry budget reached"})
 		return forwardErr
 	}
+	if errors.As(forwardErr, &failoverErr) && (failoverErr.Reason == accountRateLimitExceeded || failoverErr.Reason == accountRateLimitUnknown) {
+		return forwardErr
+	}
 	upstreamTimeout := errors.As(forwardErr, &failoverErr) && (failoverErr.StatusCode == http.StatusGatewayTimeout || failoverErr.StatusCode == http.StatusRequestTimeout)
 	if !timedOut && (ctx.Err() != nil || (!upstreamTimeout && !errors.Is(forwardErr, context.DeadlineExceeded))) {
 		return forwardErr
@@ -281,6 +284,9 @@ func doFastestFailoverUpstream(upstream HTTPUpstream, request *http.Request, pro
 	attempt := fastestFailoverAttemptFromContext(request.Context())
 	if attempt != nil {
 		request = request.WithContext(attempt.bind(request.Context()))
+	}
+	if err := checkAccountRateLimitLatest(request.Context(), accountID); err != nil {
+		return nil, err
 	}
 	var response *http.Response
 	var err error

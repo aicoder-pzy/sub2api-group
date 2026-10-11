@@ -1132,6 +1132,13 @@ export default {
         peakMultiplier: '高峰倍率',
         multiplierHint: '作用于 token 计费倍率；token 计费的图片 token 同样适用，0 表示高峰 token 请求按 0 倍计费'
       },
+      accountRateLimit: {
+        status: '倍率 {rate}，需小于 {limit}',
+        enable: '启用账号倍率上限保护',
+        multiplier: '账号倍率上限（必须严格低于）',
+        hint: '优先采用上游探测的当前倍率，不支持探测时采用手工倍率。等于或超过上限时暂停在本分组选号，定时探测合格后恢复。当前请求允许完成，后续请求重新检查并切换。',
+        invalidMultiplier: '倍率上限须在 0.0001 至 999999.9999 之间'
+      },
       profitControl: {
         enable: '启用利润控制',
         enabledHint: '调度时仅允许"账号倍率 ≤ 请求实际下游倍率 ×（1 − 最低毛利率 − 安全缓冲）"的账号进入候选池；账号倍率可手工维护或由探测同步，既有排序、粘性与熔断在合格账号间照常工作。图片/视频调度暂不参与。',

@@ -878,6 +878,34 @@ func (_c *GroupCreate) SetReasoningEffortMappings(v []domain.ReasoningEffortMapp
 	return _c
 }
 
+// SetAccountRateLimitEnabled sets the "account_rate_limit_enabled" field.
+func (_c *GroupCreate) SetAccountRateLimitEnabled(v bool) *GroupCreate {
+	_c.mutation.SetAccountRateLimitEnabled(v)
+	return _c
+}
+
+// SetNillableAccountRateLimitEnabled sets the "account_rate_limit_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAccountRateLimitEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetAccountRateLimitEnabled(*v)
+	}
+	return _c
+}
+
+// SetAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field.
+func (_c *GroupCreate) SetAccountRateLimitMultiplier(v float64) *GroupCreate {
+	_c.mutation.SetAccountRateLimitMultiplier(v)
+	return _c
+}
+
+// SetNillableAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAccountRateLimitMultiplier(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetAccountRateLimitMultiplier(*v)
+	}
+	return _c
+}
+
 // SetProfitControlEnabled sets the "profit_control_enabled" field.
 func (_c *GroupCreate) SetProfitControlEnabled(v bool) *GroupCreate {
 	_c.mutation.SetProfitControlEnabled(v)
@@ -1217,6 +1245,14 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultReasoningEffortMappings
 		_c.mutation.SetReasoningEffortMappings(v)
 	}
+	if _, ok := _c.mutation.AccountRateLimitEnabled(); !ok {
+		v := group.DefaultAccountRateLimitEnabled
+		_c.mutation.SetAccountRateLimitEnabled(v)
+	}
+	if _, ok := _c.mutation.AccountRateLimitMultiplier(); !ok {
+		v := group.DefaultAccountRateLimitMultiplier
+		_c.mutation.SetAccountRateLimitMultiplier(v)
+	}
 	if _, ok := _c.mutation.ProfitControlEnabled(); !ok {
 		v := group.DefaultProfitControlEnabled
 		_c.mutation.SetProfitControlEnabled(v)
@@ -1434,6 +1470,12 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.ReasoningEffortMappings(); !ok {
 		return &ValidationError{Name: "reasoning_effort_mappings", err: errors.New(`ent: missing required field "Group.reasoning_effort_mappings"`)}
+	}
+	if _, ok := _c.mutation.AccountRateLimitEnabled(); !ok {
+		return &ValidationError{Name: "account_rate_limit_enabled", err: errors.New(`ent: missing required field "Group.account_rate_limit_enabled"`)}
+	}
+	if _, ok := _c.mutation.AccountRateLimitMultiplier(); !ok {
+		return &ValidationError{Name: "account_rate_limit_multiplier", err: errors.New(`ent: missing required field "Group.account_rate_limit_multiplier"`)}
 	}
 	if _, ok := _c.mutation.ProfitControlEnabled(); !ok {
 		return &ValidationError{Name: "profit_control_enabled", err: errors.New(`ent: missing required field "Group.profit_control_enabled"`)}
@@ -1726,6 +1768,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ReasoningEffortMappings(); ok {
 		_spec.SetField(group.FieldReasoningEffortMappings, field.TypeJSON, value)
 		_node.ReasoningEffortMappings = value
+	}
+	if value, ok := _c.mutation.AccountRateLimitEnabled(); ok {
+		_spec.SetField(group.FieldAccountRateLimitEnabled, field.TypeBool, value)
+		_node.AccountRateLimitEnabled = value
+	}
+	if value, ok := _c.mutation.AccountRateLimitMultiplier(); ok {
+		_spec.SetField(group.FieldAccountRateLimitMultiplier, field.TypeFloat64, value)
+		_node.AccountRateLimitMultiplier = value
 	}
 	if value, ok := _c.mutation.ProfitControlEnabled(); ok {
 		_spec.SetField(group.FieldProfitControlEnabled, field.TypeBool, value)
@@ -2912,6 +2962,36 @@ func (u *GroupUpsert) SetReasoningEffortMappings(v []domain.ReasoningEffortMappi
 // UpdateReasoningEffortMappings sets the "reasoning_effort_mappings" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateReasoningEffortMappings() *GroupUpsert {
 	u.SetExcluded(group.FieldReasoningEffortMappings)
+	return u
+}
+
+// SetAccountRateLimitEnabled sets the "account_rate_limit_enabled" field.
+func (u *GroupUpsert) SetAccountRateLimitEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldAccountRateLimitEnabled, v)
+	return u
+}
+
+// UpdateAccountRateLimitEnabled sets the "account_rate_limit_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAccountRateLimitEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldAccountRateLimitEnabled)
+	return u
+}
+
+// SetAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field.
+func (u *GroupUpsert) SetAccountRateLimitMultiplier(v float64) *GroupUpsert {
+	u.Set(group.FieldAccountRateLimitMultiplier, v)
+	return u
+}
+
+// UpdateAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAccountRateLimitMultiplier() *GroupUpsert {
+	u.SetExcluded(group.FieldAccountRateLimitMultiplier)
+	return u
+}
+
+// AddAccountRateLimitMultiplier adds v to the "account_rate_limit_multiplier" field.
+func (u *GroupUpsert) AddAccountRateLimitMultiplier(v float64) *GroupUpsert {
+	u.Add(group.FieldAccountRateLimitMultiplier, v)
 	return u
 }
 
@@ -4198,6 +4278,41 @@ func (u *GroupUpsertOne) SetReasoningEffortMappings(v []domain.ReasoningEffortMa
 func (u *GroupUpsertOne) UpdateReasoningEffortMappings() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateReasoningEffortMappings()
+	})
+}
+
+// SetAccountRateLimitEnabled sets the "account_rate_limit_enabled" field.
+func (u *GroupUpsertOne) SetAccountRateLimitEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountRateLimitEnabled(v)
+	})
+}
+
+// UpdateAccountRateLimitEnabled sets the "account_rate_limit_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAccountRateLimitEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountRateLimitEnabled()
+	})
+}
+
+// SetAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field.
+func (u *GroupUpsertOne) SetAccountRateLimitMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountRateLimitMultiplier(v)
+	})
+}
+
+// AddAccountRateLimitMultiplier adds v to the "account_rate_limit_multiplier" field.
+func (u *GroupUpsertOne) AddAccountRateLimitMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddAccountRateLimitMultiplier(v)
+	})
+}
+
+// UpdateAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAccountRateLimitMultiplier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountRateLimitMultiplier()
 	})
 }
 
@@ -5658,6 +5773,41 @@ func (u *GroupUpsertBulk) SetReasoningEffortMappings(v []domain.ReasoningEffortM
 func (u *GroupUpsertBulk) UpdateReasoningEffortMappings() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateReasoningEffortMappings()
+	})
+}
+
+// SetAccountRateLimitEnabled sets the "account_rate_limit_enabled" field.
+func (u *GroupUpsertBulk) SetAccountRateLimitEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountRateLimitEnabled(v)
+	})
+}
+
+// UpdateAccountRateLimitEnabled sets the "account_rate_limit_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAccountRateLimitEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountRateLimitEnabled()
+	})
+}
+
+// SetAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field.
+func (u *GroupUpsertBulk) SetAccountRateLimitMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountRateLimitMultiplier(v)
+	})
+}
+
+// AddAccountRateLimitMultiplier adds v to the "account_rate_limit_multiplier" field.
+func (u *GroupUpsertBulk) AddAccountRateLimitMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddAccountRateLimitMultiplier(v)
+	})
+}
+
+// UpdateAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAccountRateLimitMultiplier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountRateLimitMultiplier()
 	})
 }
 

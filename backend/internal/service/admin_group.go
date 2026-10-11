@@ -489,6 +489,13 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		return nil, infraerrors.BadRequest("INVALID_PEAK_RATE_CONFIG", err.Error())
 	}
 
+	accountRateLimit := 0.21
+	if input.AccountRateLimitMultiplier != nil {
+		accountRateLimit = *input.AccountRateLimitMultiplier
+	}
+	if err := ValidateAccountRateLimitConfig(platform, input.AccountRateLimitEnabled, accountRateLimit); err != nil {
+		return nil, err
+	}
 	profitMinMargin := 0.0
 	if input.ProfitMinMargin != nil {
 		profitMinMargin = *input.ProfitMinMargin
@@ -593,6 +600,8 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		PeakStart:                       peakStart,
 		PeakEnd:                         peakEnd,
 		PeakRateMultiplier:              peakRateMultiplier,
+		AccountRateLimitEnabled:         input.AccountRateLimitEnabled,
+		AccountRateLimitMultiplier:      accountRateLimit,
 		ProfitControlEnabled:            profitControlEnabled,
 		ProfitMinMargin:                 profitMinMargin,
 		ProfitSafetyBuffer:              profitSafetyBuffer,
@@ -893,6 +902,18 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	group.PeakRateEnabled, group.PeakStart, group.PeakEnd, group.PeakRateMultiplier = NormalizePeakRateConfig(group.SubscriptionType, group.PeakRateEnabled, group.PeakStart, group.PeakEnd, group.PeakRateMultiplier)
 	if err := ValidatePeakRateConfig(group.SubscriptionType, group.PeakRateEnabled, group.PeakStart, group.PeakEnd, group.PeakRateMultiplier); err != nil {
 		return nil, infraerrors.BadRequest("INVALID_PEAK_RATE_CONFIG", err.Error())
+	}
+	if input.AccountRateLimitEnabled != nil {
+		group.AccountRateLimitEnabled = *input.AccountRateLimitEnabled
+	}
+	if input.AccountRateLimitMultiplier != nil {
+		group.AccountRateLimitMultiplier = *input.AccountRateLimitMultiplier
+	}
+	if !profitControlPlatformSupported(group.Platform) {
+		group.AccountRateLimitEnabled = false
+	}
+	if err := ValidateAccountRateLimitConfig(group.Platform, group.AccountRateLimitEnabled, group.AccountRateLimitMultiplier); err != nil {
+		return nil, err
 	}
 	if input.ProfitControlEnabled != nil {
 		group.ProfitControlEnabled = *input.ProfitControlEnabled

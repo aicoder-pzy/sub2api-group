@@ -176,6 +176,7 @@ export default {
         title: '调度状态', model: '模型', current: '当前渠道', unbound: '尚未绑定',
         order: '候选顺序', evidence: '样本可信度', successRate: '完整成功率', recentFailures: '近 15 分钟故障',
         lastFailure: '最近故障', cooldown: '剩余冷却', measured: '样本充足', limited: '样本不足', unknown: '未知', degraded: '近期不稳定',
+        account_rate_limit_exceeded: '账号倍率达到或超过上限', account_rate_limit_unknown: '账号倍率未知或探测结果已过期',
         unavailable: '当前不可用', paused: '暂停或停用',
         initial_selection: '首次完整成功绑定', confirmed_failover: '故障后完整成功接管', manual_refresh: '手动更新调度'
       },

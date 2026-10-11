@@ -12,6 +12,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestListDueUpstreamBillingProbeAccountsIncludesProtectedGroup(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	_, err := tx.ExecContext(ctx, `UPDATE accounts SET extra = '{}'::jsonb`)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `UPDATE groups SET account_rate_limit_enabled = false`)
+	require.NoError(t, err)
+	group := mustCreateGroup(t, tx.Client(), &service.Group{
+		Name: "rate-limit-probe-protected", Platform: service.PlatformOpenAI, RateMultiplier: 1,
+		AccountRateLimitEnabled: true, AccountRateLimitMultiplier: 0.21,
+	})
+	var accountID int64
+	err = scanSingleRow(ctx, tx, `
+		INSERT INTO accounts (name, platform, type, status, schedulable, extra)
+		VALUES ('rate-limit-probe-frozen', 'openai', 'apikey', 'active', false, '{}'::jsonb)
+		RETURNING id`, nil, &accountID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `INSERT INTO account_groups (account_id, group_id) VALUES ($1, $2)`, accountID, group.ID)
+	require.NoError(t, err)
+	accounts, err := repo.ListDueUpstreamBillingProbeAccounts(ctx, time.Now(), 20)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1, "protection enables probes even when the account toggle is off")
+	require.Equal(t, accountID, accounts[0].ID)
+	require.False(t, accounts[0].Schedulable, "manual pauses must not stop recovery probes or be changed by protection")
+	require.Len(t, accounts[0].Groups, 1)
+	require.True(t, accounts[0].Groups[0].AccountRateLimitEnabled, "probe workers receive hydrated protection settings")
+	_, err = tx.ExecContext(ctx, `UPDATE groups SET account_rate_limit_enabled = false WHERE id = $1`, group.ID)
+	require.NoError(t, err)
+	accounts, err = repo.ListDueUpstreamBillingProbeAccounts(ctx, time.Now(), 20)
+	require.NoError(t, err)
+	require.Empty(t, accounts)
+}
+
 func TestListDueUpstreamBillingProbeAccountsHandlesInvalidCalendarDate(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)

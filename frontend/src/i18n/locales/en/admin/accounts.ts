@@ -176,6 +176,7 @@ export default {
         title: 'Scheduling status', model: 'Model', current: 'Current channel', unbound: 'Unbound',
         order: 'Candidate order', evidence: 'Sample confidence', successRate: 'Complete success rate', recentFailures: 'Failures in 15 minutes',
         lastFailure: 'Last failure', cooldown: 'Remaining cooldown', measured: 'Sufficient samples', limited: 'Limited samples', unknown: 'Unknown', degraded: 'Recently unstable',
+        account_rate_limit_exceeded: 'Multiplier limit exceeded; scheduling frozen', account_rate_limit_unknown: 'Current multiplier unavailable; scheduling frozen',
         unavailable: 'Currently unavailable', paused: 'Paused or disabled',
         initial_selection: 'First completed binding', confirmed_failover: 'Confirmed failover', manual_refresh: 'Manual scheduling update'
       },

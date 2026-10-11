@@ -1176,6 +1176,41 @@ func (_u *GroupUpdate) AppendReasoningEffortMappings(v []domain.ReasoningEffortM
 	return _u
 }
 
+// SetAccountRateLimitEnabled sets the "account_rate_limit_enabled" field.
+func (_u *GroupUpdate) SetAccountRateLimitEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetAccountRateLimitEnabled(v)
+	return _u
+}
+
+// SetNillableAccountRateLimitEnabled sets the "account_rate_limit_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableAccountRateLimitEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetAccountRateLimitEnabled(*v)
+	}
+	return _u
+}
+
+// SetAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field.
+func (_u *GroupUpdate) SetAccountRateLimitMultiplier(v float64) *GroupUpdate {
+	_u.mutation.ResetAccountRateLimitMultiplier()
+	_u.mutation.SetAccountRateLimitMultiplier(v)
+	return _u
+}
+
+// SetNillableAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableAccountRateLimitMultiplier(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetAccountRateLimitMultiplier(*v)
+	}
+	return _u
+}
+
+// AddAccountRateLimitMultiplier adds value to the "account_rate_limit_multiplier" field.
+func (_u *GroupUpdate) AddAccountRateLimitMultiplier(v float64) *GroupUpdate {
+	_u.mutation.AddAccountRateLimitMultiplier(v)
+	return _u
+}
+
 // SetProfitControlEnabled sets the "profit_control_enabled" field.
 func (_u *GroupUpdate) SetProfitControlEnabled(v bool) *GroupUpdate {
 	_u.mutation.SetProfitControlEnabled(v)
@@ -1923,6 +1958,15 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, group.FieldReasoningEffortMappings, value)
 		})
+	}
+	if value, ok := _u.mutation.AccountRateLimitEnabled(); ok {
+		_spec.SetField(group.FieldAccountRateLimitEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AccountRateLimitMultiplier(); ok {
+		_spec.SetField(group.FieldAccountRateLimitMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedAccountRateLimitMultiplier(); ok {
+		_spec.AddField(group.FieldAccountRateLimitMultiplier, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.ProfitControlEnabled(); ok {
 		_spec.SetField(group.FieldProfitControlEnabled, field.TypeBool, value)
@@ -3392,6 +3436,41 @@ func (_u *GroupUpdateOne) AppendReasoningEffortMappings(v []domain.ReasoningEffo
 	return _u
 }
 
+// SetAccountRateLimitEnabled sets the "account_rate_limit_enabled" field.
+func (_u *GroupUpdateOne) SetAccountRateLimitEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetAccountRateLimitEnabled(v)
+	return _u
+}
+
+// SetNillableAccountRateLimitEnabled sets the "account_rate_limit_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableAccountRateLimitEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetAccountRateLimitEnabled(*v)
+	}
+	return _u
+}
+
+// SetAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field.
+func (_u *GroupUpdateOne) SetAccountRateLimitMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.ResetAccountRateLimitMultiplier()
+	_u.mutation.SetAccountRateLimitMultiplier(v)
+	return _u
+}
+
+// SetNillableAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableAccountRateLimitMultiplier(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetAccountRateLimitMultiplier(*v)
+	}
+	return _u
+}
+
+// AddAccountRateLimitMultiplier adds value to the "account_rate_limit_multiplier" field.
+func (_u *GroupUpdateOne) AddAccountRateLimitMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.AddAccountRateLimitMultiplier(v)
+	return _u
+}
+
 // SetProfitControlEnabled sets the "profit_control_enabled" field.
 func (_u *GroupUpdateOne) SetProfitControlEnabled(v bool) *GroupUpdateOne {
 	_u.mutation.SetProfitControlEnabled(v)
@@ -4169,6 +4248,15 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, group.FieldReasoningEffortMappings, value)
 		})
+	}
+	if value, ok := _u.mutation.AccountRateLimitEnabled(); ok {
+		_spec.SetField(group.FieldAccountRateLimitEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AccountRateLimitMultiplier(); ok {
+		_spec.SetField(group.FieldAccountRateLimitMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedAccountRateLimitMultiplier(); ok {
+		_spec.AddField(group.FieldAccountRateLimitMultiplier, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.ProfitControlEnabled(); ok {
 		_spec.SetField(group.FieldProfitControlEnabled, field.TypeBool, value)

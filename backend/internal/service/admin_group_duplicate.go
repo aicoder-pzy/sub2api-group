@@ -103,6 +103,8 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		PeakStart:                       source.PeakStart,
 		PeakEnd:                         source.PeakEnd,
 		PeakRateMultiplier:              source.PeakRateMultiplier,
+		AccountRateLimitEnabled:         source.AccountRateLimitEnabled,
+		AccountRateLimitMultiplier:      source.AccountRateLimitMultiplier,
 		ProfitControlEnabled:            source.ProfitControlEnabled,
 		ProfitMinMargin:                 source.ProfitMinMargin,
 		ProfitSafetyBuffer:              source.ProfitSafetyBuffer,

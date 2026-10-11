@@ -18,6 +18,8 @@ export interface SchedulingCandidateStatus {
   last_success_at: string | null
   last_failure_at: string | null
   cooldown_seconds: number
+  account_rate_multiplier?: number
+  account_rate_limit?: number
   reason?: string
   intelligence_verdict?: 'normal' | 'degraded' | 'unknown'
   intelligence_reason?: string

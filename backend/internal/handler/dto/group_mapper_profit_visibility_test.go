@@ -14,18 +14,22 @@ var profitControlJSONFields = []string{
 	"profit_control_enabled",
 	"profit_min_margin",
 	"profit_safety_buffer",
+	"account_rate_limit_enabled",
+	"account_rate_limit_multiplier",
 }
 
 func profitControlServiceGroup() *service.Group {
 	return &service.Group{
-		ID:                   7,
-		Name:                 "profit-gated",
-		Platform:             service.PlatformAnthropic,
-		RateMultiplier:       2.0,
-		Status:               service.StatusActive,
-		ProfitControlEnabled: true,
-		ProfitMinMargin:      0.3,
-		ProfitSafetyBuffer:   0.05,
+		ID:                         7,
+		Name:                       "profit-gated",
+		Platform:                   service.PlatformAnthropic,
+		RateMultiplier:             2.0,
+		Status:                     service.StatusActive,
+		ProfitControlEnabled:       true,
+		ProfitMinMargin:            0.3,
+		ProfitSafetyBuffer:         0.05,
+		AccountRateLimitEnabled:    true,
+		AccountRateLimitMultiplier: 0.21,
 	}
 }
 
@@ -63,6 +67,9 @@ func TestGroupFromServiceOmitsProfitControl(t *testing.T) {
 // TestGroupFromServiceAdminIncludesProfitControl 钉死管理端仍能读写利润控制配置。
 func TestGroupFromServiceAdminIncludesProfitControl(t *testing.T) {
 	admin := GroupFromServiceAdmin(profitControlServiceGroup())
+	if !admin.AccountRateLimitEnabled || admin.AccountRateLimitMultiplier != 0.21 {
+		t.Fatalf("admin DTO did not preserve account multiplier protection: %+v", admin)
+	}
 	if admin.ProfitControlEnabled != true || admin.ProfitMinMargin != 0.3 || admin.ProfitSafetyBuffer != 0.05 {
 		t.Fatalf("管理员 DTO 未透传利润控制配置: %+v", admin)
 	}

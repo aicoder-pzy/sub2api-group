@@ -170,6 +170,9 @@ func (s *AntigravityGatewayService) forwardAntigravityCompat(
 	account *Account,
 	request antigravityCompatRequest,
 ) (*ForwardResult, error) {
+	if err := checkAccountRateLimitLatest(ctx, account.ID); err != nil {
+		return nil, err
+	}
 	beginUpstreamResponseModelObservation(c)
 	call, err := s.prepareAntigravityCompatCall(ctx, c, account, request)
 	if err != nil {

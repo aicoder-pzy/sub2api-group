@@ -124,7 +124,9 @@ type openAIProfitControlGate struct {
 	// threshold = D(pricingAt) × (1 − margin − buffer)，账号倍率必须 <= 它。
 	threshold float64
 	// pricingAt 是本请求的统一定价时刻（D 侧）。
-	pricingAt time.Time
+	pricingAt        time.Time
+	accountRateLimit *float64
+	readAccount      accountRateLimitReader
 }
 
 // WithOpenAIRequestPricingContext 在请求开始处装配请求级定价上下文：固定
@@ -236,7 +238,7 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 		}
 		group = loaded
 	}
-	if group == nil || !group.ProfitControlEnabled ||
+	if group == nil || (!group.ProfitControlEnabled && !group.AccountRateLimitEnabled) ||
 		(group.Platform != PlatformOpenAI && group.Platform != PlatformGrok) {
 		return nil
 	}
@@ -260,12 +262,17 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 	downstream *= billingGroup.PeakMultiplierAt(pricingAt)
 
 	deduction := group.ProfitMinMargin + group.ProfitSafetyBuffer
-	threshold := clampProfitControlThreshold(downstream * (1 - deduction))
+	threshold := math.Inf(1)
+	if group.ProfitControlEnabled {
+		threshold = clampProfitControlThreshold(downstream * (1 - deduction))
+	}
 	return &openAIProfitControlGate{
-		groupID:   *groupID,
-		platform:  group.Platform,
-		threshold: threshold,
-		pricingAt: pricingAt,
+		groupID:          *groupID,
+		platform:         group.Platform,
+		threshold:        threshold,
+		pricingAt:        pricingAt,
+		accountRateLimit: groupAccountRateLimit(group),
+		readAccount:      rateLimitAccountReader(s.schedulerSnapshot, s.accountRepo),
 	}
 }
 
@@ -302,6 +309,12 @@ func ContextWithSelectionProfitGate(ctx context.Context, sel *AccountSelectionRe
 func openAIProfitControlVetoReason(ctx context.Context, account *Account) (bool, string) {
 	gate, _ := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
 	if gate == nil || account == nil {
+		return false, ""
+	}
+	if vetoed, reason := accountRateLimitVeto(gate.accountRateLimit, account, time.Now()); vetoed {
+		return true, reason
+	}
+	if math.IsInf(gate.threshold, 1) {
 		return false, ""
 	}
 	if account.RateMultiplier == nil ||

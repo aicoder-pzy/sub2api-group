@@ -335,6 +335,16 @@ func MaxReasoningEffortOverLimit(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldMaxReasoningEffortOverLimit, v))
 }
 
+// AccountRateLimitEnabled applies equality check predicate on the "account_rate_limit_enabled" field. It's identical to AccountRateLimitEnabledEQ.
+func AccountRateLimitEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountRateLimitEnabled, v))
+}
+
+// AccountRateLimitMultiplier applies equality check predicate on the "account_rate_limit_multiplier" field. It's identical to AccountRateLimitMultiplierEQ.
+func AccountRateLimitMultiplier(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountRateLimitMultiplier, v))
+}
+
 // ProfitControlEnabled applies equality check predicate on the "profit_control_enabled" field. It's identical to ProfitControlEnabledEQ.
 func ProfitControlEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldProfitControlEnabled, v))
@@ -2628,6 +2638,56 @@ func MaxReasoningEffortOverLimitEqualFold(v string) predicate.Group {
 // MaxReasoningEffortOverLimitContainsFold applies the ContainsFold predicate on the "max_reasoning_effort_over_limit" field.
 func MaxReasoningEffortOverLimitContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldMaxReasoningEffortOverLimit, v))
+}
+
+// AccountRateLimitEnabledEQ applies the EQ predicate on the "account_rate_limit_enabled" field.
+func AccountRateLimitEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountRateLimitEnabled, v))
+}
+
+// AccountRateLimitEnabledNEQ applies the NEQ predicate on the "account_rate_limit_enabled" field.
+func AccountRateLimitEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldAccountRateLimitEnabled, v))
+}
+
+// AccountRateLimitMultiplierEQ applies the EQ predicate on the "account_rate_limit_multiplier" field.
+func AccountRateLimitMultiplierEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountRateLimitMultiplier, v))
+}
+
+// AccountRateLimitMultiplierNEQ applies the NEQ predicate on the "account_rate_limit_multiplier" field.
+func AccountRateLimitMultiplierNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldAccountRateLimitMultiplier, v))
+}
+
+// AccountRateLimitMultiplierIn applies the In predicate on the "account_rate_limit_multiplier" field.
+func AccountRateLimitMultiplierIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldAccountRateLimitMultiplier, vs...))
+}
+
+// AccountRateLimitMultiplierNotIn applies the NotIn predicate on the "account_rate_limit_multiplier" field.
+func AccountRateLimitMultiplierNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldAccountRateLimitMultiplier, vs...))
+}
+
+// AccountRateLimitMultiplierGT applies the GT predicate on the "account_rate_limit_multiplier" field.
+func AccountRateLimitMultiplierGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldAccountRateLimitMultiplier, v))
+}
+
+// AccountRateLimitMultiplierGTE applies the GTE predicate on the "account_rate_limit_multiplier" field.
+func AccountRateLimitMultiplierGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldAccountRateLimitMultiplier, v))
+}
+
+// AccountRateLimitMultiplierLT applies the LT predicate on the "account_rate_limit_multiplier" field.
+func AccountRateLimitMultiplierLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldAccountRateLimitMultiplier, v))
+}
+
+// AccountRateLimitMultiplierLTE applies the LTE predicate on the "account_rate_limit_multiplier" field.
+func AccountRateLimitMultiplierLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldAccountRateLimitMultiplier, v))
 }
 
 // ProfitControlEnabledEQ applies the EQ predicate on the "profit_control_enabled" field.

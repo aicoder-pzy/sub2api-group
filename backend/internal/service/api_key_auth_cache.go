@@ -138,9 +138,11 @@ type APIKeyAuthGroupSnapshot struct {
 	// 不一致时才回源 schedulerSnapshot。
 	// 因此这三个字段与 GetByKeyForAuth 的投影都不得删减：漏掉任何一个，
 	// 门会拿到零值 ProfitControlEnabled=false 而静默失效（有集成测试兜底）。
-	ProfitControlEnabled bool    `json:"profit_control_enabled"`
-	ProfitMinMargin      float64 `json:"profit_min_margin"`
-	ProfitSafetyBuffer   float64 `json:"profit_safety_buffer"`
+	AccountRateLimitEnabled    bool    `json:"account_rate_limit_enabled"`
+	AccountRateLimitMultiplier float64 `json:"account_rate_limit_multiplier"`
+	ProfitControlEnabled       bool    `json:"profit_control_enabled"`
+	ProfitMinMargin            float64 `json:"profit_min_margin"`
+	ProfitSafetyBuffer         float64 `json:"profit_safety_buffer"`
 }
 
 // APIKeyAuthCacheEntry 缓存条目，支持负缓存

@@ -29,17 +29,19 @@ func profitAuthTestAPIKey() *APIKey {
 			Concurrency: 5,
 		},
 		Group: &Group{
-			ID:                   groupID,
-			Name:                 "VIP-roundtrip",
-			Platform:             PlatformOpenAI,
-			Status:               StatusActive,
-			Hydrated:             true,
-			RateMultiplier:       0.06,
-			SubscriptionType:     SubscriptionTypeStandard,
-			PeakRateEnabled:      false,
-			ProfitControlEnabled: true,
-			ProfitMinMargin:      0.2,
-			ProfitSafetyBuffer:   0.05,
+			ID:                         groupID,
+			Name:                       "VIP-roundtrip",
+			Platform:                   PlatformOpenAI,
+			Status:                     StatusActive,
+			Hydrated:                   true,
+			RateMultiplier:             0.06,
+			SubscriptionType:           SubscriptionTypeStandard,
+			PeakRateEnabled:            false,
+			AccountRateLimitEnabled:    true,
+			AccountRateLimitMultiplier: 0.21,
+			ProfitControlEnabled:       true,
+			ProfitMinMargin:            0.2,
+			ProfitSafetyBuffer:         0.05,
 		},
 	}
 }
@@ -66,6 +68,8 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	require.True(t, used)
 	require.NotNil(t, materialized.Group)
 	require.True(t, materialized.Group.Hydrated)
+	require.True(t, materialized.Group.AccountRateLimitEnabled)
+	require.InDelta(t, 0.21, materialized.Group.AccountRateLimitMultiplier, 1e-12)
 	require.True(t, materialized.Group.ProfitControlEnabled)
 	require.InDelta(t, 0.2, materialized.Group.ProfitMinMargin, 1e-12)
 	require.InDelta(t, 0.05, materialized.Group.ProfitSafetyBuffer, 1e-12)

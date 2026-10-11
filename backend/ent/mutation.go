@@ -22173,6 +22173,9 @@ type GroupMutation struct {
 	max_reasoning_effort_over_limit         *string
 	reasoning_effort_mappings               *[]domain.ReasoningEffortMapping
 	appendreasoning_effort_mappings         []domain.ReasoningEffortMapping
+	account_rate_limit_enabled              *bool
+	account_rate_limit_multiplier           *float64
+	addaccount_rate_limit_multiplier        *float64
 	profit_control_enabled                  *bool
 	profit_min_margin                       *float64
 	addprofit_min_margin                    *float64
@@ -25452,6 +25455,98 @@ func (m *GroupMutation) ResetReasoningEffortMappings() {
 	m.appendreasoning_effort_mappings = nil
 }
 
+// SetAccountRateLimitEnabled sets the "account_rate_limit_enabled" field.
+func (m *GroupMutation) SetAccountRateLimitEnabled(b bool) {
+	m.account_rate_limit_enabled = &b
+}
+
+// AccountRateLimitEnabled returns the value of the "account_rate_limit_enabled" field in the mutation.
+func (m *GroupMutation) AccountRateLimitEnabled() (r bool, exists bool) {
+	v := m.account_rate_limit_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountRateLimitEnabled returns the old "account_rate_limit_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldAccountRateLimitEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountRateLimitEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountRateLimitEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountRateLimitEnabled: %w", err)
+	}
+	return oldValue.AccountRateLimitEnabled, nil
+}
+
+// ResetAccountRateLimitEnabled resets all changes to the "account_rate_limit_enabled" field.
+func (m *GroupMutation) ResetAccountRateLimitEnabled() {
+	m.account_rate_limit_enabled = nil
+}
+
+// SetAccountRateLimitMultiplier sets the "account_rate_limit_multiplier" field.
+func (m *GroupMutation) SetAccountRateLimitMultiplier(f float64) {
+	m.account_rate_limit_multiplier = &f
+	m.addaccount_rate_limit_multiplier = nil
+}
+
+// AccountRateLimitMultiplier returns the value of the "account_rate_limit_multiplier" field in the mutation.
+func (m *GroupMutation) AccountRateLimitMultiplier() (r float64, exists bool) {
+	v := m.account_rate_limit_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountRateLimitMultiplier returns the old "account_rate_limit_multiplier" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldAccountRateLimitMultiplier(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountRateLimitMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountRateLimitMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountRateLimitMultiplier: %w", err)
+	}
+	return oldValue.AccountRateLimitMultiplier, nil
+}
+
+// AddAccountRateLimitMultiplier adds f to the "account_rate_limit_multiplier" field.
+func (m *GroupMutation) AddAccountRateLimitMultiplier(f float64) {
+	if m.addaccount_rate_limit_multiplier != nil {
+		*m.addaccount_rate_limit_multiplier += f
+	} else {
+		m.addaccount_rate_limit_multiplier = &f
+	}
+}
+
+// AddedAccountRateLimitMultiplier returns the value that was added to the "account_rate_limit_multiplier" field in this mutation.
+func (m *GroupMutation) AddedAccountRateLimitMultiplier() (r float64, exists bool) {
+	v := m.addaccount_rate_limit_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAccountRateLimitMultiplier resets all changes to the "account_rate_limit_multiplier" field.
+func (m *GroupMutation) ResetAccountRateLimitMultiplier() {
+	m.account_rate_limit_multiplier = nil
+	m.addaccount_rate_limit_multiplier = nil
+}
+
 // SetProfitControlEnabled sets the "profit_control_enabled" field.
 func (m *GroupMutation) SetProfitControlEnabled(b bool) {
 	m.profit_control_enabled = &b
@@ -25958,7 +26053,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 67)
+	fields := make([]string, 0, 69)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -26151,6 +26246,12 @@ func (m *GroupMutation) Fields() []string {
 	if m.reasoning_effort_mappings != nil {
 		fields = append(fields, group.FieldReasoningEffortMappings)
 	}
+	if m.account_rate_limit_enabled != nil {
+		fields = append(fields, group.FieldAccountRateLimitEnabled)
+	}
+	if m.account_rate_limit_multiplier != nil {
+		fields = append(fields, group.FieldAccountRateLimitMultiplier)
+	}
 	if m.profit_control_enabled != nil {
 		fields = append(fields, group.FieldProfitControlEnabled)
 	}
@@ -26296,6 +26397,10 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.MaxReasoningEffortOverLimit()
 	case group.FieldReasoningEffortMappings:
 		return m.ReasoningEffortMappings()
+	case group.FieldAccountRateLimitEnabled:
+		return m.AccountRateLimitEnabled()
+	case group.FieldAccountRateLimitMultiplier:
+		return m.AccountRateLimitMultiplier()
 	case group.FieldProfitControlEnabled:
 		return m.ProfitControlEnabled()
 	case group.FieldProfitMinMargin:
@@ -26439,6 +26544,10 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldMaxReasoningEffortOverLimit(ctx)
 	case group.FieldReasoningEffortMappings:
 		return m.OldReasoningEffortMappings(ctx)
+	case group.FieldAccountRateLimitEnabled:
+		return m.OldAccountRateLimitEnabled(ctx)
+	case group.FieldAccountRateLimitMultiplier:
+		return m.OldAccountRateLimitMultiplier(ctx)
 	case group.FieldProfitControlEnabled:
 		return m.OldProfitControlEnabled(ctx)
 	case group.FieldProfitMinMargin:
@@ -26902,6 +27011,20 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetReasoningEffortMappings(v)
 		return nil
+	case group.FieldAccountRateLimitEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountRateLimitEnabled(v)
+		return nil
+	case group.FieldAccountRateLimitMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountRateLimitMultiplier(v)
+		return nil
 	case group.FieldProfitControlEnabled:
 		v, ok := value.(bool)
 		if !ok {
@@ -27006,6 +27129,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addrpm_limit != nil {
 		fields = append(fields, group.FieldRpmLimit)
 	}
+	if m.addaccount_rate_limit_multiplier != nil {
+		fields = append(fields, group.FieldAccountRateLimitMultiplier)
+	}
 	if m.addprofit_min_margin != nil {
 		fields = append(fields, group.FieldProfitMinMargin)
 	}
@@ -27070,6 +27196,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedSortOrder()
 	case group.FieldRpmLimit:
 		return m.AddedRpmLimit()
+	case group.FieldAccountRateLimitMultiplier:
+		return m.AddedAccountRateLimitMultiplier()
 	case group.FieldProfitMinMargin:
 		return m.AddedProfitMinMargin()
 	case group.FieldProfitSafetyBuffer:
@@ -27257,6 +27385,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddRpmLimit(v)
+		return nil
+	case group.FieldAccountRateLimitMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAccountRateLimitMultiplier(v)
 		return nil
 	case group.FieldProfitMinMargin:
 		v, ok := value.(float64)
@@ -27625,6 +27760,12 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldReasoningEffortMappings:
 		m.ResetReasoningEffortMappings()
+		return nil
+	case group.FieldAccountRateLimitEnabled:
+		m.ResetAccountRateLimitEnabled()
+		return nil
+	case group.FieldAccountRateLimitMultiplier:
+		m.ResetAccountRateLimitMultiplier()
 		return nil
 	case group.FieldProfitControlEnabled:
 		m.ResetProfitControlEnabled()

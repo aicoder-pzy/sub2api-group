@@ -1227,6 +1227,18 @@
         <!-- 分组利润控制（五个平台 token 请求） -->
         <div v-if="isProfitControlPlatform(createForm.platform)" class="border-t pt-4">
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input v-model="createForm.account_rate_limit_enabled" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" data-testid="createForm-account-rate-limit" />
+            <span>{{ t("admin.groups.accountRateLimit.enable") }}</span>
+          </label>
+          <p class="mb-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.accountRateLimit.hint") }}</p>
+          <div v-if="createForm.account_rate_limit_enabled" class="mb-3">
+            <label class="input-label">{{ t("admin.groups.accountRateLimit.multiplier") }}</label>
+            <input v-model.number="createForm.account_rate_limit_multiplier" type="number" min="0.0001" max="999999.9999" step="0.0001" class="input" placeholder="0.21" data-testid="createForm-account-rate-limit-multiplier" />
+          </div>
+        </div>
+
+        <div v-if="isProfitControlPlatform(createForm.platform)" class="border-t pt-4">
+          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input
               v-model="createForm.profit_control_enabled"
               type="checkbox"
@@ -2870,6 +2882,18 @@
         </div>
 
         <!-- 分组利润控制（五个平台 token 请求） -->
+        <div v-if="isProfitControlPlatform(editForm.platform)" class="border-t pt-4">
+          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input v-model="editForm.account_rate_limit_enabled" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" data-testid="editForm-account-rate-limit" />
+            <span>{{ t("admin.groups.accountRateLimit.enable") }}</span>
+          </label>
+          <p class="mb-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.accountRateLimit.hint") }}</p>
+          <div v-if="editForm.account_rate_limit_enabled" class="mb-3">
+            <label class="input-label">{{ t("admin.groups.accountRateLimit.multiplier") }}</label>
+            <input v-model.number="editForm.account_rate_limit_multiplier" type="number" min="0.0001" max="999999.9999" step="0.0001" class="input" placeholder="0.21" data-testid="editForm-account-rate-limit-multiplier" />
+          </div>
+        </div>
+
         <div v-if="isProfitControlPlatform(editForm.platform)" class="border-t pt-4">
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input
@@ -4997,6 +5021,8 @@ const createForm = reactive({
   peak_end: "",
   peak_rate_multiplier: 1.0,
   // 分组利润控制（五个 token 平台）；界面按百分比输入，提交时转小数
+  account_rate_limit_enabled: false,
+  account_rate_limit_multiplier: 0.21,
   profit_control_enabled: false,
   profit_min_margin_percent: 0,
   profit_safety_buffer_percent: 0,
@@ -5363,6 +5389,8 @@ const editForm = reactive({
   peak_end: "",
   peak_rate_multiplier: 1.0,
   // 分组利润控制（五个 token 平台）；界面按百分比输入，提交时转小数
+  account_rate_limit_enabled: false,
+  account_rate_limit_multiplier: 0.21,
   profit_control_enabled: false,
   profit_min_margin_percent: 0,
   profit_safety_buffer_percent: 0,
@@ -5821,6 +5849,8 @@ const closeCreateModal = () => {
   createForm.peak_start = "";
   createForm.peak_end = "";
   createForm.peak_rate_multiplier = 1.0;
+  createForm.account_rate_limit_enabled = false;
+  createForm.account_rate_limit_multiplier = 0.21;
   createForm.profit_control_enabled = false;
   createForm.profit_min_margin_percent = 0;
   createForm.profit_safety_buffer_percent = 0;
@@ -5908,6 +5938,10 @@ const handleCreateGroup = async () => {
   ) {
     return;
   }
+  if (createForm.account_rate_limit_enabled && (!Number.isFinite(Number(createForm.account_rate_limit_multiplier)) || Number(createForm.account_rate_limit_multiplier) < 0.0001 || Number(createForm.account_rate_limit_multiplier) > 999999.9999)) {
+    appStore.showError(t("admin.groups.accountRateLimit.invalidMultiplier"));
+    return;
+  }
   if (!validateProfitControlForm(createForm)) {
     return;
   }
@@ -5980,6 +6014,8 @@ const handleCreateGroup = async () => {
         createForm.reasoning_effort_mappings,
       ),
       // 利润控制：界面百分比转小数提交；仅五个 token 平台可启用
+      account_rate_limit_enabled: isProfitControlPlatform(createForm.platform) && createForm.account_rate_limit_enabled,
+      account_rate_limit_multiplier: Number(createForm.account_rate_limit_multiplier) || 0.21,
       profit_control_enabled:
         isProfitControlPlatform(createForm.platform) &&
         createForm.profit_control_enabled,
@@ -6110,6 +6146,8 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.peak_start = group.peak_start ?? "";
   editForm.peak_end = group.peak_end ?? "";
   editForm.peak_rate_multiplier = group.peak_rate_multiplier ?? 1.0;
+  editForm.account_rate_limit_enabled = group.account_rate_limit_enabled ?? false;
+  editForm.account_rate_limit_multiplier = group.account_rate_limit_multiplier ?? 0.21;
   editForm.profit_control_enabled = group.profit_control_enabled ?? false;
   editForm.profit_min_margin_percent = decimalToPercent(
     group.profit_min_margin ?? 0,
@@ -6203,6 +6241,8 @@ const closeEditModal = () => {
   editForm.peak_start = "";
   editForm.peak_end = "";
   editForm.peak_rate_multiplier = 1.0;
+  editForm.account_rate_limit_enabled = false;
+  editForm.account_rate_limit_multiplier = 0.21;
   editForm.profit_control_enabled = false;
   editForm.profit_min_margin_percent = 0;
   editForm.profit_safety_buffer_percent = 0;
@@ -6240,6 +6280,10 @@ const handleUpdateGroup = async () => {
     editReasoningEffortPolicyRef.value &&
     !editReasoningEffortPolicyRef.value.validate()
   ) {
+    return;
+  }
+  if (editForm.account_rate_limit_enabled && (!Number.isFinite(Number(editForm.account_rate_limit_multiplier)) || Number(editForm.account_rate_limit_multiplier) < 0.0001 || Number(editForm.account_rate_limit_multiplier) > 999999.9999)) {
+    appStore.showError(t("admin.groups.accountRateLimit.invalidMultiplier"));
     return;
   }
   if (!validateProfitControlForm(editForm)) {
@@ -6331,6 +6375,8 @@ const handleUpdateGroup = async () => {
         editForm.reasoning_effort_mappings,
       ),
       // 利润控制：界面百分比转小数提交；仅五个 token 平台可启用
+      account_rate_limit_enabled: isProfitControlPlatform(editForm.platform) && editForm.account_rate_limit_enabled,
+      account_rate_limit_multiplier: Number(editForm.account_rate_limit_multiplier) || 0.21,
       profit_control_enabled:
         isProfitControlPlatform(editForm.platform) &&
         editForm.profit_control_enabled,
@@ -6709,6 +6755,8 @@ watch(
       createForm.allow_live = false;
     }
     if (!isProfitControlPlatform(newVal)) {
+      createForm.account_rate_limit_enabled = false;
+      createForm.account_rate_limit_multiplier = 0.21;
       createForm.profit_control_enabled = false;
       createForm.profit_min_margin_percent = 0;
       createForm.profit_safety_buffer_percent = 0;
@@ -6766,6 +6814,8 @@ watch(
       editForm.allow_live = false;
     }
     if (!isProfitControlPlatform(newVal)) {
+      editForm.account_rate_limit_enabled = false;
+      editForm.account_rate_limit_multiplier = 0.21;
       editForm.profit_control_enabled = false;
       editForm.profit_min_margin_percent = 0;
       editForm.profit_safety_buffer_percent = 0;
