@@ -62,7 +62,8 @@ export function mountPelicanArtwork(container: HTMLElement, initial: PelicanRend
       updates = 0
       viewport = getPelicanViewport(html)
       artwork = { ...viewport }
-      frame.srcdoc = createPelicanPreviewDocument(html, channel)
+      const nonce = container.ownerDocument.querySelector<HTMLScriptElement>('script[nonce]')?.nonce || ''
+      frame.srcdoc = createPelicanPreviewDocument(html, channel, nonce)
     }
     frame.title = options.title || 'Pelican artwork'
     frame.style.pointerEvents = options.interactive === false ? 'none' : 'auto'

@@ -122,6 +122,7 @@ export function installPelicanMeasurement(target: Window & typeof globalThis, ch
     let height = Math.max(viewport.height, doc.body.scrollHeight * authorZoom)
     let left = 0
     let top = 0
+    const clips = new Map<Element, { rect: DOMRect; style: CSSStyleDeclaration }>()
     for (const element of elements) {
       if (['SCRIPT', 'STYLE', 'LINK', 'META'].includes(element.tagName)) continue
       // A viewBox already defines an SVG's complete canvas. Animated shapes inside
@@ -129,10 +130,26 @@ export function installPelicanMeasurement(target: Window & typeof globalThis, ch
       const svg = element.closest('svg')
       if (svg && svg !== element) continue
       const rect = element.getBoundingClientRect()
-      left = Math.min(left, (rect.left + target.scrollX) / innerScale - offsetX)
-      top = Math.min(top, (rect.top + target.scrollY) / innerScale - offsetY)
-      width = Math.max(width, (rect.right + target.scrollX) / innerScale - offsetX)
-      height = Math.max(height, (rect.bottom + target.scrollY) / innerScale - offsetY)
+      let { left: visibleLeft, top: visibleTop, right: visibleRight, bottom: visibleBottom } = rect
+      // Clipped scenery (clouds, hills) is not additional document paint. Keep
+      // root/body overflow measurable so oversized drawings and captions still fit.
+      for (let parent = element.parentElement; parent && parent !== doc.body && parent !== root; parent = parent.parentElement) {
+        let clip = clips.get(parent)
+        if (!clip) { clip = { rect: parent.getBoundingClientRect(), style: target.getComputedStyle(parent) }; clips.set(parent, clip) }
+        if (/^(hidden|clip|scroll|auto)$/.test(clip.style.overflowX || clip.style.overflow)) {
+          visibleLeft = Math.max(visibleLeft, clip.rect.left)
+          visibleRight = Math.min(visibleRight, clip.rect.right)
+        }
+        if (/^(hidden|clip|scroll|auto)$/.test(clip.style.overflowY || clip.style.overflow)) {
+          visibleTop = Math.max(visibleTop, clip.rect.top)
+          visibleBottom = Math.min(visibleBottom, clip.rect.bottom)
+        }
+      }
+      if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) continue
+      left = Math.min(left, (visibleLeft + target.scrollX) / innerScale - offsetX)
+      top = Math.min(top, (visibleTop + target.scrollY) / innerScale - offsetY)
+      width = Math.max(width, (visibleRight + target.scrollX) / innerScale - offsetX)
+      height = Math.max(height, (visibleBottom + target.scrollY) / innerScale - offsetY)
     }
     const nextX = Math.min(limit, Math.max(offsetX, Math.ceil(-left)))
     const nextY = Math.min(limit, Math.max(offsetY, Math.ceil(-top)))
@@ -214,12 +231,20 @@ export function installPelicanMeasurement(target: Window & typeof globalThis, ch
   return stop
 }
 
-export function createPelicanPreviewDocument(html: string, channel: string): string {
-  const protectedHtml = extractPelicanHtml(html)
+export function createPelicanPreviewDocument(html: string, channel: string, nonce = ''): string {
+  let protectedHtml = extractPelicanHtml(html)
   if (!protectedHtml) return ''
+  // srcdoc inherits the host CSP. Authorize scripts only inside the opaque,
+  // network-disabled artwork sandbox; the host policy remains unchanged.
+  const safeNonce = /^[a-zA-Z0-9+/_=-]+$/.test(nonce) ? nonce : ''
+  if (safeNonce) {
+    const doc = new DOMParser().parseFromString(protectedHtml, 'text/html')
+    doc.querySelectorAll('script').forEach(script => script.setAttribute('nonce', safeNonce))
+    protectedHtml = '<!doctype html>' + doc.documentElement.outerHTML
+  }
   const viewport = getPelicanViewport(protectedHtml)
   const safeChannel = channel.replace(/[^a-zA-Z0-9_-]/g, '')
-  const script = `<script data-pelican-preview="${safeChannel}">(${installPelicanMeasurement.toString()})(window,${JSON.stringify(safeChannel)},${JSON.stringify(viewport)},${MAX_DIMENSION});<\/script>`
+  const script = `<script data-pelican-preview="${safeChannel}"${safeNonce ? ` nonce="${safeNonce}"` : ''}>(${installPelicanMeasurement.toString()})(window,${JSON.stringify(safeChannel)},${JSON.stringify(viewport)},${MAX_DIMENSION});<\/script>`
   // The extraction helper always puts its restrictive CSP first. Keep instrumentation
   // after that CSP and before authored scripts, then wait for DOMContentLoaded.
   const endOfCsp = protectedHtml.indexOf('>', protectedHtml.indexOf('<meta')) + 1

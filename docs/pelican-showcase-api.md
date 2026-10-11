@@ -92,11 +92,21 @@ Accept-Encoding: gzip
         referrerpolicy="no-referrer" style="width:100%;height:480px;border:0"></iframe>
 <script>
 // payload 是后端用 API Key 获取的单条 JSON 响应，不在前端暴露 Key。
-document.getElementById('artwork').srcdoc = payload.data.preview_html;
+let preview = payload.data.preview_html;
+// srcdoc 继承父页面 CSP；使用 nonce 的页面需授权预览文档中的脚本。
+const nonce = document.querySelector('script[nonce]')?.nonce;
+if (nonce) {
+  const doc = new DOMParser().parseFromString(preview, 'text/html');
+  doc.querySelectorAll('script').forEach(script => { script.nonce = nonce; });
+  preview = '<!doctype html>' + doc.documentElement.outerHTML;
+}
+document.getElementById('artwork').srcdoc = preview;
 </script>
 ```
 
 必须保留 `sandbox="allow-scripts"`，不要添加 `allow-same-origin` 或通过 `innerHTML` 注入父页面。预览文档内部再将作品放入独立沙箱，并先插入限制网络访问的 CSP。外层容器大小由下游页面控制，不会把本站账号信息或管理接口传入作品。
+
+本站渲染器沿用页面的 CSP nonce，使尺寸测量和作品脚本在隔离沙箱内运行；页面本身的 CSP 不放宽。下游若有 CSP，也需允许 `about:srcdoc` 子框架及预览脚本；以上示例兼容使用 nonce 的父页面。尺寸测量尊重作品内部的裁剪区域，不会把已被场景裁掉的云朵或山丘算作额外画布。
 
 不存在、已移除、超出保留窗口或展示关闭的作品返回 404；非法 ID 返回 400。清单和正文之间若遇到清理，404 属于正常竞争情况，刷新清单即可。该 API 是当前展示窗口，不是永久存档。需要长期保留时应由下游在窗口内存储正文。
 

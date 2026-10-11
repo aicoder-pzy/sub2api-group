@@ -76,6 +76,13 @@ describe('Pelican opaque sandbox messages', () => {
 })
 
 describe('Pelican document instrumentation', () => {
+  it('carries the host nonce into isolated scripts without weakening the artwork CSP', () => {
+    const out = createPelicanPreviewDocument('<html><body><script nonce="old">window.animation = true</script></body></html>', 'nonce-test', 'host-nonce123==')
+    const doc = new DOMParser().parseFromString(out, 'text/html')
+    expect(Array.from(doc.scripts, script => script.nonce)).toEqual(['host-nonce123==', 'host-nonce123=='])
+    expect(doc.querySelector('meta[http-equiv]')?.getAttribute('content')).toContain("connect-src 'none'")
+    expect(createPelicanPreviewDocument('<html><body>Artwork</body></html>', 'nonce-test', '"><img src=x>')).not.toContain('nonce=')
+  })
   it('preserves original HTML, SVG, title, and scripts behind the existing restrictive CSP', () => {
     const original = '<html><head><title>Original title</title></head><body><h1>Caption</h1><svg viewBox="0 0 1200 600"><animate attributeName="x" /></svg><script>window.artworkAnimation = true</script></body></html>'
     const out = createPelicanPreviewDocument(original, 'preview-123')
@@ -170,6 +177,26 @@ describe('Pelican sandbox measurement runtime', () => {
   it('includes a centered fixed-size artwork that initially extends beyond the top and left edges', () => {
     start('<html><body><div id="art">Artwork</div></body></html>', 1024, 768, { left: -288, top: -216, right: 1312, bottom: 984, width: 1600, height: 1200 } as DOMRect)
     expect(reports.at(-1)).toMatchObject({ width: 1600, height: 1200 })
+  })
+
+  it('does not expand or shift the canvas for scenery clipped by its scene', async () => {
+    let cloudX = -400
+    start('<html><body><main id="scene" style="overflow:hidden"><div id="art">Cloud</div></main><footer id="caption">Caption</footer></body></html>', 1024, 768, undefined, frame => {
+      const rect = (left: number, top: number, width: number, height: number) => {
+        const scale = parseFloat(frame.document.documentElement.style.zoom) || 1
+        return { left: left * scale, top: top * scale, right: (left + width) * scale, bottom: (top + height) * scale, width: width * scale, height: height * scale } as DOMRect
+      }
+      frame.document.getElementById('scene')!.getBoundingClientRect = () => rect(0, 0, 1024, 768)
+      frame.document.getElementById('art')!.getBoundingClientRect = () => rect(cloudX, 100, 200, 100)
+      frame.document.getElementById('caption')!.getBoundingClientRect = () => rect(0, 768, 1024, 64)
+    })
+    expect(reports.at(-1)).toMatchObject({ width: 1024, height: 832 })
+    expect(sandbox.document.documentElement.style.translate).toBe('')
+    cloudX = 1200
+    sandbox.document.getElementById('art')!.style.left = '1200px'
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(reports).toHaveLength(1)
   })
 
   it('keeps a fixed marker stationary when another element animates from negative to positive coordinates', async () => {
