@@ -89,9 +89,9 @@ func (s *ScheduledTestQualityJudge) Judge(ctx context.Context, testedAccountID i
 			continue
 		}
 		// Unit tests and a few lightweight service constructions do not wire the
-		// optional global model-account restriction service. In that case there is
+		// optional group model-account restriction service. In that case there is
 		// no additional restriction to apply.
-		if s.tests.settingService != nil && !s.tests.settingService.IsModelAccountAllowed(ctx, plan.JudgeModelID, account.ID) {
+		if s.tests.settingService != nil && !s.tests.settingService.IsModelAccountAllowed(ctx, &plan.JudgeGroupID, plan.JudgeModelID, account.ID) {
 			continue
 		}
 		slot, err := s.slots.AcquireAccountSlot(ctx, account.ID, account.Concurrency)

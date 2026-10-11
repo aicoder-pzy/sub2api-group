@@ -14,28 +14,29 @@ import (
 
 func TestModelAccountRoutingPersistenceAndClosedFailures(t *testing.T) {
 	ctx := context.Background()
+	groupID := int64(71)
 	repo := &panelRateLimitSettingRepo{}
 	svc := &SettingService{settingRepo: repo}
-	require.True(t, svc.IsModelAccountAllowed(ctx, "gpt-6-astra", 1))
+	require.True(t, svc.IsModelAccountAllowed(ctx, &groupID, "gpt-6-astra", 1))
 	settings := ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{
 		{Model: "gpt-6-astra", AccountIDs: []int64{2, 3}},
 		{Model: "blocked", AccountIDs: []int64{}},
 	}}
-	require.NoError(t, svc.SetModelAccountRouting(ctx, settings))
-	loaded, err := (&SettingService{settingRepo: repo}).GetModelAccountRouting(ctx)
+	require.NoError(t, svc.SetModelAccountRouting(ctx, groupID, settings))
+	loaded, err := (&SettingService{settingRepo: repo}).GetModelAccountRouting(ctx, groupID)
 	require.NoError(t, err)
 	require.Equal(t, settings, loaded)
-	require.False(t, svc.IsModelAccountAllowed(ctx, "gpt-6-astra", 1))
-	require.True(t, svc.IsModelAccountAllowed(ctx, "gpt-6-astra", 2))
-	require.True(t, svc.IsModelAccountAllowed(ctx, "gpt-6-astra", 3))
-	require.True(t, svc.IsModelAccountAllowed(ctx, "unconfigured", 1))
-	require.False(t, svc.IsModelAccountAllowed(ctx, "blocked", 2))
+	require.False(t, svc.IsModelAccountAllowed(ctx, &groupID, "gpt-6-astra", 1))
+	require.True(t, svc.IsModelAccountAllowed(ctx, &groupID, "gpt-6-astra", 2))
+	require.True(t, svc.IsModelAccountAllowed(ctx, &groupID, "gpt-6-astra", 3))
+	require.True(t, svc.IsModelAccountAllowed(ctx, &groupID, "unconfigured", 1))
+	require.False(t, svc.IsModelAccountAllowed(ctx, &groupID, "blocked", 2))
 	publicCtx := context.WithValue(ctx, ctxkey.Model, "gpt-6-astra")
-	require.False(t, svc.IsModelAccountAllowed(publicCtx, "channel-mapped-model", 1))
-	require.True(t, svc.IsModelAccountAllowed(publicCtx, "channel-mapped-model", 2))
+	require.False(t, svc.IsModelAccountAllowed(publicCtx, &groupID, "channel-mapped-model", 1))
+	require.True(t, svc.IsModelAccountAllowed(publicCtx, &groupID, "channel-mapped-model", 2))
 	compositeCtx := context.WithValue(ctx, ctxkey.RequestedPublicModel, "gpt-6-astra")
-	require.False(t, svc.IsModelAccountAllowed(compositeCtx, "channel-mapped-model", 1))
-	require.True(t, svc.IsModelAccountAllowed(compositeCtx, "channel-mapped-model", 2))
+	require.False(t, svc.IsModelAccountAllowed(compositeCtx, &groupID, "channel-mapped-model", 1))
+	require.True(t, svc.IsModelAccountAllowed(compositeCtx, &groupID, "channel-mapped-model", 2))
 	for _, invalid := range []string{
 		`{}`, `{"rules":null}`, `{"rules":[{"model":"*","account_ids":[2]}]}`,
 		`{"rules":[{"model":"a b","account_ids":[2]}]}`,
@@ -46,26 +47,26 @@ func TestModelAccountRoutingPersistenceAndClosedFailures(t *testing.T) {
 	} {
 		var invalidSettings ModelAccountRoutingSettings
 		require.NoError(t, json.Unmarshal([]byte(invalid), &invalidSettings))
-		require.Error(t, svc.SetModelAccountRouting(ctx, invalidSettings), invalid)
+		require.Error(t, svc.SetModelAccountRouting(ctx, groupID, invalidSettings), invalid)
 	}
-	require.False(t, svc.IsModelAccountAllowed(ctx, "gpt-6-astra", 1))
+	require.False(t, svc.IsModelAccountAllowed(ctx, &groupID, "gpt-6-astra", 1))
 	repo.getValueErr = errors.New("offline")
-	svc.modelAccountRoutingCache.expires = time.Time{}
-	require.False(t, svc.IsModelAccountAllowed(ctx, "gpt-6-astra", 2))
-	require.False(t, svc.IsModelAccountAllowed(ctx, "unconfigured", 1))
+	svc.modelAccountRoutingCache[groupID].expires = time.Time{}
+	require.False(t, svc.IsModelAccountAllowed(ctx, &groupID, "gpt-6-astra", 2))
+	require.False(t, svc.IsModelAccountAllowed(ctx, &groupID, "unconfigured", 1))
 	repo.getValueErr = nil
 	for _, malformed := range []string{`null`, `{}`, `{"rules":null}`, `{"rules":"invalid"}`, `not-json`} {
-		require.NoError(t, repo.Set(ctx, SettingKeyModelAccountRouting, malformed))
-		svc.modelAccountRoutingCache.expires = time.Time{}
-		require.False(t, svc.IsModelAccountAllowed(ctx, "gpt-6-astra", 1), malformed)
-		require.False(t, svc.IsModelAccountAllowed(ctx, "unconfigured", 1), malformed)
+		require.NoError(t, repo.Set(ctx, modelAccountRoutingKey(groupID), malformed))
+		svc.modelAccountRoutingCache[groupID].expires = time.Time{}
+		require.False(t, svc.IsModelAccountAllowed(ctx, &groupID, "gpt-6-astra", 1), malformed)
+		require.False(t, svc.IsModelAccountAllowed(ctx, &groupID, "unconfigured", 1), malformed)
 	}
-	require.NoError(t, svc.SetModelAccountRouting(ctx, ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{}}))
-	require.True(t, svc.IsModelAccountAllowed(ctx, "gpt-6-astra", 1))
+	require.NoError(t, svc.SetModelAccountRouting(ctx, groupID, ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{}}))
+	require.True(t, svc.IsModelAccountAllowed(ctx, &groupID, "gpt-6-astra", 1))
 	settings.Rules[0].AccountIDs[0] = 99
-	require.NoError(t, svc.SetModelAccountRouting(ctx, settings))
+	require.NoError(t, svc.SetModelAccountRouting(ctx, groupID, settings))
 	settings.Rules[0].AccountIDs[0] = 1
-	require.False(t, svc.IsModelAccountAllowed(ctx, "gpt-6-astra", 1), "saved cache must not alias the caller's slices")
+	require.False(t, svc.IsModelAccountAllowed(ctx, &groupID, "gpt-6-astra", 1), "saved cache must not alias the caller's slices")
 }
 
 func TestModelAccountRoutingSchedulerNeverEscapesWhitelist(t *testing.T) {
@@ -81,7 +82,7 @@ func TestModelAccountRoutingSchedulerNeverEscapesWhitelist(t *testing.T) {
 				{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10},
 			}
 			settings := &SettingService{settingRepo: &panelRateLimitSettingRepo{}}
-			require.NoError(t, settings.SetModelAccountRouting(ctx, ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{{Model: "gpt-6-astra", AccountIDs: []int64{2}}}}))
+			require.NoError(t, settings.SetModelAccountRouting(ctx, groupID, ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{{Model: "gpt-6-astra", AccountIDs: []int64{2}}}}))
 			cfg := &config.Config{}
 			cfg.Gateway.Scheduling.LoadBatchEnabled = mode == "legacy_batch"
 			cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"session": 1}}
@@ -110,26 +111,61 @@ func TestModelAccountRoutingSchedulerNeverEscapesWhitelist(t *testing.T) {
 			selection, err = selectAccount(nil)
 			require.ErrorIs(t, err, ErrNoAvailableAccounts)
 			require.Nil(t, selection)
+			accounts[1].Schedulable = true
+			groupID = 72
+			selection, err = selectAccount(nil)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), selection.Account.ID, "another group's whitelist cannot filter this group's sticky or preferred account")
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
 		})
 	}
 }
 
+func TestModelAccountRoutingGroupsAreIndependent(t *testing.T) {
+	ctx := context.Background()
+	a, b := int64(71), int64(72)
+	repo := &panelRateLimitSettingRepo{}
+	svc := &SettingService{settingRepo: repo}
+	for groupID, accountID := range map[int64]int64{a: 1, b: 2} {
+		require.NoError(t, svc.SetModelAccountRouting(ctx, groupID, ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{{Model: "shared-model", AccountIDs: []int64{accountID}}}}))
+	}
+	for _, reader := range []*SettingService{svc, {settingRepo: repo}} {
+		require.True(t, reader.IsModelAccountAllowed(ctx, &a, "shared-model", 1))
+		require.False(t, reader.IsModelAccountAllowed(ctx, &a, "shared-model", 2))
+		require.False(t, reader.IsModelAccountAllowed(ctx, &b, "shared-model", 1))
+		require.True(t, reader.IsModelAccountAllowed(ctx, &b, "shared-model", 2))
+	}
+	require.NoError(t, svc.SetModelAccountRouting(ctx, a, ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{}}))
+	require.True(t, svc.IsModelAccountAllowed(ctx, &a, "shared-model", 2))
+	require.False(t, svc.IsModelAccountAllowed(ctx, &b, "shared-model", 1), "deleting another group's rule cannot change this group")
+	require.NoError(t, repo.Set(ctx, modelAccountRoutingKey(a), "invalid-json"))
+	svc.modelAccountRoutingCache[a].expires = time.Time{}
+	require.False(t, svc.IsModelAccountAllowed(ctx, &a, "shared-model", 1))
+	require.True(t, svc.IsModelAccountAllowed(ctx, &b, "shared-model", 2), "a malformed group must not break other groups")
+	require.True(t, svc.IsModelAccountAllowed(ctx, nil, "shared-model", 1))
+	_, err := svc.GetModelAccountRouting(ctx, 0)
+	require.Error(t, err)
+	require.Error(t, svc.SetModelAccountRouting(ctx, 0, ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{}}))
+}
+
 func TestModelAccountRoutingGatewayGateAndPreviousResponse(t *testing.T) {
 	ctx := context.Background()
+	groupID := int64(71)
 	account := &Account{ID: 1, Status: StatusActive, Schedulable: true}
-	require.True(t, (&OpenAIGatewayService{}).IsModelAccountAllowed(ctx, "gpt-6-astra", account.ID))
-	require.True(t, (&GatewayService{}).isAccountSchedulableForModelSelection(ctx, account, "gpt-6-astra"))
+	require.True(t, (&OpenAIGatewayService{}).IsModelAccountAllowed(ctx, &groupID, "gpt-6-astra", account.ID))
+	require.True(t, (&GatewayService{}).isAccountSchedulableForModelSelection(ctx, &groupID, account, "gpt-6-astra"))
 	settings := &SettingService{settingRepo: &panelRateLimitSettingRepo{}}
-	require.NoError(t, settings.SetModelAccountRouting(ctx, ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{{Model: "gpt-6-astra", AccountIDs: []int64{2}}}}))
+	require.NoError(t, settings.SetModelAccountRouting(ctx, groupID, ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{{Model: "gpt-6-astra", AccountIDs: []int64{2}}}}))
 	gateway := &GatewayService{settingService: settings}
-	require.False(t, gateway.isAccountSchedulableForModelSelection(ctx, account, "gpt-6-astra"))
-	require.True(t, gateway.isAccountSchedulableForModelSelection(ctx, account, "unconfigured"))
+	require.False(t, gateway.isAccountSchedulableForModelSelection(ctx, &groupID, account, "gpt-6-astra"))
+	require.True(t, gateway.isAccountSchedulableForModelSelection(ctx, &groupID, account, "unconfigured"))
 	account.ID = 2
-	require.True(t, gateway.isAccountSchedulableForModelSelection(ctx, account, "gpt-6-astra"))
+	require.True(t, gateway.isAccountSchedulableForModelSelection(ctx, &groupID, account, "gpt-6-astra"))
 	svc := &OpenAIGatewayService{settingService: settings, cfg: newSchedulerTestOpenAIWSV2Config()}
 	store := svc.getOpenAIWSStateStore()
 	require.NoError(t, store.BindResponseAccount(ctx, 71, "resp_unlisted", 1, time.Hour))
-	groupID := int64(71)
 	selection, err := svc.selectAccountByPreviousResponseIDForCapability(ctx, &groupID, "resp_unlisted", "gpt-6-astra", nil, "", false)
 	require.NoError(t, err)
 	require.Nil(t, selection)

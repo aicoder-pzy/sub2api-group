@@ -58,14 +58,25 @@ func TestModelAccountRoutingSettingsHandler(t *testing.T) {
 		{`{"rules":[{"model":"gpt-6-astra","account_ids":[2]},{"model":"blocked","account_ids":[]}]}`, 200},
 	} {
 		recorder := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/settings", strings.NewReader(scenario.body))
+		req := httptest.NewRequest(http.MethodPut, "/settings?group_id=71", strings.NewReader(scenario.body))
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(recorder, req)
 		require.Equal(t, scenario.status, recorder.Code, recorder.Body.String())
 	}
 	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/settings", nil))
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/settings?group_id=71", nil))
 	require.Equal(t, 200, recorder.Code)
 	require.Contains(t, recorder.Body.String(), `"model":"gpt-6-astra","account_ids":[2]`)
 	require.Contains(t, recorder.Body.String(), `"model":"blocked","account_ids":[]`)
+	for _, query := range []string{"", "?group_id=0", "?group_id=-1", "?group_id=invalid"} {
+		for _, method := range []string{http.MethodGet, http.MethodPut} {
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(method, "/settings"+query, strings.NewReader(`{"rules":[]}`)))
+			require.Equal(t, 400, recorder.Code, "unscoped reads and writes must never use the old global setting")
+		}
+	}
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/settings?group_id=72", nil))
+	require.Equal(t, 200, recorder.Code)
+	require.Contains(t, recorder.Body.String(), `"rules":[]`, "another group has independent settings")
 }

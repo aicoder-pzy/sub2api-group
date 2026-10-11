@@ -15,13 +15,13 @@ export interface ModelAccountRoutingSettings {
   rules: ModelAccountRoutingRule[]
 }
 
-export async function getModelAccountRouting(): Promise<ModelAccountRoutingSettings> {
-  const { data } = await apiClient.get<ModelAccountRoutingSettings>('/admin/settings/model-account-routing')
+export async function getModelAccountRouting(groupId: number): Promise<ModelAccountRoutingSettings> {
+  const { data } = await apiClient.get<ModelAccountRoutingSettings>('/admin/settings/model-account-routing', { params: { group_id: groupId } })
   return data
 }
 
-export async function updateModelAccountRouting(settings: ModelAccountRoutingSettings): Promise<ModelAccountRoutingSettings> {
-  const { data } = await apiClient.put<ModelAccountRoutingSettings>('/admin/settings/model-account-routing', settings)
+export async function updateModelAccountRouting(groupId: number, settings: ModelAccountRoutingSettings): Promise<ModelAccountRoutingSettings> {
+  const { data } = await apiClient.put<ModelAccountRoutingSettings>('/admin/settings/model-account-routing', settings, { params: { group_id: groupId } })
   return data
 }
 

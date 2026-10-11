@@ -10,7 +10,7 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 function mountDialog(selectedIds: number[] = []) {
   return mount(ModelAccountRoutingDialog, {
-    props: { selectedIds },
+    props: { group: { id: 71, name: "Group A" }, selectedIds },
     global: { stubs: { BaseDialog: { template: '<div><slot/><slot name="footer"/></div>' }, Icon: true } }
   })
 }
@@ -18,17 +18,19 @@ function mountDialog(selectedIds: number[] = []) {
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(getModelAccountRouting).mockResolvedValue({ rules: [{ model: 'gpt-6-astra', account_ids: [1] }] })
-  vi.mocked(updateModelAccountRouting).mockImplementation(async settings => settings)
+  vi.mocked(updateModelAccountRouting).mockImplementation(async (_groupId, settings) => settings)
   vi.mocked(list).mockResolvedValue({ items: [
     { id: 1, name: 'Account A', platform: 'openai', status: 'active', schedulable: true },
     { id: 2, name: 'Account B', platform: 'openai', status: 'active', schedulable: true }
   ], total: 2 } as Awaited<ReturnType<typeof list>>)
 })
 
-describe('global model scheduling allowlists', () => {
+describe('group model scheduling allowlists', () => {
   it('edits independent model allowlists and persists only after Save', async () => {
     const wrapper = mountDialog([2])
     await flushPromises()
+    expect(getModelAccountRouting).toHaveBeenCalledWith(71)
+    expect(list).toHaveBeenCalledWith(1, 20, { group: '71', search: '', lite: 'true' }, expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(wrapper.get('input[type="checkbox"]').element).toHaveProperty('checked', true)
     await wrapper.findAll('input[type="checkbox"]')[1]!.setValue(true)
     await wrapper.get('input[maxlength="200"]').setValue(' gpt-6-astra ')
@@ -37,7 +39,7 @@ describe('global model scheduling allowlists', () => {
     expect(updateModelAccountRouting).not.toHaveBeenCalled()
     await wrapper.findAll('button').find(button => button.text().includes('common.save'))!.trigger('click')
     await flushPromises()
-    expect(updateModelAccountRouting).toHaveBeenCalledWith({ rules: [
+    expect(updateModelAccountRouting).toHaveBeenCalledWith(71, { rules: [
       { model: 'gpt-6-astra', account_ids: [1, 2] }, { model: 'gpt-6.1-sol', account_ids: [2] }
     ] })
     expect(wrapper.emitted('updated')).toHaveLength(1)
@@ -62,7 +64,7 @@ describe('global model scheduling allowlists', () => {
     expect(wrapper.text()).toContain('modelRouting.blocked')
     await wrapper.findAll('button').find(button => button.text().includes('common.save'))!.trigger('click')
     await flushPromises()
-    expect(updateModelAccountRouting).toHaveBeenCalledWith({ rules: [{ model: 'gpt-6-astra', account_ids: [] }] })
+    expect(updateModelAccountRouting).toHaveBeenCalledWith(71, { rules: [{ model: 'gpt-6-astra', account_ids: [] }] })
     wrapper.unmount()
   })
 
@@ -94,7 +96,7 @@ describe('global model scheduling allowlists', () => {
     await wrapper.get('[aria-label="admin.accounts.modelRouting.remove"]').trigger('click')
     await wrapper.findAll('button').find(button => button.text().includes('common.save'))!.trigger('click')
     await flushPromises()
-    expect(updateModelAccountRouting).toHaveBeenCalledWith({ rules: [] })
+    expect(updateModelAccountRouting).toHaveBeenCalledWith(71, { rules: [] })
     wrapper.unmount()
   })
 })

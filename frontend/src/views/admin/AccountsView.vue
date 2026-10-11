@@ -195,7 +195,7 @@
           @toggle-schedulable="handleBulkToggleSchedulable"
         >
           <template #before-edit-filtered>
-            <button type="button" class="btn btn-secondary btn-sm" @click="showModelAccountRouting = true">
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="!modelRoutingGroup" :title="t('admin.accounts.refreshScheduling.selectGroup')" @click="showModelAccountRouting = true">
               <Icon name="filter" size="sm" />{{ t('admin.accounts.modelRouting.title') }}
             </button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="!schedulingGroup" :title="t('admin.accounts.refreshScheduling.selectGroup')" @click="showRefreshScheduling = true">
@@ -492,7 +492,7 @@
     <PelicanTestModal :show="showPelican" :account="pelicanAcc" :accounts="accounts" @close="showPelican=false" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <RefreshSchedulingDialog v-if="(showRefreshScheduling || showSchedulingStatus) && schedulingGroup" :group="schedulingGroup" :read-only="showSchedulingStatus" @close="showRefreshScheduling = false; showSchedulingStatus = false" @updated="handleManualRefresh" />
-    <ModelAccountRoutingDialog v-if="showModelAccountRouting" :selected-ids="selIds" @close="showModelAccountRouting = false" />
+    <ModelAccountRoutingDialog v-if="showModelAccountRouting && modelRoutingGroup" :key="modelRoutingGroup.id" :group="modelRoutingGroup" :selected-ids="selIds" @close="showModelAccountRouting = false" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :account-platform="scheduleAcc?.platform" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @pelican="handlePelican" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
@@ -589,6 +589,7 @@ const groupsByID = computed(() => new Map(groups.value.map(group => [group.id, g
 const showRefreshScheduling = ref(false)
 const showSchedulingStatus = ref(false)
 const showModelAccountRouting = ref(false)
+const modelRoutingGroup = computed(() => groupsByID.value.get(Number(params.group)))
 const schedulingGroup = computed(() => {
   const group = groupsByID.value.get(Number(params.group))
   return group?.account_scheduling_mode === 'fastest_failover' && group.status === 'active' ? group : undefined

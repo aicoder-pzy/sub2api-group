@@ -134,8 +134,8 @@ export default {
       },
       modelRouting: {
         title: '模型调度',
-        scope: '全局配置 · 精确模型名',
-        fallback: '无可用白名单账号：拒绝请求',
+        scope: '仅作用于分组「{group}」 · 精确模型名',
+        fallback: '该分组无可用白名单账号：拒绝请求',
         add: '新增模型',
         newModel: '新模型',
         model: '模型 ID',

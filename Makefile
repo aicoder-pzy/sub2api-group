@@ -5,6 +5,7 @@ FRONTEND_CRITICAL_VITEST := \
 	src/components/admin/__tests__/DirectAccessSettings.spec.ts \
 	src/components/admin/__tests__/FastestFailoverSettings.spec.ts \
 	src/components/admin/account/__tests__/RefreshSchedulingDialog.spec.ts \
+	src/components/admin/account/__tests__/ModelAccountRoutingDialog.spec.ts \
 	src/components/admin/account/__tests__/ScheduledTestsPanel.results.spec.ts \
 	src/views/admin/__tests__/AccountsView \
 	src/components/admin/usage/__tests__/UsageTable.spec.ts \

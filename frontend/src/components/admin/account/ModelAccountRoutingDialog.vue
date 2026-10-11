@@ -1,7 +1,7 @@
 <template>
   <BaseDialog :show="true" :title="t('admin.accounts.modelRouting.title')" width="wide" :close-on-escape="!saving" :show-close-button="!saving" @close="emit('close')">
     <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
-      <span>{{ t('admin.accounts.modelRouting.scope') }}</span>
+      <span>{{ t('admin.accounts.modelRouting.scope', { group: props.group.name }) }}</span>
       <span>{{ t('admin.accounts.modelRouting.fallback') }}</span>
     </div>
     <div v-if="loading" role="status" class="py-8 text-center">{{ t('common.loading') }}</div>
@@ -82,7 +82,7 @@ import { list as listAccounts } from '@/api/admin/accounts'
 import { getModelAccountRouting, updateModelAccountRouting, type ModelAccountRoutingRule } from '@/api/admin/settings'
 import type { AccountListItem } from '@/types'
 
-const props = defineProps<{ selectedIds?: number[] }>()
+const props = defineProps<{ group: { id: number; name: string }; selectedIds?: number[] }>()
 const emit = defineEmits<{ close: []; updated: [rules: ModelAccountRoutingRule[]] }>()
 const { t } = useI18n()
 const rules = ref<ModelAccountRoutingRule[]>([])
@@ -111,7 +111,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const settings = await getModelAccountRouting()
+    const settings = await getModelAccountRouting(props.group.id)
     if (disposed) return
     rules.value = settings.rules
     loaded.value = true
@@ -126,7 +126,7 @@ async function searchAccounts() {
   controller = current
   searching.value = true
   try {
-    const result = await listAccounts(page.value, 20, { search: search.value, lite: 'true' }, { signal: current.signal })
+    const result = await listAccounts(page.value, 20, { group: String(props.group.id), search: search.value, lite: 'true' }, { signal: current.signal })
     if (current.signal.aborted || disposed) return
     accounts.value = result.items
     total.value = result.total
@@ -180,7 +180,7 @@ async function save() {
   }
   saving.value = true
   try {
-    const settings = await updateModelAccountRouting({ rules: normalized })
+    const settings = await updateModelAccountRouting(props.group.id, { rules: normalized })
     emit('updated', settings.rules)
     emit('close')
   } catch (cause) { error.value = errorMessage(cause) }

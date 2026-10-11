@@ -134,8 +134,8 @@ export default {
       },
       modelRouting: {
         title: 'Model Scheduling',
-        scope: 'Global settings · Exact model IDs',
-        fallback: 'No available allowlisted account: reject request',
+        scope: 'Only applies to group “{group}” · Exact model IDs',
+        fallback: 'No available allowlisted account in this group: reject request',
         add: 'Add Model',
         newModel: 'New Model',
         model: 'Model ID',

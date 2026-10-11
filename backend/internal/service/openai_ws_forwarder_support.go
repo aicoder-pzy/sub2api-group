@@ -550,7 +550,7 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 			return 0, nil, "", nil
 		}
 	}
-	if !s.IsModelAccountAllowed(ctx, requestedModel, accountID) {
+	if !s.IsModelAccountAllowed(ctx, groupID, requestedModel, accountID) {
 		return 0, nil, "", nil
 	}
 

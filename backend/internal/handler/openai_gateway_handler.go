@@ -3014,7 +3014,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					model = reqModel
 				}
 				setOpsRequestContext(c, model, true)
-				if !h.gatewayService.IsModelAccountAllowed(c.Request.Context(), model, account.ID) {
+				if !h.gatewayService.IsModelAccountAllowed(c.Request.Context(), apiKey.GroupID, model, account.ID) {
 					return "", service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "account is not allowed for this model, please reconnect", nil)
 				}
 				routeModel := model

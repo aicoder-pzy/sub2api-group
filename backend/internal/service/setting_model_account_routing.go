@@ -15,6 +15,10 @@ import (
 
 const SettingKeyModelAccountRouting = "model_account_routing"
 
+func modelAccountRoutingKey(groupID int64) string {
+	return fmt.Sprintf("%s_group_%d", SettingKeyModelAccountRouting, groupID)
+}
+
 type ModelAccountRoutingRule struct {
 	Model      string  `json:"model"`
 	AccountIDs []int64 `json:"account_ids"`
@@ -73,9 +77,12 @@ func compileModelAccountRouting(settings ModelAccountRoutingSettings) *cachedMod
 	return cache
 }
 
-func (s *SettingService) GetModelAccountRouting(ctx context.Context) (ModelAccountRoutingSettings, error) {
+func (s *SettingService) GetModelAccountRouting(ctx context.Context, groupID int64) (ModelAccountRoutingSettings, error) {
 	var settings ModelAccountRoutingSettings
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyModelAccountRouting)
+	if groupID <= 0 {
+		return settings, infraerrors.BadRequest("INVALID_MODEL_ACCOUNT_ROUTING", "a positive group_id is required")
+	}
+	value, err := s.settingRepo.GetValue(ctx, modelAccountRoutingKey(groupID))
 	if errors.Is(err, ErrSettingNotFound) || (err == nil && value == "") {
 		return ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{}}, nil
 	}
@@ -88,7 +95,10 @@ func (s *SettingService) GetModelAccountRouting(ctx context.Context) (ModelAccou
 	return settings, settings.Validate()
 }
 
-func (s *SettingService) SetModelAccountRouting(ctx context.Context, settings ModelAccountRoutingSettings) error {
+func (s *SettingService) SetModelAccountRouting(ctx context.Context, groupID int64, settings ModelAccountRoutingSettings) error {
+	if groupID <= 0 {
+		return infraerrors.BadRequest("INVALID_MODEL_ACCOUNT_ROUTING", "a positive group_id is required")
+	}
 	if err := settings.Validate(); err != nil {
 		return err
 	}
@@ -98,17 +108,20 @@ func (s *SettingService) SetModelAccountRouting(ctx context.Context, settings Mo
 	}
 	s.modelAccountRoutingMu.Lock()
 	defer s.modelAccountRoutingMu.Unlock()
-	if err := s.settingRepo.Set(ctx, SettingKeyModelAccountRouting, string(data)); err != nil {
+	if err := s.settingRepo.Set(ctx, modelAccountRoutingKey(groupID), string(data)); err != nil {
 		return err
 	}
-	s.modelAccountRoutingCache = compileModelAccountRouting(settings)
+	if s.modelAccountRoutingCache == nil {
+		s.modelAccountRoutingCache = make(map[int64]*cachedModelAccountRouting)
+	}
+	s.modelAccountRoutingCache[groupID] = compileModelAccountRouting(settings)
 	return nil
 }
 
-// Restrictions apply to the public request model, before channel/account mapping.
-// A failed settings read denies scheduling rather than dropping the whitelist.
-func (s *SettingService) IsModelAccountAllowed(ctx context.Context, requestedModel string, accountID int64) bool {
-	if s == nil || s.settingRepo == nil {
+// Restrictions apply only within the scheduling group, to the public request
+// model before channel/account mapping. A failed read denies that group's requests.
+func (s *SettingService) IsModelAccountAllowed(ctx context.Context, groupID *int64, requestedModel string, accountID int64) bool {
+	if s == nil || s.settingRepo == nil || groupID == nil || *groupID <= 0 {
 		return true
 	}
 	if model, ok := ctx.Value(ctxkey.Model).(string); ok && strings.TrimSpace(model) != "" {
@@ -118,17 +131,20 @@ func (s *SettingService) IsModelAccountAllowed(ctx context.Context, requestedMod
 	}
 	s.modelAccountRoutingMu.Lock()
 	defer s.modelAccountRoutingMu.Unlock()
-	cache := s.modelAccountRoutingCache
+	cache := s.modelAccountRoutingCache[*groupID]
 	if cache == nil || !time.Now().Before(cache.expires) {
 		readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		settings, err := s.GetModelAccountRouting(readCtx)
+		settings, err := s.GetModelAccountRouting(readCtx, *groupID)
 		if err != nil {
 			cache = &cachedModelAccountRouting{err: err, expires: time.Now().Add(time.Second)}
 		} else {
 			cache = compileModelAccountRouting(settings)
 		}
-		s.modelAccountRoutingCache = cache
+		if s.modelAccountRoutingCache == nil {
+			s.modelAccountRoutingCache = make(map[int64]*cachedModelAccountRouting)
+		}
+		s.modelAccountRoutingCache[*groupID] = cache
 	}
 	if cache.err != nil {
 		return false
@@ -141,9 +157,9 @@ func (s *SettingService) IsModelAccountAllowed(ctx context.Context, requestedMod
 	return allowed
 }
 
-func (s *OpenAIGatewayService) IsModelAccountAllowed(ctx context.Context, requestedModel string, accountID int64) bool {
+func (s *OpenAIGatewayService) IsModelAccountAllowed(ctx context.Context, groupID *int64, requestedModel string, accountID int64) bool {
 	if s == nil {
 		return false
 	}
-	return s.settingService.IsModelAccountAllowed(ctx, requestedModel, accountID)
+	return s.settingService.IsModelAccountAllowed(ctx, groupID, requestedModel, accountID)
 }
