@@ -68,11 +68,16 @@ func TestPelicanIntelligenceWindow(t *testing.T) {
 
 	// Concurrent, out-of-order completions from both plans keep the true newest 100.
 	errors := make(chan error, 104)
+	// Exercise concurrent completion without exhausting PostgreSQL's connection
+	// limit while other integration-test clients are also connected.
+	slots := make(chan struct{}, 8)
 	var wg sync.WaitGroup
 	for i := 12; i <= 115; i++ {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
 			planID := p1.ID
 			if index%2 == 0 {
 				planID = p2.ID
