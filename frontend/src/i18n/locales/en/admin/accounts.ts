@@ -177,7 +177,7 @@ export default {
       },
       schedulingStatus: {
         effort: 'Reasoning effort to compare', autoEffort: 'Auto: most used effort in the last 24 hours',
-        qualityPolicy: 'Check availability, multiplier limits and degradation first. Prefer eligible preferred accounts, ordered by priority number, before comparing quality, reliability and speed at the requested effort. Quality tests apply to the same group, account and model; their effort remains visible. If all candidates are degraded, choose the fastest. Automatic improvements require 5 minutes of observation and a 30-minute hold. Manual preferences apply to new sessions; healthy existing sessions keep their account. This view sends no tests and changes no scheduling state.',
+        qualityPolicy: 'New sessions retain the healthy eligible primary; healthy existing sessions retain their account. Reselect only after faults, degradation, multiplier violations or loss of eligibility. Recovered accounts do not automatically reclaim the primary. Initial selection and necessary failover avoid degraded or unreliable accounts, then compare manual preference, priority number, quality, reliability and speed at the requested effort. If all candidates are degraded, choose the fastest. Quality tests apply to the same group, account and model; their effort remains visible. These rankings assess replacements and do not preempt a healthy primary. This view sends no tests and changes no scheduling state.',
         recommended: 'Quality recommendation', weekRate: '7-day success rate', hourRate: '1-hour success rate',
         qualityEvidence: 'Quality evidence', qualityHistory: '7-day quality history', speed: 'First token at the same effort', lastTest: 'Last test',
         quality_verified: 'Verified sustained quality', quality_provisional: 'One normal result; validating', quality_unknown: 'Unverified or expired evidence', quality_degraded: 'Degraded or recovery unconfirmed',
@@ -288,7 +288,7 @@ export default {
       schedulableEnabled: 'Scheduling enabled',
       activeScheduler: 'Currently selected',
       schedulingPreferred: 'Prefer account',
-      schedulingPreferredHint: 'Used by fastest failover and quality preference. Eligible preferred accounts with acceptable multipliers and no degradation are favored; lower priority numbers win among them. Fastest failover retains a healthy current channel. Quality preference applies manual preferences to new sessions while preserving healthy existing sessions.',
+      schedulingPreferredHint: 'Used for initial selection and necessary failover in fastest failover and quality preference. Eligible preferred accounts with acceptable multipliers and no degradation are favored; lower priority numbers win among them. A healthy primary stays in use; preferences and recovery do not preempt it. Use manual scheduling refresh to reselect immediately.',
       activeSchedulerHint: 'This account is currently pinned for one or more models in the selected group.',
       schedulableDisabled: 'Scheduling disabled',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',

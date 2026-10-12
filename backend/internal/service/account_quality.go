@@ -200,28 +200,7 @@ func qualityLatencyLess(a, b GroupModelAccountQuality, aID, bID int64) bool {
 	return aID < bID
 }
 
-func qualitySignificantlyBetter(candidate, current GroupModelAccountQuality) bool {
-	x, y := candidate.Quality, current.Quality
-	if x.tier(time.Now()) < y.tier(time.Now()) {
-		return true
-	}
-	if x == nil || y == nil {
-		return false
-	}
-	if x.QualityLowerBound > y.QualityLowerBound+0.05 {
-		return true
-	}
-	if QualitySuccessLowerBound(candidate.Successes, candidate.Failures) > QualitySuccessLowerBound(current.Successes, current.Failures)+0.02 {
-		return true
-	}
-	return x.LatencySamples >= 10 && y.LatencySamples >= 10 && x.LatencyP95MS > 0 && x.LatencyP95MS < y.LatencyP95MS*0.8 && x.SuccessLowerBound >= y.SuccessLowerBound-0.02 && x.QualityLowerBound >= y.QualityLowerBound-0.02
-}
-
-type QualityChallengerCache interface {
-	QualityChallengerReady(context.Context, int64, string, int64, int64, bool) (bool, error)
-}
-
-func orderSchedulingCandidates(ctx context.Context, cache GatewayCache, groupID *int64, model string, candidates []*Account, samples map[int64]GroupModelAccountQuality, activeID int64, settings FastestFailoverSettings, observe bool) []*Account {
+func orderSchedulingCandidates(ctx context.Context, candidates []*Account, samples map[int64]GroupModelAccountQuality, activeID int64, settings FastestFailoverSettings, retainBinding bool) []*Account {
 	if !qualityPreferredEnabled(ctx) {
 		return orderFastestFailoverCandidates(candidates, samples, activeID, settings)
 	}
@@ -264,7 +243,7 @@ func orderSchedulingCandidates(ctx context.Context, cache GatewayCache, groupID 
 		return ordered
 	}
 	ordered := orderQualityCandidates(candidates, samples, int64(settings.MinimumSamples))
-	if observe {
+	if retainBinding {
 		if sessionID, _ := ctx.Value(qualitySessionBindingKey{}).(int64); sessionID > 0 {
 			sample := samples[sessionID]
 			if sample.Quality.tier(time.Now()) != 3 && sample.reliabilityTier(int64(settings.MinimumSamples)) != 3 {
@@ -283,7 +262,7 @@ func orderSchedulingCandidates(ctx context.Context, cache GatewayCache, groupID 
 			}
 		}
 	}
-	if !observe || len(ordered) == 0 || activeID == 0 {
+	if !retainBinding || len(ordered) == 0 || activeID == 0 {
 		return ordered
 	}
 	activeIndex := -1
@@ -298,7 +277,7 @@ func orderSchedulingCandidates(ctx context.Context, cache GatewayCache, groupID 
 		return ordered
 	}
 	current := samples[activeID]
-	// A bad or unavailable current channel bypasses promotion delays.
+	// Only a bad or unavailable current channel may yield to candidate ranking.
 	if current.Quality.tier(time.Now()) == 3 || current.reliabilityTier(int64(settings.MinimumSamples)) == 3 {
 		reason := "原账号近期请求不稳定"
 		if current.Quality.tier(time.Now()) == 3 {
@@ -307,25 +286,10 @@ func orderSchedulingCandidates(ctx context.Context, cache GatewayCache, groupID 
 		recordSchedulingSelectionReason(ctx, activeID, reason)
 		return ordered
 	}
-	winner := ordered[0]
-	// An explicit preference applies to new sessions without the automatic
-	// challenger delay. Normal existing sessions were preserved above.
+	// Preferences and relative quality/speed rank replacements; they never
+	// preempt a healthy primary, including when a former primary recovers.
 	active := ordered[activeIndex]
-	if accountSchedulingPreferred(winner) && (!accountSchedulingPreferred(active) || winner.Priority < active.Priority) {
-		recordSchedulingSelectionReason(ctx, activeID, "按手工优先调度及优先级选择")
-		return ordered
-	}
-	better := winner.ID != activeID && qualitySignificantlyBetter(samples[winner.ID], current)
-	ready := false
-	if state, ok := cache.(QualityChallengerCache); ok && groupID != nil {
-		ready, _ = state.QualityChallengerReady(ctx, *groupID, model, activeID, winner.ID, better)
-	}
-	if !ready {
-		active := ordered[activeIndex]
-		copy(ordered[1:activeIndex+1], ordered[:activeIndex])
-		ordered[0] = active
-	} else {
-		recordSchedulingSelectionReason(ctx, activeID, "质量优选观察通过")
-	}
+	copy(ordered[1:activeIndex+1], ordered[:activeIndex])
+	ordered[0] = active
 	return ordered
 }

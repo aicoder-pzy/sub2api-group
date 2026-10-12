@@ -132,7 +132,7 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 		}
 		statuses[account.ID] = status
 	}
-	for index, account := range orderSchedulingCandidates(ctx, s.cache, &groupID, upstreamModel, eligible, quality, activeID, settings, false) {
+	for index, account := range orderSchedulingCandidates(ctx, eligible, quality, activeID, settings, false) {
 		if index == 0 {
 			result.RecommendedAccountID = account.ID
 		}

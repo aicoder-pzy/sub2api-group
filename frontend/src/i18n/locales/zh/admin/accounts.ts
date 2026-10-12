@@ -177,7 +177,7 @@ export default {
       },
       schedulingStatus: {
         effort: '比较思考强度', autoEffort: '自动：使用近 24 小时最常用强度',
-        qualityPolicy: '先检查可用性、倍率上限和降智；合格候选中优先调度优先，多个优先账号按优先级数字从小到大选择，再比较质量、可靠性和同强度速度。测智按同组、同账号、同模型生效，保留检测强度供查看。全部疑似降智时选最快。自动质量改善持续至少 5 分钟、当前渠道使用至少 30 分钟后接管；手工优先设置用于下一次新会话，正常已有会话保持账号。查看本页不会发起测试或修改调度。',
+        qualityPolicy: '当前主账号正常且可用时，新会话继续使用主账号，正常已有会话保持原账号。仅在故障、降智、倍率超限或其他资格失效时重新选择；恢复可用的账号不会自动抢回主用。首次选择及切换时，先避让降智和不稳定账号，再按优先调度、优先级数字、质量、可靠性和同强度速度选择。全部疑似降智时选最快。测智按同组、同账号、同模型生效，保留检测强度供查看。本页排名用于评估候选，不会主动切换健康主账号；查看本页不会发起测试或修改调度。',
         recommended: '质量首选', weekRate: '7 天成功率', hourRate: '1 小时成功率',
         qualityEvidence: '质量证据', qualityHistory: '7 天测智记录', speed: '同强度首字速度', lastTest: '最近检测',
         quality_verified: '已验证持续正常', quality_provisional: '单次正常，继续验证', quality_unknown: '待验证或证据已过期', quality_degraded: '疑似降智或恢复待确认',
@@ -286,7 +286,7 @@ export default {
       schedulableEnabled: '调度已开启',
       activeScheduler: '当前调度',
       schedulingPreferred: '优先调度',
-      schedulingPreferredHint: '用于最快故障切换和质量优选。可用、倍率合格且未降智的优先账号优先，多个优先账号按优先级数字从小到大选择。最快故障切换保留正常当前渠道；质量优选在新会话应用手工优先设置，正常已有会话保留账号。',
+      schedulingPreferredHint: '用于最快故障切换和质量优选的首次选号及必要切换。可用、倍率合格且未降智的优先账号优先，多个优先账号按优先级数字从小到大选择。正常主账号持续使用，优先设置或账号恢复不会抢占主用；需要立即重新选择时可手动刷新调度。',
       activeSchedulerHint: '当前分组中，正在按模型持续使用此账号。',
       schedulableDisabled: '调度已关闭',
       failedToToggleSchedulable: '切换调度状态失败',

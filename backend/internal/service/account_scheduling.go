@@ -193,7 +193,7 @@ func rememberGroupModelSchedulingAccount(ctx context.Context, cache GatewayCache
 func groupModelSchedulingUsableActiveAccount(ctx context.Context, repo UsageLogRepository, cache GatewayCache, groupID *int64, model string) int64 {
 	activeID := groupModelSchedulingActiveAccount(ctx, cache, groupID, model)
 	if qualityPreferredEnabled(ctx) {
-		return 0 // Quality selection must compare the current channel with candidates.
+		return 0 // Validate quality and reliability before preserving the binding.
 	}
 	if activeID > 0 && groupModelAccountQuality(ctx, repo, groupID, model)[activeID].IntelligenceVerdict == "degraded" {
 		return 0
@@ -212,7 +212,7 @@ func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository,
 	if len(configured) > 0 {
 		settings = configured[0]
 	}
-	return orderSchedulingCandidates(ctx, cache, groupID, model, ordered, quality, activeID, settings, ctx.Value(schedulingEvaluationKey{}) == nil && ctx.Value(qualitySchedulingReadOnlyKey{}) == nil)
+	return orderSchedulingCandidates(ctx, ordered, quality, activeID, settings, ctx.Value(schedulingEvaluationKey{}) == nil && ctx.Value(qualitySchedulingReadOnlyKey{}) == nil)
 }
 
 func orderFastestFailoverCandidates(candidates []*Account, quality map[int64]GroupModelAccountQuality, activeID int64, settings FastestFailoverSettings) []*Account {
