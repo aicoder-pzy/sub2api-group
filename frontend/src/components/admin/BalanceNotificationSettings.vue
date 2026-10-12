@@ -9,7 +9,9 @@
         <div class="flex flex-wrap gap-x-6 gap-y-3 text-sm">
           <label class="flex items-center gap-2"><input v-model="settings.enabled" type="checkbox" />{{ t(`${key}.enabled`) }}</label>
           <label class="flex items-center gap-2"><input v-model="settings.notify_recovery" type="checkbox" />{{ t(`${key}.recovery`) }}</label>
+          <label class="flex items-center gap-2"><input v-model="settings.notify_account_switch" type="checkbox" />{{ t(`${key}.accountSwitch`) }}</label>
         </div>
+        <p class="text-xs text-gray-500">{{ t(`${key}.accountSwitchHint`) }}</p>
         <p v-if="!settings.encryption_key_configured" role="status" class="text-sm text-amber-600">{{ t(`${key}.encryptionRequired`) }}</p>
         <fieldset v-for="(channel, index) in settings.channels" :key="channel.id" class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="flex flex-wrap items-center gap-3">
@@ -57,6 +59,22 @@
         </table>
       </div>
     </div>
+    <div class="mt-6">
+      <div class="mb-3 flex items-center gap-2">
+        <h4 class="text-sm font-semibold">{{ t(`${key}.switchHistory`) }}</h4>
+        <button type="button" class="flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-dark-700" :title="t('admin.accounts.balance.refresh')" :aria-label="t(`${key}.switchHistory`)" :disabled="historyLoading" @click="loadHistory"><Icon name="refresh" size="sm" /></button>
+      </div>
+      <p v-if="!switchHistory.length" class="text-sm text-gray-500">{{ t(`${key}.empty`) }}</p>
+      <ul v-else class="divide-y divide-gray-100 text-xs dark:divide-dark-700">
+        <li v-for="event in switchHistory" :key="event.id" class="space-y-1 py-3 break-words">
+          <div class="font-medium">{{ event.group_name || `#${event.group_id}` }} · {{ event.model }}</div>
+          <div>{{ event.previous_account_name }} (#{{ event.previous_account_id }}) → {{ event.account_name }} (#{{ event.account_id }})</div>
+          <div>{{ event.trigger }} · {{ new Date(event.changed_at).toLocaleString() }}</div>
+          <div :class="event.status === 'failed' ? 'text-red-600' : 'text-gray-500'">{{ t(`${key}.statuses.${event.status}`) }}</div>
+          <div v-for="(delivery, id) in event.deliveries" :key="id" :class="delivery.status === 'failed' ? 'text-red-600' : 'text-gray-500'">{{ delivery.name || t(`${key}.providers.${delivery.provider}`) }}: {{ t(`${key}.statuses.${delivery.status}`) }}</div>
+        </li>
+      </ul>
+    </div>
   </div>
 </template>
 
@@ -64,15 +82,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
-import { getBalanceNotificationHistory, getBalanceNotificationSettings, saveBalanceNotificationSettings, testBalanceNotification } from '@/api/admin/accounts'
+import { getBalanceNotificationHistory, getSchedulingNotificationHistory, getBalanceNotificationSettings, saveBalanceNotificationSettings, testBalanceNotification } from '@/api/admin/accounts'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import type { BalanceNotificationChannel, BalanceNotificationEvent, BalanceNotificationSettings as NotificationSettings } from '@/types'
+import type { BalanceNotificationChannel, BalanceNotificationEvent, SchedulingNotificationEvent, BalanceNotificationSettings as NotificationSettings } from '@/types'
 
 const { t } = useI18n()
 const key = 'admin.accounts.balance.notifications'
 const providers = ['email', 'wecom', 'dingtalk', 'feishu', 'webhook'] as const
 const settings = ref<NotificationSettings | null>(null)
 const history = ref<BalanceNotificationEvent[]>([])
+const switchHistory = ref<SchedulingNotificationEvent[]>([])
 const savedIds = ref(new Set<string>())
 const loading = ref(false), saving = ref(false), testing = ref(false), saved = ref(false), dirty = ref(false), testSent = ref(false), historyLoading = ref(false)
 const error = ref(''), historyError = ref('')
@@ -88,7 +107,7 @@ async function load() {
 async function loadHistory() {
   historyLoading.value = true
   historyError.value = ''
-  try { history.value = await getBalanceNotificationHistory() }
+  try { [history.value, switchHistory.value] = await Promise.all([getBalanceNotificationHistory(), getSchedulingNotificationHistory()]) }
   catch (cause) { historyError.value = extractApiErrorMessage(cause, t(`${key}.failed`)) }
   finally { historyLoading.value = false }
 }

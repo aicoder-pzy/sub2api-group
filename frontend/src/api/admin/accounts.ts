@@ -7,7 +7,7 @@ import { apiClient } from '../client'
 import type { OpenAIReferralRefreshResult, OpenAIReferralSendResult } from '@/types/openaiReferrals'
 import type { UpstreamBalanceConfig, UpstreamBalanceSettings, UpstreamBalanceState, UpstreamBalanceProbeResult } from '@/types'
 import type { NewAPIUpstreamConfig, NewAPIUpstreamConfigRequest, NewAPIUpstreamPreview } from '@/types'
-import type { BalanceNotificationSettings, BalanceNotificationEvent } from '@/types'
+import type { BalanceNotificationSettings, BalanceNotificationEvent, SchedulingNotificationEvent } from '@/types'
 
 export async function getBalanceNotificationSettings(): Promise<BalanceNotificationSettings> {
   return (await apiClient.get('/admin/accounts/upstream-balance/notifications')).data
@@ -20,6 +20,9 @@ export async function testBalanceNotification(id: string): Promise<void> {
 }
 export async function getBalanceNotificationHistory(): Promise<BalanceNotificationEvent[]> {
   return (await apiClient.get('/admin/accounts/upstream-balance/notifications/history')).data
+}
+export async function getSchedulingNotificationHistory(): Promise<SchedulingNotificationEvent[]> {
+  return (await apiClient.get('/admin/accounts/upstream-balance/notifications/account-switch-history')).data
 }
 
 export async function getNewAPIUpstreamConfig(id: number): Promise<NewAPIUpstreamConfig> {

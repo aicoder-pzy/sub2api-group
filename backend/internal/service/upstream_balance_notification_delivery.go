@@ -81,16 +81,52 @@ func signBalanceNotification(key, message string) string {
 }
 
 func (s *UpstreamBillingProbeService) sendBalanceNotification(ctx context.Context, channel UpstreamBalanceNotificationChannel, event *UpstreamBalanceNotificationEvent) error {
-	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
-	defer cancel()
 	subject := balanceNotificationSubject(event)
 	text := fmt.Sprintf("%s\nScope: %s\nBalance: %g %s\nThreshold: %g %s\nObserved: %s", subject, event.Scope, event.Remaining, event.Currency, event.Threshold, event.Currency, event.ObservedAt.Format(time.RFC3339))
+	payload := map[string]any{"text": text, "event": event.Phase, "account_id": event.AccountID, "account_name": event.AccountName, "scope": event.Scope, "currency": event.Currency, "remaining": event.Remaining, "threshold": event.Threshold, "observed_at": event.ObservedAt, "event_id": event.ID}
+	return s.sendAdminChannelNotification(ctx, channel, subject, text, payload, event.Phase == "test", func(ctx context.Context, latest *UpstreamBalanceNotificationSettings) error {
+		if event.Phase == "test" {
+			return nil
+		}
+		valid, err := s.balanceNotificationStillValid(ctx, event, latest)
+		if err != nil {
+			return err
+		}
+		if !valid {
+			return errors.New("notification observation changed")
+		}
+		return nil
+	})
+}
+
+// Both administrator events share encrypted destinations, signing and SSRF protection.
+func (s *UpstreamBillingProbeService) sendAdminChannelNotification(ctx context.Context, channel UpstreamBalanceNotificationChannel, subject, text string, webhookPayload map[string]any, test bool, validate func(context.Context, *UpstreamBalanceNotificationSettings) error) error {
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	check := func() error {
+		if channel.ID == "" {
+			return nil
+		}
+		latest, err := s.GetBalanceNotificationSettings(ctx)
+		if err != nil {
+			return err
+		}
+		for _, current := range latest.Channels {
+			if current.ID == channel.ID && current.revision == channel.revision && (current.Enabled || test) {
+				return validate(ctx, latest)
+			}
+		}
+		return errors.New("notification destination changed")
+	}
 	if channel.Provider == "email" {
 		if s.balanceNotificationEmail == nil {
 			return errors.New("email unavailable")
 		}
 		config, err := s.balanceNotificationEmail.GetSMTPConfig(ctx)
 		if err != nil {
+			return err
+		}
+		if err := check(); err != nil {
 			return err
 		}
 		return s.balanceNotificationEmail.sendEmailWithConfig(ctx, config, channel.Email, subject, "<pre>"+html.EscapeString(text)+"</pre>")
@@ -123,35 +159,13 @@ func (s *UpstreamBillingProbeService) sendBalanceNotification(ctx context.Contex
 			}
 		}
 	}
-	if channel.ID != "" {
-		latest, err := s.GetBalanceNotificationSettings(ctx)
-		if err != nil {
-			return err
-		}
-		unchanged := false
-		for _, current := range latest.Channels {
-			if current.ID == channel.ID && current.revision == channel.revision && (current.Enabled || event.Phase == "test") {
-				unchanged = true
-				break
-			}
-		}
-		if !unchanged {
-			return errors.New("notification destination changed")
-		}
-		if event.Phase != "test" {
-			valid, err := s.balanceNotificationStillValid(ctx, event, latest)
-			if err != nil {
-				return err
-			}
-			if !valid {
-				return errors.New("notification observation changed")
-			}
-		}
+	if err := check(); err != nil {
+		return err
 	}
 	var payload map[string]any
 	switch channel.Provider {
 	case "webhook":
-		payload = map[string]any{"text": text, "event": event.Phase, "account_id": event.AccountID, "account_name": event.AccountName, "scope": event.Scope, "currency": event.Currency, "remaining": event.Remaining, "threshold": event.Threshold, "observed_at": event.ObservedAt, "event_id": event.ID}
+		payload = webhookPayload
 	case "wecom":
 		payload = map[string]any{"msgtype": "text", "text": map[string]any{"content": text}}
 	case "dingtalk":

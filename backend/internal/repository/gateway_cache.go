@@ -94,11 +94,16 @@ func (c *gatewayCache) ListGroupModelSchedulingBindings(ctx context.Context, gro
 func (c *gatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
 	key := buildSessionKey(groupID, sessionHash)
 	if strings.HasPrefix(sessionHash, service.GroupModelSchedulingKeyPrefix) {
-		transition, err := json.Marshal(service.GroupModelSchedulingTransition{AccountID: accountID, Reason: "manual_refresh", ChangedAt: time.Now().UTC()})
+		change := service.GroupModelSchedulingTransition{AccountID: accountID, Reason: "manual_refresh", ChangedAt: time.Now().UTC()}
+		transition, err := json.Marshal(change)
 		if err != nil {
 			return err
 		}
-		return setGroupModelSchedulingAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision", key + ":transition"}, accountID, transition).Err()
+		keys, args, err := schedulingNotificationArgs(ctx, groupID, sessionHash, change)
+		if err != nil {
+			return err
+		}
+		return setGroupModelSchedulingAccountScript.Run(ctx, c.rdb, append([]string{key, key + ":revision", key + ":transition"}, keys...), append([]any{accountID, transition}, args...)...).Err()
 	}
 	return c.rdb.Set(ctx, key, accountID, ttl).Err()
 }
@@ -109,8 +114,7 @@ transition.previous_account_id = tonumber(redis.call('GET', KEYS[1]) or '0')
 redis.call('SET', KEYS[1], ARGV[1])
 redis.call('INCR', KEYS[2])
 redis.call('SET', KEYS[3], cjson.encode(transition))
-return 1
-`)
+` + queueSchedulingNotificationLua)
 
 var compareAndSwapSessionAccountScript = redis.NewScript(`
 local revision = redis.call('GET', KEYS[2]) or '0'
@@ -123,8 +127,7 @@ if transition.previous_account_id == 0 then transition.reason = 'initial_selecti
 redis.call('SET', KEYS[1], ARGV[2])
 redis.call('INCR', KEYS[2])
 redis.call('SET', KEYS[3], cjson.encode(transition))
-return 1
-`)
+` + queueSchedulingNotificationLua)
 
 func (c *gatewayCache) GetSessionAccountState(ctx context.Context, groupID int64, sessionHash string) (int64, int64, error) {
 	key := buildSessionKey(groupID, sessionHash)
@@ -151,11 +154,16 @@ func (c *gatewayCache) GetSessionAccountState(ctx context.Context, groupID int64
 
 func (c *gatewayCache) CompareAndSwapSessionAccountID(ctx context.Context, groupID int64, sessionHash string, revision int64, accountID int64) (bool, error) {
 	key := buildSessionKey(groupID, sessionHash)
-	transition, err := json.Marshal(service.GroupModelSchedulingTransition{AccountID: accountID, Reason: "confirmed_failover", ChangedAt: time.Now().UTC()})
+	change := service.GroupModelSchedulingTransition{AccountID: accountID, Reason: "confirmed_failover", ChangedAt: time.Now().UTC()}
+	transition, err := json.Marshal(change)
 	if err != nil {
 		return false, err
 	}
-	result, err := compareAndSwapSessionAccountScript.Run(ctx, c.rdb, []string{key, key + ":revision", key + ":transition"}, revision, accountID, transition).Int()
+	keys, args, err := schedulingNotificationArgs(ctx, groupID, sessionHash, change)
+	if err != nil {
+		return false, err
+	}
+	result, err := compareAndSwapSessionAccountScript.Run(ctx, c.rdb, append([]string{key, key + ":revision", key + ":transition"}, keys...), append([]any{revision, accountID, transition}, args...)...).Int()
 	return result == 1, err
 }
 

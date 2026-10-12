@@ -1145,6 +1145,7 @@ export interface BalanceNotificationChannel {
 export interface BalanceNotificationSettings {
   enabled: boolean
   notify_recovery: boolean
+  notify_account_switch: boolean
   encryption_key_configured: boolean
   channels: BalanceNotificationChannel[]
 }
@@ -1162,6 +1163,21 @@ export interface BalanceNotificationEvent {
   created_at: string
   observed_at: string
   deliveries: Record<string, { name: string; provider: string; status: 'sent' | 'failed'; attempts: number; sent_at?: string }>
+}
+
+export interface SchedulingNotificationEvent {
+  id: string
+  group_id: number
+  group_name: string
+  model: string
+  previous_account_id: number
+  previous_account_name: string
+  account_id: number
+  account_name: string
+  trigger: string
+  changed_at: string
+  status: BalanceNotificationEvent['status']
+  deliveries: BalanceNotificationEvent['deliveries']
 }
 
 export interface UpstreamBalanceAmount {

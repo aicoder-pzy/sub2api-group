@@ -64,3 +64,16 @@ func (h *AccountHandler) GetBalanceNotificationHistory(c *gin.Context) {
 	}
 	response.Success(c, history)
 }
+
+func (h *AccountHandler) GetSchedulingNotificationHistory(c *gin.Context) {
+	if h.upstreamBillingProbe == nil {
+		response.ErrorFrom(c, service.ErrUpstreamBillingProbeUnavailable)
+		return
+	}
+	history, err := h.upstreamBillingProbe.GetSchedulingNotificationHistory(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, history)
+}

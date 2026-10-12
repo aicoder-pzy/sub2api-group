@@ -37,7 +37,10 @@ export default {
           "removeFailed": "Could not remove authorization"
         },
         "notifications": {
-          "title": "Balance Notifications",
+          "title": "Administrator Notifications",
+          "accountSwitch": "Notify on account switches",
+          "accountSwitchHint": "Use the channels below for fastest failover and quality preferred groups. Notify after a primary account changes; initial selection and quality probes do not notify. Failed deliveries are attempted up to three times.",
+          "switchHistory": "Account switch notifications (last 30 days)",
           "enabled": "Enable low balance notifications",
           "recovery": "Notify when balance recovers",
           "encryptionRequired": "Robot and Webhook credentials require a fixed TOTP_ENCRYPTION_KEY on the server.",

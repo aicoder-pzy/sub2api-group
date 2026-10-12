@@ -37,7 +37,10 @@ export default {
           "removeFailed": "解除授权失败"
         },
         "notifications": {
-          "title": "余额通知",
+          "title": "管理员通知",
+          "accountSwitch": "启用账号切换通知",
+          "accountSwitchHint": "使用下方通知渠道，覆盖最快故障切换和质量优选分组。主账号实际变更后通知，首次选号和测智轮测不通知；发送失败最多尝试3次。",
+          "switchHistory": "账号切换通知记录（最近30天）",
           "enabled": "启用低余额通知",
           "recovery": "余额恢复时通知",
           "encryptionRequired": "机器人和 Webhook 凭据需要服务器配置固定的 TOTP_ENCRYPTION_KEY。",

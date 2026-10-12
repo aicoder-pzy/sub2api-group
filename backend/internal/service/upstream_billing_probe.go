@@ -251,6 +251,7 @@ type UpstreamBillingProbeService struct {
 	newAPIFixedKey           bool
 	balanceNotificationRepo  UpstreamBalanceNotificationRepository
 	balanceNotificationEmail *EmailService
+	schedulingNotifications  SchedulingNotificationQueue
 	notificationMu           sync.Mutex
 
 	parentCtx    context.Context
@@ -314,11 +315,13 @@ func ProvideUpstreamBillingProbeService(
 	encryptor SecretEncryptor,
 	notificationRepo UpstreamBalanceNotificationRepository,
 	emailService *EmailService,
+	gatewayCache GatewayCache,
 ) *UpstreamBillingProbeService {
 	svc := NewUpstreamBillingProbeService(accountRepo, accountTestService, settingService)
 	svc.SetLeaderLock(lockCache, db)
 	svc.SetNewAPIAuthorization(newAPIRepo, encryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured)
 	svc.balanceNotificationRepo, svc.balanceNotificationEmail = notificationRepo, emailService
+	svc.schedulingNotifications, _ = gatewayCache.(SchedulingNotificationQueue)
 	svc.Start()
 	return svc
 }
@@ -334,6 +337,10 @@ func (s *UpstreamBillingProbeService) Start() {
 	}
 	s.started = true
 	s.wg.Add(1)
+	if s.schedulingNotifications != nil {
+		s.wg.Add(1)
+		go s.runSchedulingNotificationLoop()
+	}
 	s.mu.Unlock()
 	go s.runLoop()
 }

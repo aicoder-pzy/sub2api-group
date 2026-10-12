@@ -206,7 +206,8 @@ func (body *fastestFailoverReadCloser) Read(buffer []byte) (int, error) {
 	return count, err
 }
 
-func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c *gin.Context, account *Account, body []byte, attempt *fastestFailoverAttempt, forwardErr error) error {
+func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c *gin.Context, account *Account, body []byte, attempt *fastestFailoverAttempt, forwardErr error) (resultErr error) {
+	defer func() { recordSchedulingSwitchFailure(ctx, account.ID, resultErr) }()
 	forwardErr = limitFastestFailoverRetry(ctx, forwardErr, 1, account.ID)
 	if attempt == nil {
 		return forwardErr

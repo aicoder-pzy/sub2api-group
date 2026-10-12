@@ -39,6 +39,7 @@ type UpstreamBalanceNotificationChannel struct {
 type UpstreamBalanceNotificationSettings struct {
 	Enabled                 bool                                 `json:"enabled"`
 	NotifyRecovery          bool                                 `json:"notify_recovery"`
+	NotifyAccountSwitch     bool                                 `json:"notify_account_switch"`
 	EncryptionKeyConfigured bool                                 `json:"encryption_key_configured"`
 	Channels                []UpstreamBalanceNotificationChannel `json:"channels"`
 }
@@ -51,9 +52,10 @@ type storedBalanceNotificationChannel struct {
 }
 
 type storedBalanceNotificationSettings struct {
-	Enabled        bool                               `json:"enabled"`
-	NotifyRecovery bool                               `json:"notify_recovery"`
-	Channels       []storedBalanceNotificationChannel `json:"channels"`
+	Enabled             bool                               `json:"enabled"`
+	NotifyRecovery      bool                               `json:"notify_recovery"`
+	NotifyAccountSwitch bool                               `json:"notify_account_switch"`
+	Channels            []storedBalanceNotificationChannel `json:"channels"`
 }
 
 type UpstreamBalanceNotificationAccount struct {
@@ -124,6 +126,7 @@ func (s *UpstreamBillingProbeService) loadBalanceNotifications(ctx context.Conte
 		return nil, err
 	}
 	result.Enabled, result.NotifyRecovery = stored.Enabled, stored.NotifyRecovery
+	result.NotifyAccountSwitch = stored.NotifyAccountSwitch
 	for _, channel := range stored.Channels {
 		item := channel.UpstreamBalanceNotificationChannel
 		item.URL, item.Secret, item.ClearSecret = "", "", false
@@ -157,7 +160,7 @@ func (s *UpstreamBillingProbeService) SetBalanceNotificationSettings(ctx context
 	for _, channel := range previous.Channels {
 		old[channel.ID] = channel
 	}
-	stored := storedBalanceNotificationSettings{Enabled: settings.Enabled, NotifyRecovery: settings.NotifyRecovery, Channels: []storedBalanceNotificationChannel{}}
+	stored := storedBalanceNotificationSettings{Enabled: settings.Enabled, NotifyRecovery: settings.NotifyRecovery, NotifyAccountSwitch: settings.NotifyAccountSwitch, Channels: []storedBalanceNotificationChannel{}}
 	seen := map[string]bool{}
 	active := false
 	for _, channel := range settings.Channels {
@@ -225,7 +228,7 @@ func (s *UpstreamBillingProbeService) SetBalanceNotificationSettings(ctx context
 		active = active || item.Enabled
 		stored.Channels = append(stored.Channels, item)
 	}
-	if settings.Enabled && !active {
+	if (settings.Enabled || settings.NotifyAccountSwitch) && !active {
 		return nil, balanceNotificationConfigError()
 	}
 	data, err := json.Marshal(stored)

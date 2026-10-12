@@ -57,6 +57,7 @@ type groupModelSchedulingSnapshot struct {
 
 type groupModelSchedulingRequestState struct {
 	preservedQualityAccountID int64
+	switchReasons             map[int64]string
 	mu                        sync.Mutex
 	snapshots                 map[groupModelSchedulingScope]groupModelSchedulingSnapshot
 	deadline                  time.Time

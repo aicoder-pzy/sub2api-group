@@ -294,11 +294,17 @@ func orderSchedulingCandidates(ctx context.Context, cache GatewayCache, groupID 
 		}
 	}
 	if activeIndex < 0 {
+		recordSchedulingSelectionReason(ctx, activeID, "原账号不在本次可选范围")
 		return ordered
 	}
 	current := samples[activeID]
 	// A bad or unavailable current channel bypasses promotion delays.
 	if current.Quality.tier(time.Now()) == 3 || current.reliabilityTier(int64(settings.MinimumSamples)) == 3 {
+		reason := "原账号近期请求不稳定"
+		if current.Quality.tier(time.Now()) == 3 {
+			reason = "原账号测智结果异常"
+		}
+		recordSchedulingSelectionReason(ctx, activeID, reason)
 		return ordered
 	}
 	winner := ordered[0]
@@ -306,6 +312,7 @@ func orderSchedulingCandidates(ctx context.Context, cache GatewayCache, groupID 
 	// challenger delay. Normal existing sessions were preserved above.
 	active := ordered[activeIndex]
 	if accountSchedulingPreferred(winner) && (!accountSchedulingPreferred(active) || winner.Priority < active.Priority) {
+		recordSchedulingSelectionReason(ctx, activeID, "按手工优先调度及优先级选择")
 		return ordered
 	}
 	better := winner.ID != activeID && qualitySignificantlyBetter(samples[winner.ID], current)
@@ -317,6 +324,8 @@ func orderSchedulingCandidates(ctx context.Context, cache GatewayCache, groupID 
 		active := ordered[activeIndex]
 		copy(ordered[1:activeIndex+1], ordered[:activeIndex])
 		ordered[0] = active
+	} else {
+		recordSchedulingSelectionReason(ctx, activeID, "质量优选观察通过")
 	}
 	return ordered
 }
