@@ -8,6 +8,7 @@ import pelicanAccount from './pelicanAccount'
 import pelicanShowcase from './pelicanShowcase'
 import pelicanTests from './pelicanTests'
 import misc from './misc'
+import channelStatistics from './channelStatistics'
 
 export default {
   ...landing,
@@ -18,5 +19,6 @@ export default {
   admin: {...admin,accounts:{...admin.accounts,...pelicanAccount}},
   ...pelicanShowcase,
   pelicanTests,
+  channelStatistics,
   ...misc,
 }
