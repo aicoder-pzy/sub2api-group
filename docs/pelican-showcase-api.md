@@ -46,6 +46,15 @@ Accept-Encoding: gzip
         "id": 3,
         "name": "示例分组",
         "platform": "openai",
+        "intelligence_probe": {
+          "normal_count": 85,
+          "degraded_count": 15,
+          "sample_count": 100,
+          "normal_rate": 85,
+          "window_size": 100,
+          "min_samples": 11,
+          "last_probed_at": "2026-09-30T12:00:00Z"
+        },
         "items": [
           {
             "id": 7,
@@ -54,6 +63,7 @@ Accept-Encoding: gzip
             "reasoning_effort": "high",
             "status": "success",
             "quality_verdict": "degraded",
+            "quality_label": "疑似降智",
             "quality_reason": "作品缺少自行车结构",
             "latency_ms": 1200,
             "generated_at": "2026-09-30T12:00:00Z",
@@ -67,6 +77,9 @@ Accept-Encoding: gzip
 ```
 
 - `groups` 按本站分组显示顺序排列，`items` 按生成时间、ID 降序排列。返回当前保留窗口内的全部作品摘要，包含同轮并发产生的多份结果。空分组的 `items` 是 `[]`。不需要分页或增量游标。
+- 分组新增 `intelligence_probe`，指标名「智力探测」。`normal_rate` 是 0–100 的正常率：`normal_count / sample_count * 100`，其中 `sample_count = normal_count + degraded_count`。有效总数大于 10（至少 11）次才返回数值；不足时为 `null`，不要显示成 0%。无样本时计数为 0、`last_probed_at=null`。
+- 智力探测按分组汇总全部模型的分组测试，每份生成结果只计一次；只统计成功且结论为 `normal` / `degraded` 的记录，失败尝试、异常、`unknown`、账号独立测试不计入。独立数据库队列按测试完成时间、结果 ID 倒序保留最新最多 100 条有效结论，超过 100 条淘汰最早的结论；并发完成不重复、不丢计数。作品数量/天数限制、管理员历史清理、删除作品或单个测试计划不清空此统计。下游卡片、表格直接读取该字段，不使用清单作品数推算。统计与清单共用 ETag/60 秒缓存，即使作品没变，统计变动也会更新 ETag。
+- 升级从仍存储的分组结果、结构化调度证据和已发布快照回填并去重，不生成付费请求、不重新评估。早已删除且没有任何证据的历史不能恢复；升级后每次完成的有效分组测试均独立记录。
 - `id` 是作品快照 ID，正文在其生命周期内不变；下游以 ID 去重。不要把生成时间或最大 ID 当作完整同步游标：并发测试可能晚完成、早开始。
 - `content_url` 是相对于 API 站点根路径的地址，用 API origin 解析，读取正文同样需要附带 API Key。
 - `generated_at` 沿用展示页口径，通常是该次测试的开始时间；`latency_ms` 为该份测试耗时（毫秒）。`latest_generated_at` 是当前作品中最大的生成时间；没有作品时为 `null`。它不是删除/设置变动游标，应使用 ETag 检查清单变化。
@@ -84,6 +97,8 @@ Accept-Encoding: gzip
 ```
 
 `data` 包含清单中的该条元数据，以及 `response_text` 和 `preview_html` 字符串。`response_text` 保留原始模型输出（可能带 Markdown 代码围栏和已保存的角标），适合存档或下载。`preview_html` 是可直接放入隔离 iframe 的完整预览文档，复用本站同一渲染器：保持逻辑画布，等比适应窗口，自动测量超出画布和延迟出现的内容，保留动画，在缩放画布外显示可读的判断角标。判断使用保存的结构化结论，未从作品任意标签推断。
+
+清单和正文另提供 `quality_label`（正常／疑似降智／无法判定）。`preview_html` 直接包含 `id="intelligence-verdict"` 的右上角判定标签，标签及原因来自已保存的结构化结论，不需要调用方再拼接，也不会随作品画布缩小。正常、降智和未知分别采用绿色、红色和灰色；原因作为标签提示。`response_text` 继续保留原始输出，兼容已有存档和下载。
 
 显示时使用 `preview_html`，不要直接缩放原始 `response_text`；否则长图、SVG 尺寸及角标可能与本站不同。相同浏览器和容器尺寸下，作品画布与本站“适应窗口”模式一致。文档包含渲染代码和作品，不下载外部资源、不访问网络、不需要 API Key。API 仍以 `application/json` 返回；没有内嵌前端的开发版不提供 `preview_html`。
 

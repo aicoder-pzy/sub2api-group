@@ -63,7 +63,13 @@ func (r *pelicanShowcaseRepository) Prune(ctx context.Context, maxItems int, bef
 }
 
 func (r *pelicanShowcaseRepository) ListGroups(ctx context.Context) ([]*service.PelicanShowcaseGroup, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, name, platform FROM groups g
+	rows, err := r.db.QueryContext(ctx, `SELECT g.id, g.name, g.platform,
+ COALESCE(q.normal_count, 0), COALESCE(q.degraded_count, 0), q.last_probed_at
+ FROM groups g LEFT JOIN LATERAL (
+ SELECT COUNT(*) FILTER (WHERE verdict = 'normal') AS normal_count,
+ COUNT(*) FILTER (WHERE verdict = 'degraded') AS degraded_count, MAX(tested_at) AS last_probed_at
+ FROM pelican_group_intelligence_samples WHERE group_id = g.id
+ ) q ON true
  WHERE deleted_at IS NULL AND status = $1
  AND EXISTS (SELECT 1 FROM pelican_group_test_plans p WHERE p.group_id = g.id)
  ORDER BY sort_order ASC, id ASC`, service.StatusActive)
@@ -74,9 +80,12 @@ func (r *pelicanShowcaseRepository) ListGroups(ctx context.Context) ([]*service.
 	groups := make([]*service.PelicanShowcaseGroup, 0)
 	for rows.Next() {
 		group := &service.PelicanShowcaseGroup{}
-		if err := rows.Scan(&group.ID, &group.Name, &group.Platform); err != nil {
+		var normal, degraded int
+		var latest sql.NullTime
+		if err := rows.Scan(&group.ID, &group.Name, &group.Platform, &normal, &degraded, &latest); err != nil {
 			return nil, err
 		}
+		group.IntelligenceProbe = service.NewPelicanIntelligenceProbe(normal, degraded, nullTimePtr(latest))
 		groups = append(groups, group)
 	}
 	return groups, rows.Err()

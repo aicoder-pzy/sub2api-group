@@ -154,11 +154,18 @@ func TestPelicanPublicQualityAndPreview(t *testing.T) {
 			expected = "unknown"
 		}
 		require.Equal(t, expected, detail.Data.QualityVerdict)
+		require.Equal(t, map[string]string{"normal": "正常", "degraded": "疑似降智", "unknown": "无法判定"}[expected], detail.Data.QualityLabel)
 		require.Equal(t, source.item.QualityReason, detail.Data.QualityReason)
 		require.Equal(t, detail.Data.QualityVerdict, manifest.Data.Groups[0].Items[0].QualityVerdict)
 		require.Equal(t, detail.Data.QualityReason, manifest.Data.Groups[0].Items[0].QualityReason)
 		require.NotContains(t, list.Body.String(), "preview_html")
 		manifestETag, itemETag = list.Header().Get("ETag"), body.Header().Get("ETag")
+		previewItem := publicPelicanItem(source.item)
+		previewItem.ResponseText = &source.item.ResponseText
+		preview := pelicanPreviewHTML(previewItem, `var Sub2APIPelican={};`)
+		require.Contains(t, preview, `id="intelligence-verdict"`)
+		require.Contains(t, preview, `data-sub2api-quality="`+expected+`"`)
+		require.Contains(t, preview, "满血 AI · "+detail.Data.QualityLabel)
 	}
 
 	attack := `</script><img src=x onerror=alert(1)>`
@@ -172,6 +179,32 @@ func TestPelicanPublicQualityAndPreview(t *testing.T) {
 	require.Contains(t, preview, `connect-src 'none'; frame-src about:`)
 	require.Contains(t, preview, `"quality":"unknown"`)
 	require.Equal(t, 1, strings.Count(preview, "</script>"))
+}
+
+func TestPelicanPublicIntelligenceProbeChangesETagWithoutNewArtwork(t *testing.T) {
+	h, source := newPublicPelicanFixture()
+	group := source.view.Groups[0]
+	group.IntelligenceProbe = service.NewPelicanIntelligenceProbe(9, 1, nil)
+	first := publicPelicanRequest(h, http.MethodGet, "", nil)
+	var manifest struct {
+		Data pelicanPublicManifest `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &manifest))
+	require.Nil(t, manifest.Data.Groups[0].IntelligenceProbe.NormalRate)
+	group.IntelligenceProbe = service.NewPelicanIntelligenceProbe(10, 1, &source.item.GeneratedAt)
+	h.public.snapshot.expiresAt = time.Now().Add(-time.Second)
+	second := publicPelicanRequest(h, http.MethodGet, "", map[string]string{"If-None-Match": first.Header().Get("ETag")})
+	require.Equal(t, http.StatusOK, second.Code)
+	require.NotEqual(t, first.Header().Get("ETag"), second.Header().Get("ETag"))
+	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &manifest))
+	stats := manifest.Data.Groups[0].IntelligenceProbe
+	require.Equal(t, 11, stats.SampleCount)
+	require.Equal(t, 10, stats.NormalCount)
+	require.Equal(t, 1, stats.DegradedCount)
+	require.Equal(t, 100, stats.WindowSize)
+	require.Equal(t, 11, stats.MinSamples)
+	require.InDelta(t, 1000.0/11, *stats.NormalRate, 0.000001)
+	require.Equal(t, source.item.GeneratedAt, *stats.LastProbedAt)
 }
 
 func TestPelicanPublicConditionalReadsAndCompression(t *testing.T) {

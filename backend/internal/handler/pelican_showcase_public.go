@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -43,15 +44,17 @@ type pelicanPublicItem struct {
 	ContentURL      string    `json:"content_url"`
 	ResponseText    *string   `json:"response_text,omitempty"`
 	QualityVerdict  string    `json:"quality_verdict"`
+	QualityLabel    string    `json:"quality_label"`
 	QualityReason   string    `json:"quality_reason"`
 	PreviewHTML     string    `json:"preview_html,omitempty"`
 }
 
 type pelicanPublicGroup struct {
-	ID       int64               `json:"id"`
-	Name     string              `json:"name"`
-	Platform string              `json:"platform"`
-	Items    []pelicanPublicItem `json:"items"`
+	ID                int64                            `json:"id"`
+	Name              string                           `json:"name"`
+	Platform          string                           `json:"platform"`
+	Items             []pelicanPublicItem              `json:"items"`
+	IntelligenceProbe service.PelicanIntelligenceProbe `json:"intelligence_probe"`
 }
 
 type pelicanPublicManifest struct {
@@ -76,6 +79,7 @@ func publicPelicanItem(item *service.PelicanShowcaseItem) pelicanPublicItem {
 		LatencyMs: item.LatencyMs, GeneratedAt: item.GeneratedAt,
 		ContentURL:     pelicanPublicPath + "/items/" + strconv.FormatInt(item.ID, 10),
 		QualityVerdict: verdict, QualityReason: item.QualityReason,
+		QualityLabel: map[string]string{"normal": "正常", "degraded": "疑似降智", "unknown": "无法判定"}[verdict],
 	}
 }
 
@@ -97,9 +101,12 @@ func pelicanPreviewHTML(item pelicanPublicItem, renderer string) string {
 	if err != nil {
 		return ""
 	}
+	colors := map[string][2]string{"normal": {"#d1fae5", "#065f46"}, "degraded": {"#fee2e2", "#991b1b"}, "unknown": {"#f1f5f9", "#475569"}}[item.QualityVerdict]
+	badge := fmt.Sprintf(`<aside id="intelligence-verdict" data-sub2api-quality="%s" title="%s" style="position:fixed;right:12px;top:12px;z-index:20;border-radius:999px;padding:6px 12px;font:600 12px/16px system-ui,sans-serif;background:%s;color:%s;box-shadow:0 1px 3px #0002;pointer-events:none;white-space:nowrap">满血 AI · %s</aside>`,
+		html.EscapeString(item.QualityVerdict), html.EscapeString(item.QualityReason), colors[0], colors[1], html.EscapeString(item.QualityLabel))
 	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src about:; object-src 'none'; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#artwork{margin:0;width:100%;height:100%}body{overflow:hidden}</style></head><body><div id="artwork"></div><script>` +
 		pelicanScriptEnd.ReplaceAllString(renderer, `<\/script`) +
-		`Sub2APIPelican.mountPelicanArtwork(document.getElementById('artwork'),` + string(options) + `);</script></body></html>`
+		`Sub2APIPelican.mountPelicanArtwork(document.getElementById('artwork'),` + string(options) + `);document.querySelector('[data-testid="pelican-quality-badge"]')?.remove();</script>` + badge + `</body></html>`
 }
 
 type pelicanPublicSource interface {
@@ -260,7 +267,7 @@ func (p *pelicanPublicCache) manifest(ctx context.Context) (*pelicanPublicSnapsh
 		}
 		if view.Enabled {
 			for _, group := range view.Groups {
-				publicGroup := pelicanPublicGroup{ID: group.ID, Name: group.Name, Platform: group.Platform, Items: []pelicanPublicItem{}}
+				publicGroup := pelicanPublicGroup{ID: group.ID, Name: group.Name, Platform: group.Platform, Items: []pelicanPublicItem{}, IntelligenceProbe: group.IntelligenceProbe}
 				for _, item := range group.Items {
 					publicGroup.Items = append(publicGroup.Items, publicPelicanItem(item))
 					snapshot.visible[item.ID] = struct{}{}

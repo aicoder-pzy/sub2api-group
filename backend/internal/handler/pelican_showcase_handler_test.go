@@ -106,7 +106,7 @@ func TestPelicanShowcaseHandler_ListExposesNoAccountIdentity(t *testing.T) {
 	h.List(c)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.JSONEq(t, `{"code":0,"message":"success","data":{"enabled":true,"api_enabled":true,"max_items":10,"retention_days":5,"groups":[
-		{"id":3,"name":"VIP","platform":"openai","items":[
+		{"id":3,"name":"VIP","platform":"openai","intelligence_probe":{"normal_count":0,"degraded_count":0,"sample_count":0,"normal_rate":null,"window_size":100,"min_samples":11,"last_probed_at":null},"items":[
 			{"id":7,"group_id":3,"model_id":"gpt-6-astra","reasoning_effort":"high","latency_ms":4200,"generated_at":"2026-09-24T08:30:00Z","quality_verdict":"degraded","quality_reason":"missing details"}
 		]}]}}`, w.Body.String())
 }

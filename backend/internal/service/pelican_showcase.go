@@ -26,10 +26,33 @@ type PelicanShowcaseItem struct {
 }
 
 type PelicanShowcaseGroup struct {
-	ID       int64                  `json:"id"`
-	Name     string                 `json:"name"`
-	Platform string                 `json:"platform"`
-	Items    []*PelicanShowcaseItem `json:"items"`
+	ID                int64                    `json:"id"`
+	Name              string                   `json:"name"`
+	Platform          string                   `json:"platform"`
+	Items             []*PelicanShowcaseItem   `json:"items"`
+	IntelligenceProbe PelicanIntelligenceProbe `json:"intelligence_probe"`
+}
+
+// PelicanIntelligenceProbe counts completed group tests, independently of gallery
+// retention. A missing percentage means fewer than eleven valid conclusions.
+type PelicanIntelligenceProbe struct {
+	NormalCount   int        `json:"normal_count"`
+	DegradedCount int        `json:"degraded_count"`
+	SampleCount   int        `json:"sample_count"`
+	NormalRate    *float64   `json:"normal_rate"`
+	WindowSize    int        `json:"window_size"`
+	MinSamples    int        `json:"min_samples"`
+	LastProbedAt  *time.Time `json:"last_probed_at"`
+}
+
+func NewPelicanIntelligenceProbe(normal, degraded int, latest *time.Time) PelicanIntelligenceProbe {
+	value := PelicanIntelligenceProbe{NormalCount: normal, DegradedCount: degraded,
+		SampleCount: normal + degraded, WindowSize: 100, MinSamples: 11, LastProbedAt: latest}
+	if value.SampleCount >= value.MinSamples {
+		rate := float64(normal) / float64(value.SampleCount) * 100
+		value.NormalRate = &rate
+	}
+	return value
 }
 
 // PelicanShowcaseView is the user gallery. RetentionDays is 0 when auto cleanup is off.
@@ -181,6 +204,7 @@ func (s *PelicanShowcaseService) View(ctx context.Context, now time.Time) (*Peli
 	byID := make(map[int64]*PelicanShowcaseGroup, len(groups))
 	for _, group := range groups {
 		group.Items = []*PelicanShowcaseItem{}
+		group.IntelligenceProbe = NewPelicanIntelligenceProbe(group.IntelligenceProbe.NormalCount, group.IntelligenceProbe.DegradedCount, group.IntelligenceProbe.LastProbedAt)
 		groupIDs = append(groupIDs, group.ID)
 		byID[group.ID] = group
 	}

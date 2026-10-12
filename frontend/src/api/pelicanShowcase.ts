@@ -24,6 +24,16 @@ export interface PelicanShowcaseGroup {
   platform: string
   /** Newest first (generated_at, then id, descending). */
   items: PelicanShowcaseItem[]
+  intelligence_probe?: {
+    normal_count: number
+    degraded_count: number
+    sample_count: number
+    /** Percentage from 0 to 100; null until at least 11 valid group tests. */
+    normal_rate: number | null
+    window_size: number
+    min_samples: number
+    last_probed_at: string | null
+  }
 }
 
 export interface PelicanShowcaseView {
