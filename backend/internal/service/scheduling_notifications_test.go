@@ -27,7 +27,8 @@ func (q *schedulingNoticeTestQueue) SaveSchedulingNotification(_ context.Context
 func TestSchedulingNotificationTriggerAndRetries(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: 24, Name: "Codex", AccountSchedulingMode: AccountSchedulingModeQualityPreferred})
 	ctx = WithFastestFailoverRequestState(ctx)
-	state := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	state, ok := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	require.True(t, ok)
 	state.snapshots[groupModelSchedulingScope{24, "sol"}] = groupModelSchedulingSnapshot{accountID: 118}
 	recordSchedulingSwitchFailure(ctx, 118, &UpstreamFailoverError{StatusCode: 500, ResponseBody: []byte("private upstream response")})
 	event := NewSchedulingNotification(ctx, 24, "sol", GroupModelSchedulingTransition{PreviousAccountID: 118, AccountID: 113, Reason: "confirmed_failover", ChangedAt: time.Now()})

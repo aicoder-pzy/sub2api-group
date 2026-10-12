@@ -37,7 +37,7 @@ func schedulingNotificationArgs(ctx context.Context, groupID int64, sessionHash 
 }
 
 func (c *gatewayCache) NextSchedulingNotification(ctx context.Context, now time.Time) (*service.SchedulingNotification, error) {
-	ids, err := c.rdb.ZRangeByScore(ctx, schedulingNotificationPending, &redis.ZRangeBy{Min: "-inf", Max: strconv.FormatInt(now.UnixMilli(), 10), Count: 1}).Result()
+	ids, err := c.rdb.ZRangeArgs(ctx, redis.ZRangeArgs{Key: schedulingNotificationPending, Start: "-inf", Stop: strconv.FormatInt(now.UnixMilli(), 10), ByScore: true, Count: 1}).Result()
 	if err != nil || len(ids) == 0 {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (c *gatewayCache) SaveSchedulingNotification(ctx context.Context, event *se
 }
 
 func (c *gatewayCache) SchedulingNotificationHistory(ctx context.Context, limit int) ([]service.SchedulingNotification, error) {
-	ids, err := c.rdb.ZRevRange(ctx, schedulingNotificationHistory, 0, int64(limit-1)).Result()
+	ids, err := c.rdb.ZRangeArgs(ctx, redis.ZRangeArgs{Key: schedulingNotificationHistory, Start: 0, Stop: int64(limit - 1), Rev: true}).Result()
 	if err != nil {
 		return nil, err
 	}
