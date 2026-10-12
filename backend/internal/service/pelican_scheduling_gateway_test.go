@@ -68,10 +68,19 @@ func TestFastestFailoverPelicanUsesLiveSchedulerPaths(t *testing.T) {
 						accounts[1].Extra = map[string]any{"scheduling_preferred": true}
 						quality[1].Quality.LatestVerdict = "normal"
 						quality[2].Quality.LatestVerdict = "unknown"
+						selectID(1, "new-session")
+						require.Equal(t, int64(1), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "manual preference cannot preempt a healthy primary for new sessions")
+						quality[1].Quality.LatestVerdict = "degraded"
+						quality[2].Quality.LatestVerdict = "normal"
 						selectID(2, "new-session")
-						require.Equal(t, int64(2), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "manual preference bypasses automatic hold for new sessions")
+						require.Equal(t, int64(2), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "degradation still replaces the primary immediately")
+						quality[1].Quality.LatestVerdict = "normal"
+						accounts[0].Extra = map[string]any{"scheduling_preferred": true}
+						accounts[0].Priority, accounts[1].Priority = 1, 2
+						selectID(2, "another-new-session")
+						require.Equal(t, int64(2), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "recovered preferred and faster A cannot reclaim healthy B")
 						selectID(1, "old-session")
-						require.Equal(t, int64(2), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "normal existing session cannot overwrite the preferred main binding")
+						require.Equal(t, int64(2), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "normal existing session cannot overwrite the current primary")
 						quality[1].Quality.LatestVerdict = "degraded"
 						quality[2].Quality.LatestVerdict = "normal"
 					}
