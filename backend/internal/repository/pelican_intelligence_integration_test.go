@@ -91,7 +91,8 @@ func TestPelicanIntelligenceWindow(t *testing.T) {
 	require.Equal(t, 100, got.NormalCount)
 	require.Zero(t, got.DegradedCount, "the older degraded test was evicted")
 	require.Equal(t, 100.0, *got.NormalRate)
-	require.Equal(t, now.Add(115*time.Second), *got.LastProbedAt)
+	require.NotNil(t, got.LastProbedAt)
+	require.True(t, now.Add(115*time.Second).Equal(*got.LastProbedAt), "latest test timestamp is preserved across database timezone conversion")
 	insert(p1.ID, -100, "degraded", "success")
 	require.Zero(t, stats(groups[0].ID).DegradedCount, "late arrival of an older result cannot displace the latest window")
 
