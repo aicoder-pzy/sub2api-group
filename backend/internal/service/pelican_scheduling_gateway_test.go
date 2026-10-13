@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -11,8 +12,62 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestModelAutoLiveSelectorsKeepTrialsOutOfPrimaryBinding(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic} {
+		for _, loadBatch := range []bool{false, true} {
+			t.Run(platform+"/"+strconv.FormatBool(loadBatch), func(t *testing.T) {
+				groupID := int64(109)
+				group := &Group{ID: groupID, Platform: platform, Status: StatusActive, Hydrated: true, AccountSchedulingMode: AccountSchedulingModeModelAuto}
+				ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+				accounts := []Account{{ID: 1}, {ID: 2}, {ID: 3}}
+				byID := make(map[int64]*Account)
+				for i := range accounts {
+					accounts[i].Platform, accounts[i].Type, accounts[i].Status = platform, AccountTypeAPIKey, StatusActive
+					accounts[i].Schedulable, accounts[i].Concurrency = true, 1
+					accounts[i].GroupIDs = []int64{groupID}
+					accounts[i].AccountGroups = []AccountGroup{{GroupID: groupID}}
+					accounts[i].Credentials = map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-5": "claude-sonnet-4-5"}}
+					byID[accounts[i].ID] = &accounts[i]
+				}
+				cache := &modelAutoCacheFake{accountSchedulingCacheStub: &accountSchedulingCacheStub{bindings: map[string]int64{groupModelSchedulingStickyKey("claude-sonnet-4-5"): 1}}, sessions: make(map[string]int64), counts: make(map[string]int)}
+				repo := accountSchedulingQualityStub{quality: map[int64]GroupModelAccountQuality{1: modelAutoSample(10000), 2: modelAutoSample(7000), 3: modelAutoSample(12000)}}
+				cfg := testConfig()
+				cfg.Gateway.Scheduling.LoadBatchEnabled = loadBatch
+				concurrency := NewConcurrencyService(schedulerTestConcurrencyCache{})
+				openai := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cache: cache, cfg: cfg, concurrencyService: concurrency, usageLogRepo: repo}
+				gateway := &GatewayService{accountRepo: &mockAccountRepoForPlatform{accounts: accounts, accountsByID: byID}, groupRepo: &mockGroupRepoForGateway{groups: map[int64]*Group{groupID: group}}, cache: cache, cfg: cfg, concurrencyService: concurrency, usageLogRepo: repo}
+				for i := 1; i <= 20; i++ {
+					request := WithFastestFailoverRequestState(ctx)
+					var selection *AccountSelectionResult
+					var err error
+					if platform == PlatformOpenAI {
+						selection, _, err = openai.SelectAccountWithScheduler(request, &groupID, "", strconv.Itoa(i), "claude-sonnet-4-5", nil, OpenAIUpstreamTransportAny, false)
+					} else {
+						selection, err = gateway.SelectAccountWithLoadAwareness(request, &groupID, strconv.Itoa(i), "claude-sonnet-4-5", nil, "", 0)
+					}
+					require.NoError(t, err)
+					require.NotNil(t, selection)
+					want := int64(1)
+					if i == 10 {
+						want = 2
+					}
+					if i == 20 {
+						want = 3
+					}
+					require.Equal(t, want, selection.Account.ID)
+					if selection.ReleaseFunc != nil {
+						selection.ReleaseFunc()
+					}
+					confirmGroupModelSchedulingAccount(request, "claude-sonnet-4-5", selection.Account.ID)
+					require.EqualValues(t, 1, cache.bindings[groupModelSchedulingStickyKey("claude-sonnet-4-5")])
+				}
+			})
+		}
+	}
+}
+
 func TestFastestFailoverPelicanUsesLiveSchedulerPaths(t *testing.T) {
-	for _, mode := range []string{AccountSchedulingModeFastestFailover, AccountSchedulingModeQualityPreferred} {
+	for _, mode := range []string{AccountSchedulingModeFastestFailover, AccountSchedulingModeQualityPreferred, AccountSchedulingModeModelAuto} {
 		for _, platform := range []string{PlatformOpenAI, PlatformAnthropic} {
 			for _, loadBatch := range []bool{false, true} {
 				t.Run(mode+"/"+platform+"/"+map[bool]string{false: "legacy", true: "load_aware"}[loadBatch], func(t *testing.T) {

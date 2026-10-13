@@ -446,6 +446,9 @@ func (s *PelicanGroupTestService) runSamples(ctx context.Context, plan *PelicanG
 // too; an answer that is not HTML is the group's real answer and is kept. Each sample runs
 // in its own goroutine outside Gin's recovery, so a panic becomes a failed result.
 func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGroupTestPlan, group *Group) (result *PelicanGroupTestResult) {
+	// Routine intelligence checks always follow the primary, never a trial or
+	// a proposed automatic upgrade. Confirmation retries remain pinned below.
+	ctx = context.WithValue(ctx, modelAutoPrimaryOnlyKey{}, true)
 	if plan.PelicanConfig != nil {
 		ctx = WithRequestedReasoningEffort(ctx, plan.PelicanConfig.ReasoningEffort)
 	}

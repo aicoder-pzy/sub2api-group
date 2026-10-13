@@ -22,6 +22,21 @@ function response(events: object[]) {
 }
 afterEach(() => vi.unstubAllGlobals())
 describe('active scheduling evaluation', () => {
+  it('shows automatic promotion evidence without triggering a trial or review', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    vi.mocked(getGroupSchedulingStatus).mockResolvedValue({ scheduling_mode: 'model_auto', model: 'model-a', current_account_id: 1, minimum_samples: 10, transition: null, model_auto_review: { primary_id: 1, candidate_id: 2, evaluations: 2, next_evaluation: Date.now(), hold_until: Date.now(), ready: false, reason: 'latency' }, candidates: [{ account_id: 2, name: 'Backup', current: false, eligible: true, rank: 1, confidence: 'measured', samples: 30, success_rate: 1, recent_failures: 0, last_success_at: null, last_failure_at: null, cooldown_seconds: 0, model_auto_reason: 'latency', model_auto: { effort: 'medium', buckets: [{ context_bucket: 1, samples: 30, p50_ms: 1000, p95_ms: 2000, output_tps: 50, cost_ratio: 0.1, output_samples: 30 }] } }] })
+    const wrapper = mount(RefreshSchedulingDialog, { props: { group: { ...group, account_scheduling_mode: 'model_auto' }, readOnly: true }, global: { stubs: { BaseDialog: { template: '<div><slot/><slot name="footer"/></div>' } } } })
+    await flushPromises()
+    expect(wrapper.find('select').exists()).toBe(true)
+    expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.autoPolicy')
+    expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.autoReasons.latency')
+    expect(wrapper.text()).toContain('8K–32K')
+    expect(wrapper.text()).not.toContain('admin.accounts.schedulingStatus.qualityPolicy')
+    expect(fetch).not.toHaveBeenCalled()
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    wrapper.unmount()
+  })
   it('compares quality at an explicit effort while keeping current and recommended channels separate', async () => {
     vi.mocked(getGroupSchedulingStatus).mockResolvedValue({ scheduling_mode: 'quality_preferred', recommended_account_id: 2, model: 'model-a', current_account_id: 1, minimum_samples: 10, transition: null, candidates: [] })
     const wrapper = mount(RefreshSchedulingDialog, { props: { group: { ...group, account_scheduling_mode: 'quality_preferred' }, readOnly: true }, global: { stubs: { BaseDialog: { template: '<div><slot/><slot name="footer"/></div>' } } } })

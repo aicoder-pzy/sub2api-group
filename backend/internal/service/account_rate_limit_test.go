@@ -144,7 +144,7 @@ func TestAccountRateLimitAppliesAlongsideProfitControl(t *testing.T) {
 
 func TestAccountRateLimitLiveSelectionSwitchesAndRecovers(t *testing.T) {
 	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic} {
-		for _, mode := range []string{AccountSchedulingModeFastestFailover, AccountSchedulingModePriority, AccountSchedulingModeQualityPreferred} {
+		for _, mode := range []string{AccountSchedulingModeFastestFailover, AccountSchedulingModePriority, AccountSchedulingModeQualityPreferred, AccountSchedulingModeModelAuto} {
 			for _, loadBatch := range []bool{false, true} {
 				t.Run(platform+"/"+mode+"/"+map[bool]string{false: "legacy", true: "load_aware"}[loadBatch], func(t *testing.T) {
 					groupID, rateA, rateB := int64(105), 0.21, 0.10

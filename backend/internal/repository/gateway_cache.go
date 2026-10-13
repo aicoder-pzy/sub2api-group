@@ -154,7 +154,8 @@ func (c *gatewayCache) GetSessionAccountState(ctx context.Context, groupID int64
 
 func (c *gatewayCache) CompareAndSwapSessionAccountID(ctx context.Context, groupID int64, sessionHash string, revision int64, accountID int64) (bool, error) {
 	key := buildSessionKey(groupID, sessionHash)
-	change := service.GroupModelSchedulingTransition{AccountID: accountID, Reason: "confirmed_failover", ChangedAt: time.Now().UTC()}
+	model, _ := service.GroupModelSchedulingModelFromKey(sessionHash)
+	change := service.GroupModelSchedulingTransition{AccountID: accountID, Reason: service.GroupModelSchedulingConfirmationReason(ctx, model, accountID), ChangedAt: time.Now().UTC()}
 	transition, err := json.Marshal(change)
 	if err != nil {
 		return false, err

@@ -7,8 +7,37 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
+
+func TestModelAutoPreviousResponseCannotOverwritePrimary(t *testing.T) {
+	groupID := int64(38119)
+	group := &Group{ID: groupID, Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true, AccountSchedulingMode: AccountSchedulingModeModelAuto}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+	svc := newLegacySchedulerDecisionTestService(newLegacySchedulerDecisionTestAccounts(groupID, true), true, schedulerTestConcurrencyCache{})
+	cache := &accountSchedulingCacheStub{bindings: map[string]int64{groupModelSchedulingStickyKey("gpt-5.1"): 38101}}
+	svc.cache = cache
+	quality := map[int64]GroupModelAccountQuality{38101: modelAutoSample(10000), 38102: modelAutoSample(7000)}
+	svc.usageLogRepo = accountSchedulingQualityStub{quality: quality}
+	require.NoError(t, svc.getOpenAIWSStateStore().BindResponseAccount(ctx, groupID, "resp_auto_existing", 38102, time.Hour))
+	request := WithFastestFailoverRequestState(ctx)
+	selection, decision, err := svc.SelectAccountWithSchedulerForCapability(request, &groupID, "resp_auto_existing", "existing", "gpt-5.1", nil, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, OpenAIEndpointCapabilityChatCompletions, false, true, true)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.EqualValues(t, 38102, selection.Account.ID)
+	require.True(t, decision.StickyPreviousHit)
+	releaseLegacySchedulerDecisionSelection(selection)
+	request = prepareFastestFailoverBinding(request, cache, "gpt-5.1")
+	confirmGroupModelSchedulingAccount(request, "gpt-5.1", 38102)
+	require.EqualValues(t, 38101, cache.bindings[groupModelSchedulingStickyKey("gpt-5.1")])
+	quality[38102].Quality.LatestVerdict = "degraded"
+	request = WithFastestFailoverRequestState(ctx)
+	selection, hit, err := svc.selectLegacyAccountByPreviousResponse(request, &groupID, "resp_auto_existing", "existing", "gpt-5.1", nil, OpenAIUpstreamTransportResponsesWebsocketV2Ingress, OpenAIEndpointCapabilityChatCompletions, "", false, PlatformOpenAI)
+	require.NoError(t, err)
+	require.False(t, hit)
+	require.Nil(t, selection, "confirmed degradation cannot bypass candidate selection via previous_response_id")
+}
 
 func newLegacySchedulerDecisionTestAccounts(groupID int64, secondWSEnabled bool) []Account {
 	return []Account{

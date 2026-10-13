@@ -53,7 +53,7 @@ type qualityProbeReservations struct {
 
 func qualityPreferredEnabled(ctx context.Context) bool {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
-	return group != nil && group.AccountSchedulingMode == AccountSchedulingModeQualityPreferred
+	return group != nil && (group.AccountSchedulingMode == AccountSchedulingModeQualityPreferred || group.AccountSchedulingMode == AccountSchedulingModeModelAuto)
 }
 
 func qualityProbe(ctx context.Context) bool { return ctx.Value(qualitySchedulingProbeKey{}) != nil }
@@ -243,6 +243,9 @@ func orderSchedulingCandidates(ctx context.Context, candidates []*Account, sampl
 		return ordered
 	}
 	ordered := orderQualityCandidates(candidates, samples, int64(settings.MinimumSamples))
+	if modelAutoEnabled(ctx) {
+		ordered = orderModelAutoCandidates(candidates, samples, int64(settings.MinimumSamples))
+	}
 	if retainBinding {
 		if sessionID, _ := ctx.Value(qualitySessionBindingKey{}).(int64); sessionID > 0 {
 			sample := samples[sessionID]

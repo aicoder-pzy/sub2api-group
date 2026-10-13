@@ -64,6 +64,7 @@ type groupModelSchedulingRequestState struct {
 	submissions               map[int64]int
 	sharedFailureOrigin       int64
 	sharedAlternateID         int64
+	modelAutoUpgrades         map[groupModelSchedulingScope]int64
 }
 
 // Share the original binding revision across account retries and detached streams.
@@ -212,6 +213,9 @@ func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository,
 	if len(configured) > 0 {
 		settings = configured[0]
 	}
+	if modelAutoEnabled(ctx) && ctx.Value(schedulingEvaluationKey{}) == nil && ctx.Value(qualitySchedulingReadOnlyKey{}) == nil && !qualityProbe(ctx) {
+		return orderModelAutoScheduling(ctx, cache, *groupID, model, ordered, quality, activeID, settings)
+	}
 	return orderSchedulingCandidates(ctx, ordered, quality, activeID, settings, ctx.Value(schedulingEvaluationKey{}) == nil && ctx.Value(qualitySchedulingReadOnlyKey{}) == nil)
 }
 
@@ -271,6 +275,7 @@ func accountSchedulingPreferred(account *Account) bool {
 
 type GroupModelAccountQuality struct {
 	Quality             *AccountQualityEvidence
+	Auto                *ModelAutoAccountEvidence
 	Degradation         *PelicanDegradationState
 	Successes           int64
 	Failures            int64
@@ -343,6 +348,21 @@ func groupModelAccountQuality(ctx context.Context, repo UsageLogRepository, grou
 		return nil
 	}
 	if qualityPreferredEnabled(ctx) {
+		if modelAutoEnabled(ctx) {
+			if qualityRepo, ok := repo.(modelAutoQualityRepository); ok {
+				effort := ""
+				if requested := RequestedReasoningEffortFromContext(ctx); requested != nil {
+					effort = *requested
+				}
+				queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				quality, err := qualityRepo.GetModelAutoAccountQuality(queryCtx, *groupID, model, effort)
+				if err == nil {
+					return withPelicanDegradationEvidence(queryCtx, repo, *groupID, model, quality)
+				}
+				return nil
+			}
+		}
 		if qualityRepo, ok := repo.(qualityPreferredRepository); ok {
 			effort := ""
 			if requested := RequestedReasoningEffortFromContext(ctx); requested != nil {

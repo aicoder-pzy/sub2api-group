@@ -10,28 +10,30 @@ import (
 )
 
 type SchedulingCandidateStatus struct {
-	Degradation           *PelicanDegradationState `json:"degradation,omitempty"`
-	Quality               *AccountQualityEvidence  `json:"quality,omitempty"`
-	AccountID             int64                    `json:"account_id"`
-	SchedulingPreferred   bool                     `json:"scheduling_preferred"`
-	Priority              int                      `json:"priority"`
-	Name                  string                   `json:"name"`
-	Current               bool                     `json:"current"`
-	Eligible              bool                     `json:"eligible"`
-	Rank                  int                      `json:"rank"`
-	Confidence            string                   `json:"confidence"`
-	Samples               int64                    `json:"samples"`
-	SuccessRate           *float64                 `json:"success_rate"`
-	RecentFailures        int64                    `json:"recent_failures"`
-	LastSuccessAt         *time.Time               `json:"last_success_at"`
-	LastFailureAt         *time.Time               `json:"last_failure_at"`
-	CooldownSeconds       int64                    `json:"cooldown_seconds"`
-	AccountRateMultiplier *float64                 `json:"account_rate_multiplier,omitempty"`
-	AccountRateLimit      *float64                 `json:"account_rate_limit,omitempty"`
-	Reason                string                   `json:"reason,omitempty"`
-	IntelligenceVerdict   string                   `json:"intelligence_verdict,omitempty"`
-	IntelligenceReason    string                   `json:"intelligence_reason,omitempty"`
-	IntelligenceAt        *time.Time               `json:"intelligence_at,omitempty"`
+	Degradation           *PelicanDegradationState  `json:"degradation,omitempty"`
+	Quality               *AccountQualityEvidence   `json:"quality,omitempty"`
+	Auto                  *ModelAutoAccountEvidence `json:"model_auto,omitempty"`
+	AutoReason            string                    `json:"model_auto_reason,omitempty"`
+	AccountID             int64                     `json:"account_id"`
+	SchedulingPreferred   bool                      `json:"scheduling_preferred"`
+	Priority              int                       `json:"priority"`
+	Name                  string                    `json:"name"`
+	Current               bool                      `json:"current"`
+	Eligible              bool                      `json:"eligible"`
+	Rank                  int                       `json:"rank"`
+	Confidence            string                    `json:"confidence"`
+	Samples               int64                     `json:"samples"`
+	SuccessRate           *float64                  `json:"success_rate"`
+	RecentFailures        int64                     `json:"recent_failures"`
+	LastSuccessAt         *time.Time                `json:"last_success_at"`
+	LastFailureAt         *time.Time                `json:"last_failure_at"`
+	CooldownSeconds       int64                     `json:"cooldown_seconds"`
+	AccountRateMultiplier *float64                  `json:"account_rate_multiplier,omitempty"`
+	AccountRateLimit      *float64                  `json:"account_rate_limit,omitempty"`
+	Reason                string                    `json:"reason,omitempty"`
+	IntelligenceVerdict   string                    `json:"intelligence_verdict,omitempty"`
+	IntelligenceReason    string                    `json:"intelligence_reason,omitempty"`
+	IntelligenceAt        *time.Time                `json:"intelligence_at,omitempty"`
 }
 
 type GroupSchedulingStatus struct {
@@ -42,6 +44,7 @@ type GroupSchedulingStatus struct {
 	MinimumSamples       int                             `json:"minimum_samples"`
 	Transition           *GroupModelSchedulingTransition `json:"transition"`
 	Candidates           []SchedulingCandidateStatus     `json:"candidates"`
+	AutoReview           *ModelAutoReview                `json:"model_auto_review,omitempty"`
 }
 
 func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *AccountTestService, groupID int64, model string) (*GroupSchedulingStatus, error) {
@@ -74,6 +77,30 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 	quality := groupModelAccountQuality(ctx, s.usageLogRepo, &groupID, upstreamModel)
 	activeID := groupModelSchedulingActiveAccount(ctx, s.cache, &groupID, upstreamModel)
 	result := &GroupSchedulingStatus{SchedulingMode: group.AccountSchedulingMode, Model: model, CurrentAccountID: activeID, MinimumSamples: settings.MinimumSamples, Candidates: make([]SchedulingCandidateStatus, 0, len(accounts))}
+	if modelAutoEnabled(ctx) {
+		effort := ""
+		if requested := RequestedReasoningEffortFromContext(ctx); requested != nil {
+			effort = *requested
+		} else {
+			for _, sample := range quality {
+				if sample.Auto != nil {
+					effort = sample.Auto.Effort
+					break
+				}
+			}
+		}
+		if reader, ok := s.cache.(ModelAutoSchedulingCache); ok {
+			review, readErr := reader.GetModelAutoReview(ctx, groupID, upstreamModel, effort)
+			if readErr == nil && review != nil && review.PrimaryID == activeID {
+				if atomic, ok := s.cache.(GroupModelSchedulingAtomicCache); ok {
+					_, revision, err := atomic.GetSessionAccountState(ctx, groupID, groupModelSchedulingStickyKey(upstreamModel))
+					if err == nil && revision == review.Revision {
+						result.AutoReview = review
+					}
+				}
+			}
+		}
+	}
 	if reader, ok := s.cache.(GroupModelSchedulingHistoryReader); ok {
 		result.Transition, err = reader.GetGroupModelSchedulingTransition(ctx, groupID, upstreamModel)
 		if err != nil {
@@ -94,6 +121,13 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 			Confidence: sample.confidence(int64(settings.MinimumSamples)), Samples: sample.attempts(), RecentFailures: sample.RecentFailures,
 			LastSuccessAt: sample.LastSuccessAt, LastFailureAt: sample.LastFailureAt,
 			IntelligenceVerdict: sample.IntelligenceVerdict, IntelligenceReason: sample.IntelligenceReason, IntelligenceAt: sample.IntelligenceAt}
+		if modelAutoEnabled(ctx) {
+			status.Auto = sample.Auto
+			status.AutoReason = modelAutoPromotionReason(quality[activeID], sample)
+			if account.ID == activeID {
+				status.AutoReason = "primary"
+			}
+		}
 		if sample.attempts() >= int64(settings.MinimumSamples) {
 			rate := 1 - sample.failureRate()
 			status.SuccessRate = &rate

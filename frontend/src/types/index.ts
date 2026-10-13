@@ -569,7 +569,7 @@ export interface Group {
   name: string
   description: string | null
   platform: GroupPlatform
-  account_scheduling_mode?: 'priority' | 'fastest_failover' | 'quality_preferred'
+  account_scheduling_mode?: 'priority' | 'fastest_failover' | 'quality_preferred' | 'model_auto'
   rate_multiplier: number
   rpm_limit?: number // Group-level RPM cap (0 = unlimited); overrides user-level rpm_limit when set
   max_reasoning_effort?: string // Anthropic/OpenAI reasoning ceiling; empty means unlimited
@@ -797,7 +797,7 @@ export interface CreateGroupRequest {
   name: string
   description?: string | null
   platform?: GroupPlatform
-  account_scheduling_mode?: 'priority' | 'fastest_failover' | 'quality_preferred'
+  account_scheduling_mode?: 'priority' | 'fastest_failover' | 'quality_preferred' | 'model_auto'
   rate_multiplier?: number
   is_exclusive?: boolean
   subscription_type?: SubscriptionType
@@ -865,7 +865,7 @@ export interface UpdateGroupRequest {
   name?: string
   description?: string | null
   platform?: GroupPlatform
-  account_scheduling_mode?: 'priority' | 'fastest_failover' | 'quality_preferred'
+  account_scheduling_mode?: 'priority' | 'fastest_failover' | 'quality_preferred' | 'model_auto'
   rate_multiplier?: number
   is_exclusive?: boolean
   status?: 'active' | 'inactive'

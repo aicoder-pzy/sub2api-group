@@ -9,7 +9,7 @@
         <input v-model="model" list="scheduling-models" class="input mt-2 w-full" :disabled="running" maxlength="200" autocomplete="off" @keydown.enter.prevent="readOnly ? loadStatus() : start()" />
         <datalist id="scheduling-models"><option v-for="candidate in models" :key="candidate" :value="candidate" /></datalist>
       </label>
-      <label v-if="readOnly && group.account_scheduling_mode === 'quality_preferred'" class="block text-sm">
+      <label v-if="readOnly && ['quality_preferred', 'model_auto'].includes(group.account_scheduling_mode || '')" class="block text-sm">
         {{ t('admin.accounts.schedulingStatus.effort') }}
         <select v-model="effort" class="input mt-2 w-full"><option value="">{{ t('admin.accounts.schedulingStatus.autoEffort') }}</option><option v-for="value in efforts" :key="value" :value="value">{{ value }}</option></select>
       </label>
@@ -18,6 +18,10 @@
       <p v-if="running" role="status" class="text-sm">{{ t('admin.accounts.refreshScheduling.progress', { done: results.length, total, name: currentName }) }}</p>
       <p v-if="winner" role="status" class="rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/20">{{ t('admin.accounts.refreshScheduling.complete', { name: winner.name, id: winner.account_id, model: winner.model }) }}</p>
       <div v-if="snapshot" class="space-y-3">
+        <template v-if="snapshot.scheduling_mode === 'model_auto'">
+          <p class="rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">{{ t('admin.accounts.schedulingStatus.autoPolicy') }}</p>
+          <p v-if="snapshot.model_auto_review" class="text-sm">{{ t('admin.accounts.schedulingStatus.autoReview', { id: snapshot.model_auto_review.candidate_id || '—', count: snapshot.model_auto_review.evaluations, hold: formatDateTime(new Date(snapshot.model_auto_review.hold_until).toISOString()) }) }} · {{ t(snapshot.model_auto_review.ready ? 'admin.accounts.schedulingStatus.autoReady' : 'admin.accounts.schedulingStatus.autoObserving') }}</p>
+        </template>
         <p v-if="snapshot.scheduling_mode === 'quality_preferred'" class="text-xs text-gray-500">{{ t('admin.accounts.schedulingStatus.qualityPolicy') }}</p>
         <p class="text-sm">{{ t('admin.accounts.schedulingStatus.current') }}: {{ snapshot.candidates.find(candidate => candidate.current)?.name || (snapshot.current_account_id ? `#${snapshot.current_account_id}` : t('admin.accounts.schedulingStatus.unbound')) }}</p>
         <p v-if="snapshot.transition" class="break-words text-xs text-gray-500">{{ t(`admin.accounts.schedulingStatus.${snapshot.transition.reason}`) }} · {{ formatDateTime(snapshot.transition.changed_at) }} · #{{ snapshot.transition.previous_account_id }} → #{{ snapshot.transition.account_id }}</p>
@@ -26,7 +30,7 @@
             <thead><tr><th class="p-2">{{ t('admin.accounts.refreshScheduling.account') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.order') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.evidence') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.successRate') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.recentFailures') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.lastFailure') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.cooldown') }}</th></tr></thead>
             <tbody><tr v-for="candidate in snapshot.candidates" :key="candidate.account_id" class="border-t border-gray-100 dark:border-dark-700">
               <td class="min-w-32 break-words p-2">{{ candidate.name }} (#{{ candidate.account_id }})<p v-if="candidate.account_rate_limit != null" class="text-xs text-gray-500">{{ t('admin.groups.accountRateLimit.status', { rate: candidate.account_rate_multiplier ?? '?', limit: candidate.account_rate_limit }) }}</p><p v-if="candidate.reason" class="text-xs text-gray-500">{{ t(`admin.accounts.schedulingStatus.${candidate.reason}`) }}</p></td>
-              <td class="whitespace-nowrap p-2">{{ candidate.eligible ? candidate.rank : '-' }}<p v-if="candidate.current" class="text-xs text-blue-600">{{ t('admin.accounts.schedulingStatus.current') }}</p><p v-if="snapshot.scheduling_mode === 'quality_preferred' && candidate.account_id === snapshot.recommended_account_id" class="text-xs text-green-600">{{ t('admin.accounts.schedulingStatus.recommended') }}</p></td>
+              <td class="whitespace-nowrap p-2">{{ candidate.eligible ? candidate.rank : '-' }}<p v-if="candidate.current" class="text-xs text-blue-600">{{ t('admin.accounts.schedulingStatus.current') }}</p><p v-if="['quality_preferred', 'model_auto'].includes(snapshot.scheduling_mode || '') && candidate.account_id === snapshot.recommended_account_id" class="text-xs text-green-600">{{ t('admin.accounts.schedulingStatus.recommended') }}</p></td>
               <td class="whitespace-nowrap p-2">{{ t(`admin.accounts.schedulingStatus.${candidate.confidence}`) }}<p class="text-xs text-gray-500">{{ candidate.samples }} / {{ snapshot.minimum_samples }}</p><p v-if="candidate.intelligence_verdict" :title="candidate.intelligence_reason" class="mt-1 text-xs" :class="candidate.intelligence_verdict === 'degraded' ? 'text-red-600' : 'text-gray-500'">{{ t('pelicanTests.title') }}: {{ t(`pelicanTests.assessment.${candidate.intelligence_verdict}`) }}<span v-if="candidate.intelligence_at" class="block">{{ formatDateTime(candidate.intelligence_at) }}</span></p></td>
               <td class="whitespace-nowrap p-2">{{ candidate.success_rate === null ? '-' : `${(candidate.success_rate * 100).toFixed(1)}%` }}<p v-if="candidate.quality" class="text-xs text-gray-500">{{ t('admin.accounts.schedulingStatus.weekRate') }}: {{ rate(candidate.quality.successes_7d, candidate.quality.failures_7d) }}<br>{{ t('admin.accounts.schedulingStatus.hourRate') }}: {{ rate(candidate.quality.successes_1h, candidate.quality.failures_1h) }}</p></td>
               <td class="p-2">{{ candidate.recent_failures }}<p v-if="candidate.degradation?.status === 'pending'" class="mt-1 text-xs text-amber-600">{{ t('admin.accounts.schedulingStatus.quality_pending') }}<span v-if="candidate.degradation.due_at" class="block">{{ t('admin.accounts.schedulingStatus.confirmationDue', { time: formatDateTime(candidate.degradation.due_at) }) }}</span></p><p v-else-if="candidate.degradation?.status === 'confirmed'" class="mt-1 text-xs text-red-600">{{ t('admin.accounts.schedulingStatus.quality_confirmed') }}</p></td>
@@ -35,7 +39,7 @@
             </tr></tbody>
           </table>
         </div>
-        <div v-if="snapshot.scheduling_mode === 'quality_preferred'" class="max-h-96 overflow-auto">
+        <div v-if="['quality_preferred', 'model_auto'].includes(snapshot.scheduling_mode || '')" class="max-h-96 overflow-auto">
           <table class="w-full min-w-[760px] text-left text-sm">
             <thead><tr><th class="p-2">{{ t('admin.accounts.refreshScheduling.account') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.qualityEvidence') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.qualityHistory') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.speed') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.lastTest') }}</th></tr></thead>
             <tbody><tr v-for="candidate in snapshot.candidates" :key="candidate.account_id" class="border-t border-gray-100 dark:border-dark-700">
@@ -44,6 +48,16 @@
               <td class="p-2"><template v-if="candidate.quality">{{ t('admin.accounts.schedulingStatus.historyCounts', candidate.quality) }}<p class="text-xs text-gray-500">{{ t('admin.accounts.schedulingStatus.answerCounts', candidate.quality) }}</p></template><template v-else>—</template></td>
               <td class="whitespace-nowrap p-2">P50 {{ milliseconds(candidate.quality?.latency_p50_ms) }} · P95 {{ milliseconds(candidate.quality?.latency_p95_ms) }}<p class="text-xs text-gray-500">{{ candidate.quality?.effort || '—' }} · {{ t('admin.accounts.schedulingStatus.speedSamples', { count: candidate.quality?.latency_samples || 0 }) }}</p></td>
               <td class="whitespace-nowrap p-2">{{ candidate.quality?.last_test_at ? formatDateTime(candidate.quality.last_test_at) : '—' }}</td>
+            </tr></tbody>
+          </table>
+        </div>
+        <div v-if="snapshot.scheduling_mode === 'model_auto'" class="max-h-96 overflow-auto">
+          <table class="w-full min-w-[800px] text-left text-sm">
+            <thead><tr><th class="p-2">{{ t('admin.accounts.refreshScheduling.account') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.autoDecision') }}</th><th class="p-2">{{ t('admin.accounts.schedulingStatus.autoBuckets') }}</th></tr></thead>
+            <tbody><tr v-for="candidate in snapshot.candidates" :key="candidate.account_id" class="border-t border-gray-100 dark:border-dark-700">
+              <td class="p-2">{{ candidate.name }} (#{{ candidate.account_id }})</td>
+              <td class="p-2">{{ t(`admin.accounts.schedulingStatus.autoReasons.${candidate.model_auto_reason || 'insufficient_samples'}`) }}</td>
+              <td class="p-2"><template v-if="candidate.model_auto?.buckets.length"><p v-for="bucket in candidate.model_auto.buckets" :key="bucket.context_bucket" class="whitespace-nowrap text-xs">{{ candidate.model_auto.effort || '—' }} · {{ contextBuckets[bucket.context_bucket] }} · {{ bucket.samples }} {{ t('admin.accounts.schedulingStatus.autoSamples') }} · P50 {{ milliseconds(bucket.p50_ms) }} / P95 {{ milliseconds(bucket.p95_ms) }} · {{ bucket.output_tps.toFixed(1) }} tok/s · {{ t('admin.accounts.schedulingStatus.autoCost', { value: bucket.cost_ratio.toFixed(3) }) }}</p></template><span v-else>—</span></td>
             </tr></tbody>
           </table>
         </div>
@@ -94,6 +108,7 @@ const { t } = useI18n()
 const model = ref('')
 const effort = ref('')
 const efforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+const contextBuckets = ['<8K', '8K–32K', '32K–128K', '≥128K']
 const rate = (successes: number, failures: number) => successes + failures > 0 ? `${(100 * successes / (successes + failures)).toFixed(1)}% (${successes + failures})` : '—'
 const milliseconds = (value?: number) => value && value > 0 ? `${(value / 1000).toFixed(1)}s` : '—'
 const models = ref<string[]>([])

@@ -34,7 +34,7 @@ func (r *pelicanGroupTestRepository) ListDegradationDue(ctx context.Context, now
  AND model_id IN (d.public_model,d.model) ORDER BY (model_id=d.public_model) DESC,id LIMIT 1) p ON true
  WHERE d.action<>'' AND d.due_at<=$1 AND (d.running_until IS NULL OR d.running_until<$1)
  AND d.sampled_at>=$1::timestamptz-INTERVAL '24 hours' AND g.deleted_at IS NULL AND g.status='active'
- AND g.account_scheduling_mode IN ('fastest_failover','quality_preferred')
+ AND g.account_scheduling_mode IN ('fastest_failover','quality_preferred','model_auto')
  AND EXISTS (SELECT 1 FROM account_groups ag WHERE ag.group_id=d.group_id AND ag.account_id=d.account_id)
  ORDER BY d.due_at,d.group_id,d.model,d.account_id`, now)
 	if err != nil {

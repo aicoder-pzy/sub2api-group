@@ -900,6 +900,8 @@ export default {
         accountSchedulingMode: '账号调度方式',
         accountSchedulingModeHint: '最快故障切换和质量优选持续使用正常主账号，分组测智也跟随该模型主账号。首次降智继续响应，5 分钟后复测，仍降智才切换并立即测试新主账号。质量、可靠性和同强度速度用于必要切换时排序；倍率上限和模型白名单始终生效。',
         accountSchedulingQualityPreferred: '质量优选与故障切换',
+        accountSchedulingModelAuto: '模型自动优选',
+        accountSchedulingModelAutoHint: '按分组和模型独立优选。约 90% 新会话使用主账号，10% 轮流试用健康备用账号；已有正常会话保持原账号。至少 20 条同强度、可比较输入规模样本，连续三次间隔 5 分钟评估确认优势，且主账号保持满 30 分钟后才升级。质量和稳定性优先，再比较首字、输出速度与单位成本。故障、倍率超限及确认降智可立即切换。普通鹈鹕测智仍跟随模型主账号。',
         accountSchedulingPriority: '默认优先级和负载均衡',
         accountSchedulingFastestFailover: '最快账号故障切换',
         rateMultiplier: '费率倍数',

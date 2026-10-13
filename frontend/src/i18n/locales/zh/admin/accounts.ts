@@ -176,6 +176,16 @@ export default {
         interrupted: '测试连接中断，未收到完成确认；请刷新账号列表确认当前调度。'
       },
       schedulingStatus: {
+        autoPolicy: '模型自动优选：90% 新会话主用，10% 轮流试用健康备用；正常会话保持账号。至少 20 条同强度、同输入规模样本，连续三次评估且主用满 30 分钟才升级。首字升级需 P95 改善 ≥20% 且 ≥1 秒，P50 不明显变差。故障、倍率超限和确认降智立即处理；普通测智跟随主账号。查看本页不会触发试用或修改评估状态。',
+        autoReview: '候选 #{id} · 连续评估 {count}/3 · 主用保持至 {hold}',
+        autoReady: '可在新会话成功后升级', autoObserving: '继续观察',
+        autoDecision: '优选判断', autoBuckets: '可比较的真实请求样本', autoSamples: '条', autoCost: '单位成本倍率 {value}',
+        model_auto_upgrade: '模型自动优选升级',
+        autoReasons: {
+          primary: '当前主账号', quality_unverified: '智测待验证或等待降智复测', insufficient_samples: '同强度、同输入规模样本不足 20 条',
+          stability_not_better: '近期稳定性未达到升级要求', quality_not_better: '质量证据弱于主账号', no_clear_advantage: '尚无足够明显的优势',
+          quality: '质量验证更充分，继续观察', reliability: '成功率优势已有统计证据', latency: '首字 P95 达到升级改善幅度', output_speed: '首字相当，输出速度更快', cost: '速度相当，单位成本更低'
+        },
         effort: '比较思考强度', autoEffort: '自动：使用近 24 小时最常用强度',
         qualityPolicy: '当前主账号正常且可用时，新会话继续使用主账号，正常已有会话保持原账号。首次降智后继续响应请求，5 分钟后复测；正常则继续使用，仍降智才切换并立即检测新账号。仅在故障、复测确认降智、倍率超限或其他资格失效时重新选择；恢复可用的账号不会自动抢回主用。首次选择及切换时，先避让降智和不稳定账号，再按优先调度、优先级数字、质量、可靠性和同强度速度选择。全部疑似降智时选最快。测智按同组、同账号、同模型生效，保留检测强度供查看。本页排名用于评估候选，不会主动切换健康主账号；查看本页不会发起测试或修改调度。',
         recommended: '质量首选', weekRate: '7 天成功率', hourRate: '1 小时成功率',

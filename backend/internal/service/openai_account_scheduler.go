@@ -2293,6 +2293,22 @@ func (s *OpenAIGatewayService) selectLegacyAccountByPreviousResponse(
 		}
 		return nil, false, nil
 	}
+	if modelAutoEnabled(ctx) {
+		// previous_response_id is an existing upstream session. Keep a healthy
+		// continuation without letting its completion replace the model primary.
+		quality := groupModelAccountQuality(ctx, s.usageLogRepo, groupID, requestedModel)
+		if !modelAutoHealthy(quality[account.ID], int64(s.settingService.FastestFailoverSettings(ctx).MinimumSamples)) {
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+			return nil, false, nil
+		}
+		if state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState); state != nil {
+			state.mu.Lock()
+			state.preservedQualityAccountID = account.ID
+			state.mu.Unlock()
+		}
+	}
 	if sessionHash != "" {
 		_ = s.bindOpenAIStickySessionDuringSelection(ctx, groupID, sessionHash, account.ID)
 	}

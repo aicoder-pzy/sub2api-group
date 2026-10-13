@@ -918,6 +918,8 @@ export default {
         accountSchedulingMode: 'Account scheduling',
         accountSchedulingModeHint: 'Fastest failover and quality preference keep a healthy primary; group tests follow the model primary too. A first degraded result keeps serving requests until a retest after 5 minutes. Confirmed degradation switches and immediately tests the new primary. Quality, reliability and same-effort speed rank necessary replacements. Multiplier limits and model allowlists always apply.',
         accountSchedulingQualityPreferred: 'Quality preference with failover',
+        accountSchedulingModelAuto: 'Automatic model optimization',
+        accountSchedulingModelAutoHint: 'Optimize separately by group and model. About 90% of new sessions use the primary; 10% rotate through healthy backups. Healthy existing sessions stay on their account. Promotion requires 20 comparable samples at the same effort, three evaluations spaced 5 minutes apart, and a 30-minute primary hold. Quality and reliability precede first-output latency, output speed and unit cost. Faults, multiplier violations and confirmed degradation can fail over immediately. Routine Pelican tests follow the model primary.',
         accountSchedulingPriority: 'Default priority and load balancing',
         accountSchedulingFastestFailover: 'Fastest account with failover',
         rateMultiplier: 'Rate Multiplier',

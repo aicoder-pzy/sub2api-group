@@ -39,6 +39,8 @@ func NewSchedulingNotification(ctx context.Context, groupID int64, model string,
 	}
 	if transition.Reason == "manual_refresh" {
 		event.Trigger = "手动刷新调度"
+	} else if transition.Reason == "model_auto_upgrade" {
+		event.Trigger = "模型自动优选：候选持续具备优势，连续三次评估通过，主账号保持间隔已满 30 分钟"
 	} else if state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState); state != nil {
 		state.mu.Lock()
 		snapshot := state.snapshots[groupModelSchedulingScope{groupID, model}]

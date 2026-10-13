@@ -23,8 +23,12 @@ func TestPelicanDegradationConfirmationAndRollingBudget(t *testing.T) {
 		_, _ = integrationDB.ExecContext(ctx, `DELETE FROM accounts WHERE id IN ($1,$2)`, account.ID, other.ID)
 	})
 	groups := createPelicanGroupTestGroups(t, "confirmation", "confirmation-other")
-	for _, group := range groups {
-		_, err := integrationDB.ExecContext(ctx, `UPDATE groups SET account_scheduling_mode='quality_preferred' WHERE id=$1`, group.ID)
+	for i, group := range groups {
+		mode := "quality_preferred"
+		if i == 1 {
+			mode = "model_auto"
+		}
+		_, err := integrationDB.ExecContext(ctx, `UPDATE groups SET account_scheduling_mode=$2 WHERE id=$1`, group.ID, mode)
 		require.NoError(t, err)
 		_, err = integrationDB.ExecContext(ctx, `INSERT INTO account_groups(account_id,group_id) VALUES ($1,$3),($2,$3)`, account.ID, other.ID, group.ID)
 		require.NoError(t, err)

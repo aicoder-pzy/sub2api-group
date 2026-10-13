@@ -176,6 +176,16 @@ export default {
         interrupted: 'Connection interrupted without completion confirmation. Refresh the account list to check the current binding.'
       },
       schedulingStatus: {
+        autoPolicy: 'Automatic model optimization: 90% of new sessions use the primary; 10% try healthy backups. Healthy sessions retain their account. Promotion needs 20 samples at the same effort and comparable context size, three evaluations and a 30-minute hold. Latency promotion requires at least 20% and 1 second better P95 without a materially worse P50. Faults, multiplier violations and confirmed degradation fail over immediately. Routine tests follow the primary. This view never assigns trials or changes review state.',
+        autoReview: 'Candidate #{id} · consecutive evaluations {count}/3 · hold primary until {hold}',
+        autoReady: 'Ready after a successful new session', autoObserving: 'Observing',
+        autoDecision: 'Promotion evidence', autoBuckets: 'Comparable real request samples', autoSamples: 'requests', autoCost: 'Unit cost multiplier {value}',
+        model_auto_upgrade: 'Automatic model optimization upgrade',
+        autoReasons: {
+          primary: 'Current primary', quality_unverified: 'Quality unverified or awaiting degradation confirmation', insufficient_samples: 'Fewer than 20 comparable samples at this effort and context size',
+          stability_not_better: 'Recent reliability does not qualify', quality_not_better: 'Weaker quality evidence than primary', no_clear_advantage: 'No clear advantage yet',
+          quality: 'Stronger quality verification; observing', reliability: 'Statistically supported success-rate advantage', latency: 'First-output P95 meets the improvement threshold', output_speed: 'Comparable latency, faster output', cost: 'Comparable speed, lower unit cost'
+        },
         effort: 'Reasoning effort to compare', autoEffort: 'Auto: most used effort in the last 24 hours',
         qualityPolicy: 'New sessions retain the healthy eligible primary; healthy existing sessions retain their account. A first degraded result keeps serving requests until a confirmation test after 5 minutes. A normal retest cancels handling; a degraded retest switches and tests the replacement immediately. Reselect only after faults, confirmed degradation, multiplier violations or loss of eligibility. Recovered accounts do not automatically reclaim the primary. Initial selection and necessary failover avoid degraded or unreliable accounts, then compare manual preference, priority number, quality, reliability and speed at the requested effort. If all candidates are degraded, choose the fastest. Quality tests apply to the same group, account and model; their effort remains visible. These rankings assess replacements and do not preempt a healthy primary. This view sends no tests and changes no scheduling state.',
         recommended: 'Quality recommendation', weekRate: '7-day success rate', hourRate: '1-hour success rate',

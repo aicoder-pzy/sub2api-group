@@ -65,7 +65,8 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 		platform = PlatformAnthropic
 	}
 	ctx = s.withGatewayProfitControlGate(ctx, groupID)
-	if qualityPreferredEnabled(ctx) && !qualityProbe(ctx) && s.cache != nil && sessionHash != "" {
+	ctx = withModelAutoSession(ctx, sessionHash)
+	if qualityPreferredEnabled(ctx) && !modelAutoEnabled(ctx) && !qualityProbe(ctx) && s.cache != nil && sessionHash != "" {
 		if accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash); err == nil {
 			ctx = context.WithValue(ctx, qualitySessionBindingKey{}, accountID)
 		}
@@ -145,7 +146,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 	}
 	if group != nil && usesFailoverScheduling(group.AccountSchedulingMode) {
-		if qualityPreferredEnabled(ctx) && !qualityProbe(ctx) {
+		ctx = withModelAutoSession(ctx, sessionHash)
+		if qualityPreferredEnabled(ctx) && !modelAutoEnabled(ctx) && !qualityProbe(ctx) {
 			ctx = context.WithValue(ctx, qualitySessionBindingKey{}, stickyAccountID)
 		}
 		stickyAccountID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)
