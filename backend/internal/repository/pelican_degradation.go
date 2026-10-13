@@ -33,7 +33,7 @@ func (r *pelicanGroupTestRepository) ListDegradationDue(ctx context.Context, now
  JOIN LATERAL (SELECT id,updated_at FROM pelican_group_test_plans WHERE group_id=d.group_id AND enabled
  AND model_id IN (d.public_model,d.model) ORDER BY (model_id=d.public_model) DESC,id LIMIT 1) p ON true
  WHERE d.action<>'' AND d.due_at<=$1 AND (d.running_until IS NULL OR d.running_until<$1)
- AND d.sampled_at>=$1-INTERVAL '24 hours' AND g.deleted_at IS NULL AND g.status='active'
+ AND d.sampled_at>=$1::timestamptz-INTERVAL '24 hours' AND g.deleted_at IS NULL AND g.status='active'
  AND g.account_scheduling_mode IN ('fastest_failover','quality_preferred')
  AND EXISTS (SELECT 1 FROM account_groups ag WHERE ag.group_id=d.group_id AND ag.account_id=d.account_id)
  ORDER BY d.due_at,d.group_id,d.model,d.account_id`, now)
@@ -76,7 +76,7 @@ func (r *pelicanGroupTestRepository) ClaimDegradation(ctx context.Context, work 
 	var count int
 	var oldest sql.NullTime
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*),MIN(started_at) FROM pelican_degradation_attempts
- WHERE group_id=$1 AND model=$2 AND started_at>$3-INTERVAL '1 hour'`, work.GroupID, work.Model, now).Scan(&count, &oldest); err != nil {
+ WHERE group_id=$1 AND model=$2 AND started_at>$3::timestamptz-INTERVAL '1 hour'`, work.GroupID, work.Model, now).Scan(&count, &oldest); err != nil {
 		return false, err
 	}
 	if limit < 1 || count >= limit {
@@ -112,7 +112,7 @@ func (r *pelicanGroupTestRepository) FinishDegradation(ctx context.Context, work
 	// Clear only our lease; do not erase the follow-up queued by that sample.
 	_, err := r.db.ExecContext(ctx, `UPDATE pelican_degradation_states SET running_until=NULL,
  action=CASE WHEN sample_id=$4 AND $5='replacement' AND $8 THEN '' ELSE action END,
- due_at=CASE WHEN sample_id=$4 AND ($5='retry' OR NOT $8) THEN $7+INTERVAL '5 minutes' ELSE due_at END
+ due_at=CASE WHEN sample_id=$4 AND ($5='retry' OR NOT $8) THEN $7::timestamptz+INTERVAL '5 minutes' ELSE due_at END
  WHERE group_id=$1 AND model=$2 AND account_id=$3 AND running_until=$6`, work.GroupID, work.Model, work.AccountID, work.SampleID, work.Action, until, now, completed)
 	return err
 }
