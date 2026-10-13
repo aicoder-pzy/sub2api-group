@@ -2,12 +2,14 @@ export default {
     settings: {
       fastestFailover: {
         title: '最快故障切换 · 全局配置',
-        description: '统一作用于所有启用“最快故障切换”的分组，无需按分组重复配置。',
+        description: '统一作用于所有启用“最快故障切换”或“质量优选”的分组，无需按分组重复配置。',
         first_output_timeout_seconds: '首输出超时（秒）',
         stream_idle_timeout_seconds: '流空闲超时（秒）',
         model_cooldown_seconds: '超时后模型冷却（秒）',
         total_attempt_budget_seconds: '首输出前总尝试预算（秒）',
         minimum_samples: '可靠性统计最少请求数',
+        degradation_tests_per_hour: '每小时降智追加测智上限',
+        degradationPolicy: '首次降智后原账号继续响应，等待 5 分钟复测；复测正常继续使用，仍降智才切换并立即检测新账号。每个分组、模型独立按滚动 1 小时限制追加测试次数（含失败尝试），常规定时与手动测试不计入。自动追加测试沿用启用的鹈鹕分组计划及其运行时段。',
         sampleRange: '整数，1–{max} 次',
         range: '整数，1–{max} 秒',
         scope: '首输出前超时会切换账号；输出开始后超时会终止流，不重放请求。总尝试预算跨渠道共享，不截断正常输出。覆盖已接入的 OpenAI、Anthropic 与 Gemini 文本转发路径。',

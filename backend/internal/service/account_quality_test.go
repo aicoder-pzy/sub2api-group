@@ -21,7 +21,7 @@ func TestQualityPreferenceEvidenceRankingAndRecovery(t *testing.T) {
 	require.Equal(t, int64(2), orderQualityCandidates(accounts, quality, 10)[0].ID, "verified quality beats an unknown fast channel and manual priority")
 	quality[1].Quality.LatestVerdict = "normal"
 	quality[1].Quality.NormalStreak = 1
-	require.Equal(t, 3, quality[1].Quality.tier(now), "one good test cannot erase measured degradation")
+	require.Equal(t, 1, quality[1].Quality.tier(now), "a normal confirmation cancels degradation handling")
 	quality[1].Quality.NormalStreak = 2
 	require.Equal(t, 0, quality[1].Quality.tier(now))
 	expired := now.Add(-25 * time.Hour)

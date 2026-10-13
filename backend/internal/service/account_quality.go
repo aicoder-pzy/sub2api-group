@@ -76,7 +76,7 @@ func (e *AccountQualityEvidence) tier(now time.Time) int {
 	if e.LatestAt == nil || now.Sub(*e.LatestAt) > 24*time.Hour {
 		return 2
 	}
-	if e.LatestVerdict == "degraded" || (e.Degraded > 0 && e.NormalStreak < 2) {
+	if e.LatestVerdict == "degraded" {
 		return 3
 	}
 	if e.LatestVerdict == "normal" && e.NormalStreak >= 2 {
@@ -109,7 +109,7 @@ func orderQualityCandidates(candidates []*Account, samples map[int64]GroupModelA
 	now := time.Now()
 	allDegraded := len(ordered) > 0
 	for _, account := range ordered {
-		allDegraded = allDegraded && samples[account.ID].Quality.tier(now) == 3
+		allDegraded = allDegraded && samples[account.ID].qualityDegraded()
 	}
 	sort.SliceStable(ordered, func(i, j int) bool {
 		a, b := ordered[i], ordered[j]
@@ -117,8 +117,8 @@ func orderQualityCandidates(candidates []*Account, samples map[int64]GroupModelA
 		if allDegraded {
 			return qualityLatencyLess(x, y, a.ID, b.ID)
 		}
-		if (x.Quality.tier(now) == 3) != (y.Quality.tier(now) == 3) {
-			return x.Quality.tier(now) != 3
+		if x.qualityDegraded() != y.qualityDegraded() {
+			return !x.qualityDegraded()
 		}
 		if (x.reliabilityTier(minimum) == 3) != (y.reliabilityTier(minimum) == 3) {
 			return x.reliabilityTier(minimum) != 3
@@ -246,7 +246,7 @@ func orderSchedulingCandidates(ctx context.Context, candidates []*Account, sampl
 	if retainBinding {
 		if sessionID, _ := ctx.Value(qualitySessionBindingKey{}).(int64); sessionID > 0 {
 			sample := samples[sessionID]
-			if sample.Quality.tier(time.Now()) != 3 && sample.reliabilityTier(int64(settings.MinimumSamples)) != 3 {
+			if !sample.qualityDegraded() && sample.reliabilityTier(int64(settings.MinimumSamples)) != 3 {
 				for i, account := range ordered {
 					if account.ID == sessionID {
 						if state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState); state != nil {
@@ -278,10 +278,10 @@ func orderSchedulingCandidates(ctx context.Context, candidates []*Account, sampl
 	}
 	current := samples[activeID]
 	// Only a bad or unavailable current channel may yield to candidate ranking.
-	if current.Quality.tier(time.Now()) == 3 || current.reliabilityTier(int64(settings.MinimumSamples)) == 3 {
+	if current.qualityDegraded() || current.reliabilityTier(int64(settings.MinimumSamples)) == 3 {
 		reason := "原账号近期请求不稳定"
-		if current.Quality.tier(time.Now()) == 3 {
-			reason = "原账号测智结果异常"
+		if current.qualityDegraded() {
+			reason = "原账号冷却 5 分钟后复测仍降智"
 		}
 		recordSchedulingSelectionReason(ctx, activeID, reason)
 		return ordered

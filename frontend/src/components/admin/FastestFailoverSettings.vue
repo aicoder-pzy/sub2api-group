@@ -13,10 +13,11 @@
           <label v-for="field in fields" :key="field.key" class="block text-sm">
             {{ t(`admin.settings.fastestFailover.${field.key}`) }}
             <input v-model.number="settings[field.key]" :data-testid="field.key" class="input mt-2 w-full" type="number" min="1" :max="field.max" step="1" required @keydown.enter.prevent="save" />
-            <span class="mt-1 block text-xs text-gray-500">{{ t(field.key === 'minimum_samples' ? 'admin.settings.fastestFailover.sampleRange' : 'admin.settings.fastestFailover.range', { max: field.max }) }}</span>
+            <span class="mt-1 block text-xs text-gray-500">{{ t(field.key === 'minimum_samples' || field.key === 'degradation_tests_per_hour' ? 'admin.settings.fastestFailover.sampleRange' : 'admin.settings.fastestFailover.range', { max: field.max }) }}</span>
           </label>
         </div>
         <p class="text-xs text-gray-500">{{ t('admin.settings.fastestFailover.scope') }}</p>
+        <p class="text-xs text-gray-500">{{ t('admin.settings.fastestFailover.degradationPolicy') }}</p>
         <button type="button" class="btn btn-primary" @click="save">{{ t(saving ? 'common.saving' : 'admin.settings.fastestFailover.save') }}</button>
       </fieldset>
       <p v-if="saved" role="status" class="text-sm text-green-600">{{ t('admin.settings.fastestFailover.saved') }}</p>
@@ -36,9 +37,10 @@ const fields: { key: keyof FastestFailoverSettings; max: number }[] = [
   { key: 'stream_idle_timeout_seconds', max: 1800 },
   { key: 'model_cooldown_seconds', max: 86400 },
   { key: 'total_attempt_budget_seconds', max: 3600 },
-  { key: 'minimum_samples', max: 10000 }
+  { key: 'minimum_samples', max: 10000 },
+  { key: 'degradation_tests_per_hour', max: 100 }
 ]
-const defaults: FastestFailoverSettings = { first_output_timeout_seconds: 60, stream_idle_timeout_seconds: 120, model_cooldown_seconds: 120, total_attempt_budget_seconds: 120, minimum_samples: 10 }
+const defaults: FastestFailoverSettings = { first_output_timeout_seconds: 60, stream_idle_timeout_seconds: 120, model_cooldown_seconds: 120, total_attempt_budget_seconds: 120, minimum_samples: 10, degradation_tests_per_hour: 10 }
 const settings = ref<FastestFailoverSettings>({ ...defaults })
 const loading = ref(false)
 const loaded = ref(false)

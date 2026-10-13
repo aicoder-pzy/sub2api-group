@@ -64,6 +64,33 @@ func TestFastestFailoverPelicanUsesLiveSchedulerPaths(t *testing.T) {
 						}
 						confirmGroupModelSchedulingAccount(requestCtx, "claude-sonnet-4-5", selected.Account.ID)
 					}
+					pending := quality[1]
+					pending.Degradation = &PelicanDegradationState{Status: "pending", SampledAt: now}
+					quality[1] = pending
+					selectID(1, "old-session")
+					selectID(1, "grace-new-session")
+					require.Equal(t, int64(1), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "first degradation keeps serving existing and new requests")
+					pending.Degradation.Status = "confirmed"
+					selectID(2, "confirmation-new-session")
+					require.Equal(t, int64(2), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "confirmation replaces the primary")
+					pending.Degradation.Status = "normal"
+					selectID(2, "recovery-new-session")
+					pending.Degradation = nil
+					quality[1] = pending
+					require.NoError(t, cache.SetSessionAccountID(ctx, groupID, groupModelSchedulingStickyKey("claude-sonnet-4-5"), 1, 0))
+					pending.Degradation = &PelicanDegradationState{Status: "confirmed", SampledAt: now}
+					quality[1] = pending
+					router := &gatewayPelicanGroupRouter{gateway: gateway, openai: openai, concurrency: concurrency}
+					replacementCtx := context.WithValue(ctx, pelicanDegradationRunKey{}, PelicanDegradationWork{AccountID: 1, Action: "replacement"})
+					route, err := router.route(replacementCtx, group, "claude-sonnet-4-5", nil)
+					require.NoError(t, err)
+					require.EqualValues(t, 2, route.account.ID)
+					require.True(t, route.confirm())
+					route.release()
+					require.Equal(t, int64(2), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "replacement confirmation commits the binding before its immediate test")
+					pending.Degradation = nil
+					quality[1] = pending
+					require.NoError(t, cache.SetSessionAccountID(ctx, groupID, groupModelSchedulingStickyKey("claude-sonnet-4-5"), 1, 0))
 					if mode == AccountSchedulingModeQualityPreferred {
 						accounts[1].Extra = map[string]any{"scheduling_preferred": true}
 						quality[1].Quality.LatestVerdict = "normal"

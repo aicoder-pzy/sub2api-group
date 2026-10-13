@@ -192,6 +192,12 @@ func (r *pelicanGroupTestRepository) PruneExpiredResults(ctx context.Context, be
 	}
 	_, err = r.db.ExecContext(ctx, `DELETE FROM upstream_quality_samples WHERE id IN (
  SELECT id FROM upstream_quality_samples WHERE sampled_at < $1 LIMIT 1000)`, before)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `WITH attempts AS (
+ DELETE FROM pelican_degradation_attempts WHERE id IN (SELECT id FROM pelican_degradation_attempts WHERE started_at<$1 LIMIT 1000))
+ DELETE FROM pelican_degradation_states WHERE sampled_at<$1`, before)
 	return err
 }
 

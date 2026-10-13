@@ -191,7 +191,7 @@ func TestSchedulingProbeFirstOutputDeadlineCancelsHTTP(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: &schedulingProbeHTTP{}, cfg: cfg}
-	_, err := svc.probeSchedulingAccount(context.Background(), 1, "model-a", FastestFailoverSettings{1, 10, 1, 120, 10})
+	_, err := svc.probeSchedulingAccount(context.Background(), 1, "model-a", FastestFailoverSettings{1, 10, 1, 120, 10, 10})
 	require.Error(t, err)
 	select {
 	case <-ended:

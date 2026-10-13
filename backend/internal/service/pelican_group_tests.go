@@ -139,6 +139,7 @@ type pelicanGroupRoute struct {
 	account *Account
 	model   string
 	release func()
+	confirm func() bool
 }
 
 // pelicanGroupRouter picks the account a user request to the group would reach right now.
@@ -158,6 +159,7 @@ type PelicanGroupTestService struct {
 	assessOutput func(context.Context, string) (string, *PelicanAssessment)
 	showcase     *PelicanShowcaseService
 	billing      *BillingService
+	settings     *SettingService
 	now          func() time.Time
 	// runs tracks background runs so tests can wait for them.
 	runs sync.WaitGroup
@@ -174,8 +176,15 @@ func NewPelicanGroupTestService(
 	billing *BillingService,
 ) *PelicanGroupTestService {
 	var assessment *PelicanAssessmentService
+	var settings *SettingService
 	if accountTest != nil {
 		assessment = accountTest.pelicanAssessment
+		settings = accountTest.settingService
+	}
+	if gateway != nil {
+		settings = gateway.settingService
+	} else if openai != nil {
+		settings = openai.settingService
 	}
 	return &PelicanGroupTestService{
 		repo:         repo,
@@ -185,6 +194,7 @@ func NewPelicanGroupTestService(
 		assessOutput: assessment.AssessOutputWithQuality,
 		showcase:     showcase,
 		billing:      billing,
+		settings:     settings,
 		now:          time.Now,
 	}
 }
@@ -338,6 +348,7 @@ func (s *PelicanGroupTestService) RunDue(ctx context.Context, now time.Time) {
 		}(plan)
 	}
 	wg.Wait()
+	s.runDegradationDue(ctx, s.now(), 0)
 }
 
 func (s *PelicanGroupTestService) runScheduled(ctx context.Context, plan *PelicanGroupTestPlan, now time.Time) {
@@ -398,6 +409,7 @@ func (s *PelicanGroupTestService) execute(plan *PelicanGroupTestPlan, until time
 	if err := s.repo.Finish(saveCtx, plan.ID, until, s.now()); err != nil {
 		logger.LegacyPrintf("service.pelican_group_test", "plan=%d finish failed: %v", plan.ID, err)
 	}
+	s.runDegradationDue(context.Background(), s.now(), plan.ID)
 }
 
 func (s *PelicanGroupTestService) runSamples(ctx context.Context, plan *PelicanGroupTestPlan) []*PelicanGroupTestResult {
@@ -440,7 +452,8 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 	if plan.PelicanConfig != nil {
 		ctx = WithRequestedReasoningEffort(ctx, plan.PelicanConfig.ReasoningEffort)
 	}
-	if group.AccountSchedulingMode == AccountSchedulingModeQualityPreferred && !qualityProbe(ctx) {
+	work, handling := ctx.Value(pelicanDegradationRunKey{}).(PelicanDegradationWork)
+	if group.AccountSchedulingMode == AccountSchedulingModeQualityPreferred && !qualityProbe(ctx) && !handling {
 		ctx = context.WithValue(ctx, qualitySchedulingProbeKey{}, true)
 	}
 	started := s.now()
@@ -464,6 +477,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 	}()
 	excluded := make(map[int64]struct{})
 	attempts := []PelicanGroupTestAttempt{}
+	selectionChanges := 0
 	for {
 		route, err := s.router.route(ctx, group, plan.ModelID, excluded)
 		if err != nil {
@@ -475,6 +489,26 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			result = s.newResult(plan, started, s.now(), last.Error)
 			result.AccountID, result.AccountName, result.Attempts = last.AccountID, last.AccountName, attempts[:len(attempts)-1]
 			return result
+		}
+		if target, _ := ctx.Value(pelicanDegradationTargetKey{}).(int64); target > 0 && route.account.ID != target {
+			route.release()
+			return s.newResult(plan, started, s.now(), "confirmation_account_unavailable")
+		}
+		if handling && work.Action == "replacement" && route.account.ID == work.AccountID {
+			// Every eligible channel is confirmed degraded and the fastest
+			// fallback is already the primary. Do not spin through them again.
+			route.release()
+			return nil
+		}
+		if handling && work.Action == "replacement" && route.confirm != nil {
+			if !route.confirm() {
+				route.release()
+				selectionChanges++
+				if selectionChanges >= PelicanGroupTestMaxAttempts {
+					return s.newResult(plan, started, s.now(), "replacement_binding_changed")
+				}
+				continue
+			}
 		}
 		var sample *ScheduledTestResult
 		generationConfig, checks, checkErr := withPelicanQualityChecks(plan.PelicanConfig)
@@ -503,7 +537,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 				sample.ErrorMessage = "pelican_group_test_empty_result: account test returned no result"
 			}
 		}
-		if sample.Status == "success" || !pelicanFailedBeforeOutput(sample) || len(attempts)+1 >= PelicanGroupTestMaxAttempts {
+		if handling || sample.Status == "success" || !pelicanFailedBeforeOutput(sample) || len(attempts)+1 >= PelicanGroupTestMaxAttempts {
 			result = s.newResult(plan, started, s.now(), sample.ErrorMessage)
 			result.Status = sample.Status
 			result.ResponseText = sample.ResponseText
@@ -525,6 +559,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 				}
 			}
 			result.LatencyMs = sample.LatencyMs
+			result.FinishedAt = s.now()
 			result.AccountID, result.AccountName, result.Attempts = route.account.ID, route.account.Name, attempts
 			result.QualityModelID = route.model
 			return result
@@ -628,6 +663,13 @@ func (r *gatewayPelicanGroupRouter) route(ctx context.Context, group *Group, mod
 			upstreamModel = rewritten
 		}
 	}
+	var bindingCache GatewayCache
+	if isOpenAIResponsesGatewayPlatform(platform) {
+		bindingCache = r.openai.cache
+	} else {
+		bindingCache = r.gateway.cache
+	}
+	ctx = prepareFastestFailoverBinding(ctx, bindingCache, upstreamModel)
 	var selection *AccountSelectionResult
 	var err error
 	if isOpenAIResponsesGatewayPlatform(platform) {
@@ -663,7 +705,14 @@ func (r *gatewayPelicanGroupRouter) route(ctx context.Context, group *Group, mod
 		nextExcluded[selection.Account.ID] = struct{}{}
 		return r.route(ctx, group, model, nextExcluded)
 	}
-	return &pelicanGroupRoute{account: latest, model: upstreamModel, release: release}, nil
+	return &pelicanGroupRoute{account: latest, model: upstreamModel, release: release, confirm: func() bool {
+		if work, ok := ctx.Value(pelicanDegradationRunKey{}).(PelicanDegradationWork); ok && work.Action == "replacement" {
+			recordSchedulingSelectionReason(ctx, work.AccountID, "原账号冷却 5 分钟后复测仍降智")
+			confirmGroupModelSchedulingAccount(ctx, upstreamModel, latest.ID)
+			return bindingCache == nil || groupModelSchedulingActiveAccount(ctx, bindingCache, &group.ID, upstreamModel) == latest.ID
+		}
+		return true
+	}}, nil
 }
 
 // holdSlot returns the slot the scheduler acquired, or waits for one like a queued user

@@ -121,6 +121,9 @@ func (s *SettingService) SetModelAccountRouting(ctx context.Context, groupID int
 // Restrictions apply only within the scheduling group, to the public request
 // model before channel/account mapping. A failed read denies that group's requests.
 func (s *SettingService) IsModelAccountAllowed(ctx context.Context, groupID *int64, requestedModel string, accountID int64) bool {
+	if target, _ := ctx.Value(pelicanDegradationTargetKey{}).(int64); target > 0 && target != accountID {
+		return false
+	}
 	if s == nil || s.settingRepo == nil || groupID == nil || *groupID <= 0 {
 		return true
 	}

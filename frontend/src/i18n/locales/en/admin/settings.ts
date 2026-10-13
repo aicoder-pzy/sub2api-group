@@ -2,12 +2,14 @@ export default {
     settings: {
       fastestFailover: {
         title: 'Fastest failover · Global settings',
-        description: 'Applies to every group using fastest failover scheduling.',
+        description: 'Applies to every group using fastest failover or quality preference scheduling.',
         first_output_timeout_seconds: 'First output timeout (seconds)',
         stream_idle_timeout_seconds: 'Stream idle timeout (seconds)',
         model_cooldown_seconds: 'Model cooldown after timeout (seconds)',
         total_attempt_budget_seconds: 'Total attempt budget before output (seconds)',
         minimum_samples: 'Minimum requests for reliability statistics',
+        degradation_tests_per_hour: 'Additional intelligence tests per hour',
+        degradationPolicy: 'After a first degraded result, keep serving requests and retest the same account after 5 minutes. Keep it if normal; otherwise switch and test the replacement immediately. The rolling-hour limit applies separately to each group and model and includes failed attempts. Routine and manual tests do not count. Additional automatic tests use an enabled Pelican group plan and its daily window.',
         sampleRange: 'Integer, 1–{max} requests',
         range: 'Integer, 1–{max} seconds',
         scope: 'Before output, a timeout switches accounts; after output, it ends the stream without replay. The shared attempt budget does not truncate healthy output. Protection covers integrated OpenAI, Anthropic and Gemini text forwarding paths.',

@@ -522,6 +522,16 @@ func TestPelicanGroupRouterRoutesThroughTheOpenAIScheduler(t *testing.T) {
 		return &gatewayPelicanGroupRouter{openai: openai, concurrency: concurrency, slotWait: 50 * time.Millisecond}
 	}
 	group := &Group{ID: 4, Platform: PlatformOpenAI, Status: StatusActive}
+	t.Run("confirmation pins the same account without bypassing scheduler eligibility", func(t *testing.T) {
+		router := newRouter(schedulerTestConcurrencyCache{})
+		pinned := context.WithValue(ctx, pelicanDegradationTargetKey{}, int64(12))
+		selected, err := router.route(pinned, group, "gpt-6-astra", nil)
+		require.NoError(t, err)
+		require.EqualValues(t, 12, selected.account.ID)
+		selected.release()
+		_, err = router.route(pinned, group, "gpt-6-astra", map[int64]struct{}{12: {}})
+		require.Error(t, err, "an unavailable original account must not turn a retest into another account's test")
+	})
 
 	acquired, released := []int64{}, []int64{}
 	router := newRouter(schedulerTestConcurrencyCache{acquiredIDs: &acquired, releasedIDs: &released})

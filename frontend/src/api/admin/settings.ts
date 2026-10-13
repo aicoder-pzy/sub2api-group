@@ -31,6 +31,7 @@ export interface FastestFailoverSettings {
   model_cooldown_seconds: number
   total_attempt_budget_seconds: number
   minimum_samples: number
+  degradation_tests_per_hour: number
 }
 
 export async function getFastestFailoverSettings(): Promise<FastestFailoverSettings> {

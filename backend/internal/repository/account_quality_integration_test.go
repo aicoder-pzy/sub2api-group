@@ -65,5 +65,5 @@ func TestQualityHistorySurvivesPruningAndSharesModelVerdictsAcrossEfforts(t *tes
 	e = read(groups[0].ID, "manual-model", "")[account.ID].Quality
 	require.EqualValues(t, 1, e.Normal)
 	require.EqualValues(t, 1, e.Degraded)
-	require.Equal(t, "degraded", e.Tier, "manual history is retained despite upsert")
+	require.Equal(t, "provisional", e.Tier, "manual recovery cancels degradation while history remains retained")
 }

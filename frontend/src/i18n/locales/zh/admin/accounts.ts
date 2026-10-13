@@ -177,9 +177,10 @@ export default {
       },
       schedulingStatus: {
         effort: '比较思考强度', autoEffort: '自动：使用近 24 小时最常用强度',
-        qualityPolicy: '当前主账号正常且可用时，新会话继续使用主账号，正常已有会话保持原账号。仅在故障、降智、倍率超限或其他资格失效时重新选择；恢复可用的账号不会自动抢回主用。首次选择及切换时，先避让降智和不稳定账号，再按优先调度、优先级数字、质量、可靠性和同强度速度选择。全部疑似降智时选最快。测智按同组、同账号、同模型生效，保留检测强度供查看。本页排名用于评估候选，不会主动切换健康主账号；查看本页不会发起测试或修改调度。',
+        qualityPolicy: '当前主账号正常且可用时，新会话继续使用主账号，正常已有会话保持原账号。首次降智后继续响应请求，5 分钟后复测；正常则继续使用，仍降智才切换并立即检测新账号。仅在故障、复测确认降智、倍率超限或其他资格失效时重新选择；恢复可用的账号不会自动抢回主用。首次选择及切换时，先避让降智和不稳定账号，再按优先调度、优先级数字、质量、可靠性和同强度速度选择。全部疑似降智时选最快。测智按同组、同账号、同模型生效，保留检测强度供查看。本页排名用于评估候选，不会主动切换健康主账号；查看本页不会发起测试或修改调度。',
         recommended: '质量首选', weekRate: '7 天成功率', hourRate: '1 小时成功率',
         qualityEvidence: '质量证据', qualityHistory: '7 天测智记录', speed: '同强度首字速度', lastTest: '最近检测',
+        quality_pending: '首次降智，等待复测确认', quality_confirmed: '复测仍降智，已确认', confirmationDue: '追加测试时间：{time}',
         quality_verified: '已验证持续正常', quality_provisional: '单次正常，继续验证', quality_unknown: '待验证或证据已过期', quality_degraded: '疑似降智或恢复待确认',
         streak: '连续正常 {count} 次', historyCounts: '正常 {normal} / 降智 {degraded} / 未知 {unknown} / 测试失败 {failed_tests}',
         answerCounts: '答案核验：通过 {answer_normal} / 未通过 {answer_degraded}', speedSamples: '{count} 个请求样本', testEffort: '最近测智强度：{effort}',

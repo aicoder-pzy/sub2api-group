@@ -10,27 +10,28 @@ import (
 )
 
 type SchedulingCandidateStatus struct {
-	Quality               *AccountQualityEvidence `json:"quality,omitempty"`
-	AccountID             int64                   `json:"account_id"`
-	SchedulingPreferred   bool                    `json:"scheduling_preferred"`
-	Priority              int                     `json:"priority"`
-	Name                  string                  `json:"name"`
-	Current               bool                    `json:"current"`
-	Eligible              bool                    `json:"eligible"`
-	Rank                  int                     `json:"rank"`
-	Confidence            string                  `json:"confidence"`
-	Samples               int64                   `json:"samples"`
-	SuccessRate           *float64                `json:"success_rate"`
-	RecentFailures        int64                   `json:"recent_failures"`
-	LastSuccessAt         *time.Time              `json:"last_success_at"`
-	LastFailureAt         *time.Time              `json:"last_failure_at"`
-	CooldownSeconds       int64                   `json:"cooldown_seconds"`
-	AccountRateMultiplier *float64                `json:"account_rate_multiplier,omitempty"`
-	AccountRateLimit      *float64                `json:"account_rate_limit,omitempty"`
-	Reason                string                  `json:"reason,omitempty"`
-	IntelligenceVerdict   string                  `json:"intelligence_verdict,omitempty"`
-	IntelligenceReason    string                  `json:"intelligence_reason,omitempty"`
-	IntelligenceAt        *time.Time              `json:"intelligence_at,omitempty"`
+	Degradation           *PelicanDegradationState `json:"degradation,omitempty"`
+	Quality               *AccountQualityEvidence  `json:"quality,omitempty"`
+	AccountID             int64                    `json:"account_id"`
+	SchedulingPreferred   bool                     `json:"scheduling_preferred"`
+	Priority              int                      `json:"priority"`
+	Name                  string                   `json:"name"`
+	Current               bool                     `json:"current"`
+	Eligible              bool                     `json:"eligible"`
+	Rank                  int                      `json:"rank"`
+	Confidence            string                   `json:"confidence"`
+	Samples               int64                    `json:"samples"`
+	SuccessRate           *float64                 `json:"success_rate"`
+	RecentFailures        int64                    `json:"recent_failures"`
+	LastSuccessAt         *time.Time               `json:"last_success_at"`
+	LastFailureAt         *time.Time               `json:"last_failure_at"`
+	CooldownSeconds       int64                    `json:"cooldown_seconds"`
+	AccountRateMultiplier *float64                 `json:"account_rate_multiplier,omitempty"`
+	AccountRateLimit      *float64                 `json:"account_rate_limit,omitempty"`
+	Reason                string                   `json:"reason,omitempty"`
+	IntelligenceVerdict   string                   `json:"intelligence_verdict,omitempty"`
+	IntelligenceReason    string                   `json:"intelligence_reason,omitempty"`
+	IntelligenceAt        *time.Time               `json:"intelligence_at,omitempty"`
 }
 
 type GroupSchedulingStatus struct {
@@ -89,7 +90,7 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 		sample := quality[account.ID]
 		status := SchedulingCandidateStatus{AccountID: account.ID, Name: account.Name, Current: account.ID == activeID,
 			SchedulingPreferred: accountSchedulingPreferred(account), Priority: account.Priority,
-			Quality:    sample.Quality,
+			Quality: sample.Quality, Degradation: sample.Degradation,
 			Confidence: sample.confidence(int64(settings.MinimumSamples)), Samples: sample.attempts(), RecentFailures: sample.RecentFailures,
 			LastSuccessAt: sample.LastSuccessAt, LastFailureAt: sample.LastFailureAt,
 			IntelligenceVerdict: sample.IntelligenceVerdict, IntelligenceReason: sample.IntelligenceReason, IntelligenceAt: sample.IntelligenceAt}

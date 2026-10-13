@@ -74,6 +74,7 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 	if assessment != nil {
 		result.QualityVerdict, result.QualityReason = assessment.Quality, assessment.Reason
 	}
+	result.FinishedAt = time.Now()
 	return result, nil
 }
 

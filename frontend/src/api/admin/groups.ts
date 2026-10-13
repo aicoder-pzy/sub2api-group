@@ -6,6 +6,7 @@
 import { apiClient } from '../client'
 
 export interface SchedulingCandidateStatus {
+  degradation?: { status: 'pending' | 'confirmed' | 'normal'; sampled_at: string; due_at?: string }
 	scheduling_preferred?: boolean
 	priority?: number
 	quality?: {

@@ -195,7 +195,7 @@ func groupModelSchedulingUsableActiveAccount(ctx context.Context, repo UsageLogR
 	if qualityPreferredEnabled(ctx) {
 		return 0 // Validate quality and reliability before preserving the binding.
 	}
-	if activeID > 0 && groupModelAccountQuality(ctx, repo, groupID, model)[activeID].IntelligenceVerdict == "degraded" {
+	if activeID > 0 && groupModelAccountQuality(ctx, repo, groupID, model)[activeID].intelligenceDegraded() {
 		return 0
 	}
 	return activeID
@@ -223,12 +223,12 @@ func orderFastestFailoverCandidates(candidates []*Account, quality map[int64]Gro
 	}
 	allDegraded := len(ordered) > 0
 	for _, account := range ordered {
-		allDegraded = allDegraded && quality[account.ID].IntelligenceVerdict == "degraded"
+		allDegraded = allDegraded && quality[account.ID].intelligenceDegraded()
 	}
 	sort.SliceStable(ordered, func(first, second int) bool {
 		candidate, current := ordered[first], ordered[second]
 		candidateSample, currentSample := quality[candidate.ID], quality[current.ID]
-		candidateDegraded, currentDegraded := candidateSample.IntelligenceVerdict == "degraded", currentSample.IntelligenceVerdict == "degraded"
+		candidateDegraded, currentDegraded := candidateSample.intelligenceDegraded(), currentSample.intelligenceDegraded()
 		if candidateDegraded != currentDegraded {
 			return !candidateDegraded
 		}
@@ -271,6 +271,7 @@ func accountSchedulingPreferred(account *Account) bool {
 
 type GroupModelAccountQuality struct {
 	Quality             *AccountQualityEvidence
+	Degradation         *PelicanDegradationState
 	Successes           int64
 	Failures            int64
 	LatencyMS           float64
@@ -351,7 +352,7 @@ func groupModelAccountQuality(ctx context.Context, repo UsageLogRepository, grou
 			defer cancel()
 			quality, err := qualityRepo.GetQualityPreferredAccountQuality(queryCtx, *groupID, model, effort)
 			if err == nil {
-				return quality
+				return withPelicanDegradationEvidence(queryCtx, repo, *groupID, model, quality)
 			}
 		}
 		return nil // Missing evidence must not silently become verified quality.
@@ -366,5 +367,5 @@ func groupModelAccountQuality(ctx context.Context, repo UsageLogRepository, grou
 	if err != nil {
 		return nil
 	}
-	return quality
+	return withPelicanDegradationEvidence(queryCtx, repo, *groupID, model, quality)
 }
