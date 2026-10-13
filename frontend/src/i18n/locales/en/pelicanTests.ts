@@ -85,7 +85,7 @@ export default {
   },
   editor: {
     verificationTasks: 'Add reasoning and code evaluation checks',
-    verificationTasksHint: 'Add two randomized questions with verifiable answers to the same artwork request. No extra generation is sent. Incorrect answers are degraded; missing answers are unknown. Output and reasoning may increase cost. Quality preference groups rotate eligible accounts starting with the least recently tested.',
+    verificationTasksHint: 'Add two randomized questions with verifiable answers to the same artwork request. No extra generation is sent. Incorrect answers are degraded; missing answers are unknown. Output and reasoning may increase cost. Group tests follow the current healthy, eligible primary for the model, including parallel samples.',
     createTitle: 'New group test',
     editTitle: 'Edit group test',
     group: 'Group',

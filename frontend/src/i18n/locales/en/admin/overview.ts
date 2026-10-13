@@ -916,7 +916,7 @@ export default {
         description: 'Description',
         platform: 'Platform',
         accountSchedulingMode: 'Account scheduling',
-        accountSchedulingModeHint: 'Fastest failover keeps a working channel until it fails. Quality preference rotates eligible account tests, then ranks sustained quality, request reliability and speed at the same effort. Two normal results restore preferred quality; improvements must persist for 5 minutes after a 30-minute minimum hold. Multiplier limits and model allowlists always apply.',
+        accountSchedulingModeHint: 'Fastest failover and quality preference keep a healthy primary; group tests follow the model primary too. A first degraded result keeps serving requests until a retest after 5 minutes. Confirmed degradation switches and immediately tests the new primary. Quality, reliability and same-effort speed rank necessary replacements. Multiplier limits and model allowlists always apply.',
         accountSchedulingQualityPreferred: 'Quality preference with failover',
         accountSchedulingPriority: 'Default priority and load balancing',
         accountSchedulingFastestFailover: 'Fastest account with failover',

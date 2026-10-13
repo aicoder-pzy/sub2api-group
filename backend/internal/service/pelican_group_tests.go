@@ -429,9 +429,6 @@ func (s *PelicanGroupTestService) runSamples(ctx context.Context, plan *PelicanG
 		count = plan.PelicanConfig.ParallelCount
 	}
 	results := make([]*PelicanGroupTestResult, count)
-	if group.AccountSchedulingMode == AccountSchedulingModeQualityPreferred {
-		ctx = context.WithValue(ctx, qualitySchedulingProbeKey{}, &qualityProbeReservations{accounts: make(map[int64]bool)})
-	}
 	var wg sync.WaitGroup
 	for i := range results {
 		wg.Add(1)
@@ -453,9 +450,6 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 		ctx = WithRequestedReasoningEffort(ctx, plan.PelicanConfig.ReasoningEffort)
 	}
 	work, handling := ctx.Value(pelicanDegradationRunKey{}).(PelicanDegradationWork)
-	if group.AccountSchedulingMode == AccountSchedulingModeQualityPreferred && !qualityProbe(ctx) && !handling {
-		ctx = context.WithValue(ctx, qualitySchedulingProbeKey{}, true)
-	}
 	started := s.now()
 	var costUSD float64
 	priced, attempted, incomplete := false, false, false

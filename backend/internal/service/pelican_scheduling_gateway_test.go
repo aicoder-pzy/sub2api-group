@@ -75,6 +75,21 @@ func TestFastestFailoverPelicanUsesLiveSchedulerPaths(t *testing.T) {
 					require.Equal(t, int64(2), groupModelSchedulingActiveAccount(ctx, cache, &groupID, "claude-sonnet-4-5"), "confirmation replaces the primary")
 					pending.Degradation.Status = "normal"
 					selectID(2, "recovery-new-session")
+					plan := groupTestPlan(3)
+					plan.GroupID, plan.ModelID = groupID, "claude-sonnet-4-5"
+					plan.PelicanConfig.ReasoningEffort = "medium"
+					tests, _ := newGroupTestService(newGroupTestRepoFake(plan),
+						&gatewayPelicanGroupRouter{gateway: gateway, openai: openai, concurrency: concurrency},
+						answers(map[int64]ScheduledTestResult{2: {Status: "success", ResponseText: "<html>drawing</html>"}}))
+					tests.groups = groupTestGroupsFake{groupID: group}
+					for _, result := range tests.runSamples(context.Background(), plan) {
+						require.EqualValues(t, 2, result.AccountID, "every routine sample tests the healthy primary, including parallel samples")
+						require.Equal(t, "success", result.Status)
+					}
+					result := tests.runSample(context.Background(), plan, group)
+					require.EqualValues(t, 2, result.AccountID, "a single routine sample also follows the primary rather than rotating to an untested account")
+					require.Equal(t, "success", result.Status)
+					require.EqualValues(t, 2, groupModelSchedulingActiveAccount(ctx, cache, &groupID, plan.ModelID))
 					pending.Degradation = nil
 					quality[1] = pending
 					require.NoError(t, cache.SetSessionAccountID(ctx, groupID, groupModelSchedulingStickyKey("claude-sonnet-4-5"), 1, 0))

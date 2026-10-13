@@ -898,7 +898,7 @@ export default {
         description: '描述',
         platform: '平台',
         accountSchedulingMode: '账号调度方式',
-        accountSchedulingModeHint: '最快故障切换持续使用正常渠道，故障后选择备用。质量优选会轮测符合条件的账号，按持续测智结论、请求可靠性与同强度速度排名；连续正常两次恢复优选，优势持续至少 5 分钟、当前渠道使用至少 30 分钟后接管。倍率上限和模型白名单始终生效。',
+        accountSchedulingModeHint: '最快故障切换和质量优选持续使用正常主账号，分组测智也跟随该模型主账号。首次降智继续响应，5 分钟后复测，仍降智才切换并立即测试新主账号。质量、可靠性和同强度速度用于必要切换时排序；倍率上限和模型白名单始终生效。',
         accountSchedulingQualityPreferred: '质量优选与故障切换',
         accountSchedulingPriority: '默认优先级和负载均衡',
         accountSchedulingFastestFailover: '最快账号故障切换',
