@@ -867,30 +867,6 @@ func (c *schedulerCache) mgetSnapshotFields(ctx context.Context, keys, lastUsedK
 	return values, lastUsed, nil
 }
 
-func (c *schedulerCache) mgetChunked(ctx context.Context, keys []string) ([]any, error) {
-	if len(keys) == 0 {
-		return []any{}, nil
-	}
-
-	out := make([]any, 0, len(keys))
-	chunkSize := c.mgetChunkSize
-	if chunkSize <= 0 {
-		chunkSize = defaultSchedulerSnapshotMGetChunkSize
-	}
-	for start := 0; start < len(keys); start += chunkSize {
-		end := start + chunkSize
-		if end > len(keys) {
-			end = len(keys)
-		}
-		part, err := c.rdb.MGet(ctx, keys[start:end]...).Result()
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, part...)
-	}
-	return out, nil
-}
-
 func buildSchedulerMetadataAccount(account service.Account) service.Account {
 	return service.Account{
 		ID:                      account.ID,
