@@ -60,7 +60,7 @@ func TestPelicanDegradationConfirmationAndRollingBudget(t *testing.T) {
 	require.Equal(t, "pending", read(groups[0].ID, account.ID).Status)
 	save(plans[0].ID, account.ID, "unknown", base.Add(8*time.Minute), base.Add(9*time.Minute))
 	require.Equal(t, "pending", read(groups[0].ID, account.ID).Status)
-	require.Equal(t, base.Add(14*time.Minute), *read(groups[0].ID, account.ID).DueAt)
+	require.True(t, base.Add(14*time.Minute).Equal(*read(groups[0].ID, account.ID).DueAt), "compare the instant independently of the SQL driver's timezone location")
 	save(plans[0].ID, account.ID, "degraded", base.Add(14*time.Minute), base.Add(15*time.Minute))
 	require.Equal(t, "confirmed", read(groups[0].ID, account.ID).Status)
 	work, err = repo.ListDegradationDue(ctx, base.Add(16*time.Minute))
