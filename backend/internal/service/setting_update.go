@@ -557,6 +557,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		updates[SettingKeyAccountSchedulingThresholds] = string(blob)
 	}
 
+	updates[SettingKeyUsageShowCacheRate] = strconv.FormatBool(settings.UsageShowCacheRate)
+	updates[SettingKeyUsageShowCacheRateToUsers] = strconv.FormatBool(settings.UsageShowCacheRateToUsers)
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
 
 	return updates, nil

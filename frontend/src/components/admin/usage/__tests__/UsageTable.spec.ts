@@ -7,6 +7,7 @@ const ipGeoMocks = vi.hoisted(() => ({
 const appStoreMocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),
+  cachedPublicSettings: undefined as { usage_show_cache_rate?: boolean; usage_show_cache_rate_to_users?: boolean } | undefined,
 }))
 
 vi.mock('@/utils/ipGeoLookup', () => ipGeoMocks)
@@ -149,9 +150,9 @@ describe('admin UsageTable tooltip', () => {
   it('shows cache hit rate using all input tokens and excludes output tokens', () => {
     const rows = [
       { input_tokens: 100, cache_creation_tokens: 100, cache_read_tokens: 800, output_tokens: 900, expected: '80.0%' },
-      { input_tokens: 100, cache_read_tokens: 0, expected: '0.0%' },
-      { input_tokens: 0, cache_read_tokens: 4000, expected: '100.0%' },
-      { input_tokens: 0, cache_read_tokens: 0, expected: '—' },
+      { input_tokens: 100, cache_read_tokens: 0, expected: '0%' },
+      { input_tokens: 0, cache_read_tokens: 4000, expected: '100%' },
+      { input_tokens: 0, cache_read_tokens: 0, expected: '-' },
     ]
     const wrapper = mount(UsageTable, {
       props: {
@@ -161,8 +162,30 @@ describe('admin UsageTable tooltip', () => {
       },
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
-    expect(wrapper.findAll('[data-testid="cache-hit-rate"]').map(cell => cell.text()))
+    expect(wrapper.findAll('[data-testid="latency-cache-rate"]').map(cell => cell.text()))
       .toEqual(rows.map(row => row.expected))
+  })
+
+  it('uses the same visibility switches for admin and user tables', () => {
+    const render = (audience: 'admin' | 'user') => mount(UsageTable, {
+      props: { data: [baseImageRow], columns: [], cacheRateAudience: audience },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    const admin = render('admin'), user = render('user')
+    expect(admin.find('[data-testid="latency-cache-rate"]').exists()).toBe(true)
+    expect(user.find('[data-testid="latency-cache-rate"]').exists()).toBe(false)
+    admin.unmount(); user.unmount()
+    appStoreMocks.cachedPublicSettings = { usage_show_cache_rate_to_users: true }
+    const visibleUser = render('user')
+    expect(visibleUser.find('[data-testid="latency-cache-rate"]').exists()).toBe(true)
+    visibleUser.unmount()
+    appStoreMocks.cachedPublicSettings = { usage_show_cache_rate: false, usage_show_cache_rate_to_users: true }
+    for (const audience of ['admin', 'user'] as const) {
+      const hidden = render(audience)
+      expect(hidden.find('[data-testid="latency-cache-rate"]').exists()).toBe(false)
+      hidden.unmount()
+    }
+    appStoreMocks.cachedPublicSettings = undefined
   })
 
   it('shows output TPS in the latency cell using total duration', () => {

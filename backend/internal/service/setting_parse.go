@@ -270,6 +270,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky:         "",
 
 		SettingKeyAllowUserViewErrorRequests: "false",
+		SettingKeyUsageShowCacheRate:         "true",
+		SettingKeyUsageShowCacheRateToUsers:  "false",
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -991,6 +993,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		}
 	}
 
+	result.UsageShowCacheRate = settings[SettingKeyUsageShowCacheRate] != "false"
+	result.UsageShowCacheRateToUsers = settings[SettingKeyUsageShowCacheRateToUsers] == "true"
 	result.AllowUserViewErrorRequests = settings[SettingKeyAllowUserViewErrorRequests] == "true" // default false
 
 	// Publish Grok default model_mapping options for accounts with empty mapping.

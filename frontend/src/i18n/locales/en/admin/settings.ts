@@ -1335,6 +1335,14 @@ export default {
         label: 'Allow users to view their own error requests',
         description: 'When enabled, users can see a redacted view of their failed requests on the usage page (no internal/upstream details). Requires ops monitoring enabled to have data.',
       },
+      cache_rate: {
+        label: 'Show usage cache rate',
+        description: 'When enabled, the usage record status column shows the cache rate for that request. Turning it off hides the rate from both admins and users. Enabled by default.',
+      },
+      cache_rate_to_users: {
+        label: 'Show cache rate to users',
+        description: 'When enabled, users can see the per-request cache rate on their own usage page. Off by default, so only admins see it.',
+      },
       saveSettings: 'Save Settings',
       saving: 'Saving...',
       settingsSaved: 'Settings saved successfully',

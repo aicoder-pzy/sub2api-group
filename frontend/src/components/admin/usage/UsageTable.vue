@@ -205,13 +205,6 @@
           </div>
         </template>
 
-        <template #cell-cache_hit_rate="{ row }">
-          <span
-            data-testid="cache-hit-rate"
-            class="whitespace-nowrap text-sm tabular-nums text-sky-600 dark:text-sky-400"
-            :title="t('admin.usage.cacheHitRateHint')"
-          >{{ formatCacheHitRate(row) }}</span>
-        </template>
 
         <template #cell-cost="{ row }">
           <div class="text-sm">
@@ -258,6 +251,10 @@
               <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
               <span class="text-gray-400 dark:text-gray-500" :title="t('usage.outputTpsHint')">{{ t('usage.outputTps') }}</span>
               <span data-testid="output-tps" class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageOutputRate(row) }}</span>
+              <template v-if="showCacheRate">
+                <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyCacheRate') }}</span>
+                <span data-testid="latency-cache-rate" class="font-medium tabular-nums text-emerald-600 dark:text-emerald-400" :title="cacheRateTitle(row)">{{ formatUsageCacheRate(row) ?? '-' }}</span>
+              </template>
             </div>
           </div>
         </template>
@@ -392,6 +389,10 @@
             <div v-if="tokenTooltipData && tokenTooltipData.cache_read_tokens > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.cacheReadTokens') }}</span>
               <span class="font-medium text-white">{{ tokenTooltipData.cache_read_tokens.toLocaleString() }}</span>
+            </div>
+            <div v-if="showCacheRate && tokenTooltipData && formatUsageCacheRate(tokenTooltipData)" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('usage.latencyCacheRate') }}</span>
+              <span class="font-medium text-emerald-400" :title="cacheRateTitle(tokenTooltipData)">{{ formatUsageCacheRate(tokenTooltipData) }}</span>
             </div>
           </div>
           <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
@@ -547,6 +548,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'
+import { formatUsageCacheRate, showUsageCacheRate, usageCacheRateParts } from '@/utils/usageCacheRate'
 import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
 import { formatTokenPricePerMillion } from '@/utils/usagePricing'
 import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
@@ -609,6 +611,7 @@ interface Props {
   showUpstreamEndpoint?: boolean
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
+  cacheRateAudience?: 'admin' | 'user'
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -618,7 +621,8 @@ const props = withDefaults(defineProps<Props>(), {
   defaultSortOrder: 'asc',
   showAccountBilling: true,
   showUpstreamEndpoint: true,
-  flat: false
+  flat: false,
+  cacheRateAudience: 'admin'
 })
 const emit = defineEmits<{
   userClick: [userID: number, email?: string]
@@ -632,6 +636,7 @@ const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
 const ipGeoBatchLoading = ref(false)
 
+const showCacheRate = computed(() => showUsageCacheRate(appStore.cachedPublicSettings, props.cacheRateAudience))
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
 
 const hasReasoningEffortMapping = (row: AdminUsageLog): boolean => {
@@ -710,10 +715,9 @@ const tokenTooltipVisible = ref(false)
 const tokenTooltipPosition = ref({ x: 0, y: 0 })
 const tokenTooltipData = ref<AdminUsageLog | null>(null)
 
-const formatCacheHitRate = (row: AdminUsageLog): string => {
-  const cacheRead = row.cache_read_tokens || 0
-  const totalInput = (row.input_tokens || 0) + (row.cache_creation_tokens || 0) + cacheRead
-  return totalInput > 0 ? `${((cacheRead / totalInput) * 100).toFixed(1)}%` : '—'
+const cacheRateTitle = (row: AdminUsageLog): string | undefined => {
+  const parts = usageCacheRateParts(row)
+  return parts ? t('usage.latencyCacheRateHint', { input: parts.input.toLocaleString(), write: parts.write.toLocaleString(), read: parts.read.toLocaleString() }) : undefined
 }
 
 const getRequestTypeLabel = (row: AdminUsageLog): string => {

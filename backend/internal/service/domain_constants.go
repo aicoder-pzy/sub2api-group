@@ -762,3 +762,7 @@ const AdminAPIKeyPrefix = "admin-"
 // SettingKeyAllowUserViewErrorRequests controls whether end users can view
 // their own failed requests on the usage page. Default false (opt-in).
 const SettingKeyAllowUserViewErrorRequests = "allow_user_view_error_requests"
+
+// Per-request cache hit rate: enabled for administrators by default.
+const SettingKeyUsageShowCacheRate = "usage_show_cache_rate"
+const SettingKeyUsageShowCacheRateToUsers = "usage_show_cache_rate_to_users"

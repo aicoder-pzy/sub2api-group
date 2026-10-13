@@ -357,6 +357,8 @@ type SystemSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+	UsageShowCacheRate         bool `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers  bool `json:"usage_show_cache_rate_to_users"`
 }
 
 type DefaultSubscriptionSetting struct {
@@ -450,6 +452,8 @@ type PublicSettings struct {
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+	UsageShowCacheRate         bool `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers  bool `json:"usage_show_cache_rate_to_users"`
 }
 
 type LoginAgreementDocument struct {

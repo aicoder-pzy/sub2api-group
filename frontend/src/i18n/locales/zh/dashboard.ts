@@ -417,6 +417,8 @@ export default {
     out: '输出',
     cacheHit: '缓存命中',
     cacheCreate: '缓存创建',
+    latencyCacheRate: '缓存率',
+    latencyCacheRateHint: '缓存率 = 缓存读取 ÷（普通输入 + 缓存写入 + 缓存读取），与渠道监控和用量趋势口径一致。普通输入 {input}，缓存写入 {write}，缓存读取 {read}。',
     cacheHitRate: '缓存命中率',
     inputTokenPrice: '输入单价',
     outputTokenPrice: '输出单价',

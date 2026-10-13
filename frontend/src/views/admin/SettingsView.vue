@@ -6382,6 +6382,46 @@
                 <span class="toggle-slider"></span>
               </label>
             </div>
+
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.cache_rate.label') }}
+                </label>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.cache_rate.description') }}
+                </p>
+              </div>
+              <label class="toggle">
+                <input
+                  v-model="form.usage_show_cache_rate"
+                  data-testid="usage-show-cache-rate"
+                  type="checkbox"
+                  @change="form.usage_show_cache_rate_to_users = form.usage_show_cache_rate && form.usage_show_cache_rate_to_users"
+                />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="flex items-center justify-between" :class="form.usage_show_cache_rate ? '' : 'opacity-60'">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.cache_rate_to_users.label') }}
+                </label>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.cache_rate_to_users.description') }}
+                </p>
+              </div>
+              <label class="toggle">
+                <input
+                  v-model="form.usage_show_cache_rate_to_users"
+                  data-testid="usage-show-cache-rate-to-users"
+                  type="checkbox"
+                  :disabled="!form.usage_show_cache_rate"
+                />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
           </div>
         </div>
         </div>
@@ -10075,6 +10115,8 @@ const form = reactive<SettingsForm>({
   affiliate_enabled: false,
   // Allow user view error requests
   allow_user_view_error_requests: false,
+  usage_show_cache_rate: true,
+  usage_show_cache_rate_to_users: false,
 });
 
 // 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立
@@ -11808,6 +11850,8 @@ async function saveSettings() {
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
       allow_user_view_error_requests: form.allow_user_view_error_requests,
+      usage_show_cache_rate: form.usage_show_cache_rate,
+      usage_show_cache_rate_to_users: form.usage_show_cache_rate_to_users,
     };
 
     // 仅当 openai_fast_policy_settings 已成功从后端加载时才回写，

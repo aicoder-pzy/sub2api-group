@@ -412,6 +412,8 @@ export default {
     out: 'Out',
     cacheHit: 'Cache hit',
     cacheCreate: 'Cache create',
+    latencyCacheRate: 'Cache rate',
+    latencyCacheRateHint: 'Cache rate = cache read / (uncached input + cache write + cache read). Same definition as channel monitoring and usage trends. Input {input}, write {write}, read {read}.',
     cacheHitRate: 'Cache hit rate',
     inputTokenPrice: 'Input price',
     outputTokenPrice: 'Output price',
