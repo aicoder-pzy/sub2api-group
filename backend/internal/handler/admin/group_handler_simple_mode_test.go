@@ -48,7 +48,7 @@ func TestGroupHandlerSimpleModeSanitizesCommercialFields(t *testing.T) {
 	svc := newStubAdminService()
 	r := newSimpleModeGroupRouter(svc)
 
-	create := `{"name":"simple","description":"basic grouping","platform":"anthropic","rate_multiplier":7,"is_exclusive":true,"subscription_type":"subscription","daily_limit_usd":10,"long_context_pricing_enabled":true,"model_pricing":[{"model":"claude","input_price":1}],"allow_image_generation":true,"allow_batch_image_generation":true,"video_price_720p":2,"web_search_price_per_call":3,"audio_realtime_price_per_min":4,"rpm_limit":99}`
+	create := `{"name":"simple","description":"basic grouping","i18n":{"en":{"name":"Simple"}},"account_scheduling_mode":"model_auto","platform":"anthropic","rate_multiplier":7,"is_exclusive":true,"subscription_type":"subscription","daily_limit_usd":10,"long_context_pricing_enabled":true,"model_pricing":[{"model":"claude","input_price":1}],"allow_image_generation":true,"allow_batch_image_generation":true,"video_price_720p":2,"web_search_price_per_call":3,"audio_realtime_price_per_min":4,"rpm_limit":99}`
 	req := httptest.NewRequest(http.MethodPost, "/groups", bytes.NewBufferString(create))
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
@@ -57,6 +57,8 @@ func TestGroupHandlerSimpleModeSanitizesCommercialFields(t *testing.T) {
 	require.Len(t, svc.createdGroups, 1)
 	created := svc.createdGroups[0]
 	require.Equal(t, "basic grouping", created.Description)
+	require.Equal(t, service.AccountSchedulingModeModelAuto, created.AccountSchedulingMode)
+	require.Equal(t, service.GroupI18n{"en": {Name: "Simple"}}, created.I18n)
 	require.Equal(t, 1.0, created.RateMultiplier)
 	require.False(t, created.IsExclusive)
 	require.Equal(t, service.SubscriptionTypeStandard, created.SubscriptionType)
@@ -70,7 +72,7 @@ func TestGroupHandlerSimpleModeSanitizesCommercialFields(t *testing.T) {
 	require.Nil(t, created.AudioRealtimePricePerMin)
 	require.Zero(t, created.RPMLimit)
 
-	update := `{"name":"renamed","description":"still basic","rate_multiplier":9,"is_exclusive":true,"subscription_type":"subscription","daily_limit_usd":12,"long_context_pricing_enabled":true,"model_pricing":[{"model":"claude","input_price":1}],"allow_image_generation":true,"allow_batch_image_generation":true,"video_price_720p":2,"web_search_price_per_call":3,"audio_realtime_price_per_min":4,"status":"inactive","rpm_limit":123}`
+	update := `{"name":"renamed","description":"still basic","i18n":{"en":{"name":"Renamed"}},"account_scheduling_mode":"model_auto","rate_multiplier":9,"is_exclusive":true,"subscription_type":"subscription","daily_limit_usd":12,"long_context_pricing_enabled":true,"model_pricing":[{"model":"claude","input_price":1}],"allow_image_generation":true,"allow_batch_image_generation":true,"video_price_720p":2,"web_search_price_per_call":3,"audio_realtime_price_per_min":4,"status":"inactive","rpm_limit":123}`
 	req = httptest.NewRequest(http.MethodPut, "/groups/2", bytes.NewBufferString(update))
 	req.Header.Set("Content-Type", "application/json")
 	res = httptest.NewRecorder()
@@ -80,6 +82,10 @@ func TestGroupHandlerSimpleModeSanitizesCommercialFields(t *testing.T) {
 	updated := svc.updatedGroups[0]
 	require.NotNil(t, updated.Description)
 	require.Equal(t, "still basic", *updated.Description)
+	require.NotNil(t, updated.AccountSchedulingMode)
+	require.Equal(t, service.AccountSchedulingModeModelAuto, *updated.AccountSchedulingMode)
+	require.NotNil(t, updated.I18n)
+	require.Equal(t, service.GroupI18n{"en": {Name: "Renamed"}}, *updated.I18n)
 	require.Nil(t, updated.RateMultiplier)
 	require.Nil(t, updated.IsExclusive)
 	require.Empty(t, updated.SubscriptionType)
