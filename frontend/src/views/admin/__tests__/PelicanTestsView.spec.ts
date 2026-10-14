@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   getResult: vi.fn(),
   getShowcaseSettings: vi.fn(),
   updateShowcaseSettings: vi.fn(),
+  resetIntelligence: vi.fn(),
 }))
 const { getGroups, fetchPublicSettings } = vi.hoisted(() => ({ getGroups: vi.fn(), fetchPublicSettings: vi.fn() }))
 vi.mock('@/api/admin/pelicanTests', () => ({ pelicanTestsAPI: api }))
@@ -72,8 +73,8 @@ const mountView = () => mount(PelicanTestsView, {
         template: '<div v-if="show" data-testid="api-info-dialog" :data-enabled="enabled" />',
       },
       ConfirmDialog: {
-        props: ['show'], emits: ['confirm', 'cancel'],
-        template: `<div v-if="show" class="confirm"><button class="confirm-yes" @click="$emit('confirm')" /></div>`,
+        props: ['show', 'message'], emits: ['confirm', 'cancel'],
+        template: `<div v-if="show" class="confirm">{{ message }}<button class="confirm-yes" @click="$emit('confirm')" /><button class="confirm-no" @click="$emit('cancel')" /></div>`,
       },
     },
   },
@@ -280,6 +281,44 @@ describe('PelicanTestsView', () => {
     expect(api.deletePlan).toHaveBeenCalledWith(7)
     expect(wrapper.find('[data-testid="pelican-plan-7"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="pelican-result-90"]').exists()).toBe(false)
+  })
+
+  it('resets by group after confirmation, preserving plans and history', async () => {
+    let complete!: () => void
+    api.resetIntelligence.mockImplementation(() => new Promise<void>((resolve) => { complete = resolve }))
+    wrapper = mountView()
+    await flushPromises()
+    const reset = wrapper.get('[data-testid="pelican-plan-reset-7"]')
+    await reset.trigger('click')
+    expect(wrapper.get('.confirm').text()).toContain('GPT PRO号池')
+    expect(api.resetIntelligence).not.toHaveBeenCalled()
+    await wrapper.get('.confirm-no').trigger('click')
+    expect(api.resetIntelligence).not.toHaveBeenCalled()
+    await reset.trigger('click')
+    await wrapper.get('.confirm-yes').trigger('click')
+    expect(api.resetIntelligence).toHaveBeenCalledTimes(1)
+    expect(api.resetIntelligence).toHaveBeenCalledWith(4)
+    expect(reset.attributes('disabled')).toBeDefined()
+    complete()
+    await flushPromises()
+    expect(reset.attributes('disabled')).toBeUndefined()
+    expect(wrapper.text()).toContain('pelicanTests.intelligence.resetDone')
+    expect(wrapper.find('[data-testid="pelican-plan-7"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="pelican-result-90"]').exists()).toBe(true)
+    expect(api.deletePlan).not.toHaveBeenCalled()
+    expect(api.runPlan).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed reset and allows retry', async () => {
+    api.resetIntelligence.mockRejectedValue({})
+    wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="pelican-plan-reset-7"]').trigger('click')
+    await wrapper.get('.confirm-yes').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('pelicanTests.intelligence.resetFailed')
+    expect(wrapper.get('[data-testid="pelican-plan-reset-7"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.text()).not.toContain('pelicanTests.intelligence.resetDone')
   })
 
   it('previews an answer in the sandbox and pages the history', async () => {

@@ -5,6 +5,13 @@ export default {
   refresh: '刷新',
   create: '新建分组测试',
   loadError: '加载鹈鹕测智失败',
+  intelligence: {
+    reset: '清零重计',
+    resetTitle: '重置分组降智统计',
+    resetConfirm: '将「{group}」整个分组的降智统计清零（包含所有模型和测试计划），仅统计清零后开始的有效测试。历史记录、作品和费用保留，其他分组不受影响。累计满 11 次有效测试后重新显示比例。确定清零重计吗？',
+    resetDone: '「{group}」已清零重计，API 统计已更新；满 11 次有效测试后重新显示比例。',
+    resetFailed: '清零重计失败',
+  },
   assessment: {
     provider: '满血 AI',
     evaluate: '评估作品',

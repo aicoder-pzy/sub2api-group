@@ -58,6 +58,7 @@ func RegisterAdminRoutes(
 		admin.GET("/pelican-showcase/settings", h.PelicanShowcase.GetSettings)
 		admin.PUT("/pelican-showcase/settings", h.PelicanShowcase.UpdateSettings)
 		admin.DELETE("/pelican-showcase/items/:id", h.PelicanShowcase.DeleteItem)
+		admin.POST("/pelican-showcase/groups/:id/reset-intelligence", h.PelicanShowcase.ResetIntelligence)
 		admin.GET("/pelican-test-results", h.Admin.ScheduledTest.ListPelicanHistory)
 		admin.GET("/scheduled-test-plans/:id/results/:resultId", h.Admin.ScheduledTest.GetResult)
 		admin.GET("/prism", h.Admin.Account.GetPrismAdmin)

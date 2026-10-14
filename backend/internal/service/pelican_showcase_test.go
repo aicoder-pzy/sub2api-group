@@ -71,6 +71,9 @@ func (r *showcaseRepoStub) GetItem(context.Context, int64, int, time.Time) (*Pel
 	return r.item, nil
 }
 func (r *showcaseRepoStub) Delete(context.Context, int64) (bool, error) { return r.deleted, nil }
+func (r *showcaseRepoStub) ResetIntelligence(context.Context, int64) (time.Time, error) {
+	return time.Time{}, nil
+}
 
 func enabledShowcase() *showcaseSettingsStub {
 	return &showcaseSettingsStub{runtime: PelicanShowcaseRuntime{Enabled: true, APIEnabled: true, Config: PelicanShowcaseConfig{

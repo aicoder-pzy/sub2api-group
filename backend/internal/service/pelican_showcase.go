@@ -91,6 +91,8 @@ type PelicanShowcaseRepository interface {
 	// GetItem returns one snapshot with its HTML if it is still within the gallery limits; nil otherwise.
 	GetItem(ctx context.Context, id int64, maxItems int, since time.Time) (*PelicanShowcaseItem, error)
 	Delete(ctx context.Context, id int64) (bool, error)
+	// ResetIntelligence clears one group's statistics and only counts tests started afterwards.
+	ResetIntelligence(ctx context.Context, groupID int64) (time.Time, error)
 }
 
 type pelicanShowcaseSettings interface {
@@ -251,4 +253,8 @@ func (s *PelicanShowcaseService) Remove(ctx context.Context, id int64) error {
 		return ErrPelicanShowcaseItemNotFound
 	}
 	return nil
+}
+
+func (s *PelicanShowcaseService) ResetIntelligence(ctx context.Context, groupID int64) (time.Time, error) {
+	return s.repo.ResetIntelligence(ctx, groupID)
 }

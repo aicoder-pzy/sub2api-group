@@ -153,3 +153,72 @@ INSERT INTO pelican_showcase_items VALUES
 		require.Equal(t, 1, degraded)
 	}
 }
+
+func TestPelicanIntelligenceReset(t *testing.T) {
+	ctx := context.Background()
+	groups := createPelicanGroupTestGroups(t, "reset", "untouched")
+	plans := NewPelicanGroupTestRepository(integrationDB)
+	showcase := NewPelicanShowcaseRepository(integrationDB)
+	old := time.Now().Add(-time.Hour).Truncate(time.Microsecond)
+	p1, err := plans.CreatePlan(ctx, newPelicanGroupTestPlan(groups[0].ID, true, old))
+	require.NoError(t, err)
+	p2, err := plans.CreatePlan(ctx, newPelicanGroupTestPlan(groups[0].ID, true, old))
+	require.NoError(t, err)
+	other, err := plans.CreatePlan(ctx, newPelicanGroupTestPlan(groups[1].ID, true, old))
+	require.NoError(t, err)
+	insert := func(planID int64, started time.Time, verdict string) *service.PelicanGroupTestResult {
+		t.Helper()
+		saved, err := plans.CreateResult(ctx, &service.PelicanGroupTestResult{PlanID: planID,
+			Status: "success", QualityVerdict: verdict, StartedAt: started, FinishedAt: time.Now(), PelicanConfig: p1.PelicanConfig})
+		require.NoError(t, err)
+		return saved
+	}
+	stats := func(groupID int64) service.PelicanIntelligenceProbe {
+		t.Helper()
+		listed, err := showcase.ListGroups(ctx)
+		require.NoError(t, err)
+		for _, group := range listed {
+			if group.ID == groupID {
+				return group.IntelligenceProbe
+			}
+		}
+		t.Fatal("group missing")
+		return service.PelicanIntelligenceProbe{}
+	}
+	r1 := insert(p1.ID, old, "degraded")
+	r2 := insert(p2.ID, old, "unknown")
+	insert(other.ID, old, "degraded")
+	require.NoError(t, showcase.Publish(ctx, service.PelicanShowcaseSnapshot{
+		GroupID: groups[0].ID, SourceResultID: r1.ID, GeneratedAt: old, ResponseText: "<svg/>", QualityVerdict: "degraded"}, 20))
+	resetAt, err := showcase.ResetIntelligence(ctx, groups[0].ID)
+	require.NoError(t, err)
+	require.False(t, resetAt.IsZero())
+	require.Equal(t, service.NewPelicanIntelligenceProbe(0, 0, nil), stats(groups[0].ID))
+	require.Equal(t, 1, stats(groups[1].ID).DegradedCount)
+	var count int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM pelican_group_test_results WHERE plan_id IN ($1,$2)`, p1.ID, p2.ID).Scan(&count))
+	require.Equal(t, 2, count, "history is preserved")
+	items, err := showcase.ListItems(ctx, []int64{groups[0].ID}, 20, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, items, 1, "artwork is preserved")
+	// Reassessment and tests already running at reset must not resurrect old samples.
+	_, err = integrationDB.ExecContext(ctx, `UPDATE pelican_group_test_results SET quality_verdict='normal' WHERE id IN ($1,$2)`, r1.ID, r2.ID)
+	require.NoError(t, err)
+	insert(p2.ID, old, "degraded")
+	require.Zero(t, stats(groups[0].ID).SampleCount)
+	for range 10 {
+		insert(p1.ID, time.Now(), "normal")
+	}
+	require.Nil(t, stats(groups[0].ID).NormalRate)
+	insert(p2.ID, time.Now(), "degraded")
+	got := stats(groups[0].ID)
+	require.Equal(t, 11, got.SampleCount)
+	require.Equal(t, 1, got.DegradedCount)
+	require.InDelta(t, 1000.0/11, *got.NormalRate, 0.000001)
+	_, err = showcase.ResetIntelligence(ctx, groups[0].ID)
+	require.NoError(t, err)
+	require.Zero(t, stats(groups[0].ID).SampleCount, "reset can be repeated")
+	require.Equal(t, 1, stats(groups[1].ID).SampleCount)
+	_, err = showcase.ResetIntelligence(ctx, -1)
+	require.ErrorIs(t, err, service.ErrGroupNotFound)
+}

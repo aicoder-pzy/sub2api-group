@@ -13,7 +13,7 @@ import (
 )
 
 // PelicanShowcaseHandler serves the user-facing Pelican gallery (read-only) and the
-// admin actions on it: the gallery settings and removing a snapshot.
+// admin settings, snapshot removal and group statistics reset.
 type PelicanShowcaseHandler struct {
 	showcase *service.PelicanShowcaseService
 	public   *pelicanPublicCache
@@ -63,6 +63,22 @@ func (h *PelicanShowcaseHandler) DeleteItem(c *gin.Context) {
 	}
 	h.public.invalidate()
 	response.Success(c, gin.H{"deleted": true})
+}
+
+// ResetIntelligence POST /api/v1/admin/pelican-showcase/groups/:id/reset-intelligence
+func (h *PelicanShowcaseHandler) ResetIntelligence(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "invalid group id")
+		return
+	}
+	resetAt, err := h.showcase.ResetIntelligence(c.Request.Context(), groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	h.public.invalidate()
+	response.Success(c, gin.H{"group_id": groupID, "reset_at": resetAt})
 }
 
 // pelicanShowcaseSettings is the gallery switch plus its limits, as edited on the admin page.

@@ -143,6 +143,9 @@
                 <button :disabled="!!pending[plan.id]" :data-testid="`pelican-plan-edit-${plan.id}`" @click="openEditor(plan)">
                   <Icon name="edit" size="xs" />{{ t('pelicanTests.plans.edit') }}
                 </button>
+                <button :disabled="resettingGroupID !== null || plan.group_status === 'deleted'" :data-testid="`pelican-plan-reset-${plan.id}`" @click="resetting = plan">
+                  {{ t('pelicanTests.intelligence.reset') }}
+                </button>
                 <button class="danger" :disabled="!!pending[plan.id]" :data-testid="`pelican-plan-delete-${plan.id}`" @click="deleting = plan">
                   <Icon name="trash" size="xs" />{{ t('pelicanTests.plans.delete') }}
                 </button>
@@ -331,6 +334,15 @@
       @confirm="removePlan"
       @cancel="deleting = null"
     />
+    <ConfirmDialog
+      :show="resetting !== null"
+      :title="t('pelicanTests.intelligence.resetTitle')"
+      :message="t('pelicanTests.intelligence.resetConfirm', { group: resetting?.group_name || '' })"
+      :confirm-text="t('pelicanTests.intelligence.reset')"
+      danger
+      @confirm="resetIntelligence"
+      @cancel="resetting = null"
+    />
   </AppLayout>
 </template>
 
@@ -404,6 +416,8 @@ const notice = ref('')
 const pending = reactive<Record<number, string>>({})
 const editor = ref<{ id: number | null; groupName: string; form: PelicanGroupTestPlanInput; schedule: string } | null>(null)
 const deleting = ref<PelicanGroupTestPlan | null>(null)
+const resetting = ref<PelicanGroupTestPlan | null>(null)
+const resettingGroupID = ref<number | null>(null)
 const preview = ref<{ result: PelicanGroupTestResult; html: string; status: 'loading' | 'ready' | 'invalid' | 'error' } | null>(null)
 let alive = true
 let timer: ReturnType<typeof setInterval> | undefined
@@ -679,6 +693,21 @@ async function removePlan() {
     fail(err, t('pelicanTests.plans.actionFailed'))
   } finally {
     delete pending[plan.id]
+  }
+}
+
+async function resetIntelligence() {
+  const plan = resetting.value
+  resetting.value = null
+  if (!plan || resettingGroupID.value !== null) return
+  resettingGroupID.value = plan.group_id
+  try {
+    await pelicanTestsAPI.resetIntelligence(plan.group_id)
+    succeed(t('pelicanTests.intelligence.resetDone', { group: plan.group_name }))
+  } catch (err: unknown) {
+    fail(err, t('pelicanTests.intelligence.resetFailed'))
+  } finally {
+    resettingGroupID.value = null
   }
 }
 

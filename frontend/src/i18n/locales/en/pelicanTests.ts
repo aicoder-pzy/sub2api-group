@@ -29,6 +29,13 @@ export default {
   refresh: 'Refresh',
   create: 'New group test',
   loadError: 'Failed to load the Pelican Showcase',
+  intelligence: {
+    reset: 'Reset statistics',
+    resetTitle: 'Reset group degradation statistics',
+    resetConfirm: 'Reset statistics for the entire group "{group}", including all models and test plans. Only valid tests started after the reset will count. History, artwork, costs and other groups are preserved. The percentage appears again after 11 valid tests. Reset statistics?',
+    resetDone: 'Statistics for "{group}" were reset and the API updated. The percentage appears again after 11 valid tests.',
+    resetFailed: 'Failed to reset statistics',
+  },
   accountNote: 'Account-level Pelican scheduled tests (Accounts → More → Pelican) remain available for checking a single account, but their results no longer reach the user showcase.',
   showcase: {
     title: 'User showcase',

@@ -142,6 +142,11 @@ export async function updateShowcaseSettings(settings: PelicanShowcaseSettings):
   return data
 }
 
+/** Reset the entire group's statistics, keeping artwork and test history. */
+export async function resetIntelligence(groupId: number): Promise<void> {
+  await apiClient.post(`/admin/pelican-showcase/groups/${groupId}/reset-intelligence`)
+}
+
 export const pelicanTestsAPI = {
   listPlans,
   createPlan,
@@ -152,6 +157,7 @@ export const pelicanTestsAPI = {
   getResult,
   getShowcaseSettings,
   updateShowcaseSettings,
+  resetIntelligence,
 }
 
 export default pelicanTestsAPI

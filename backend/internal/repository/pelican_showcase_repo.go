@@ -146,6 +146,36 @@ func (r *pelicanShowcaseRepository) Delete(ctx context.Context, id int64) (bool,
 	return affected > 0, err
 }
 
+// ResetIntelligence starts a new window without deleting test history or artwork.
+func (r *pelicanShowcaseRepository) ResetIntelligence(ctx context.Context, groupID int64) (time.Time, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('pelican-intelligence:' || $1::bigint::text, 0))`, groupID); err != nil {
+		return time.Time{}, err
+	}
+	var resetAt time.Time
+	err = tx.QueryRowContext(ctx, `INSERT INTO pelican_group_intelligence_resets (group_id, reset_at)
+ SELECT id, clock_timestamp() FROM groups WHERE id = $1 AND deleted_at IS NULL
+ ON CONFLICT (group_id) DO UPDATE SET reset_at = EXCLUDED.reset_at
+ RETURNING reset_at`, groupID).Scan(&resetAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, service.ErrGroupNotFound
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM pelican_group_intelligence_samples WHERE group_id = $1`, groupID); err != nil {
+		return time.Time{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return time.Time{}, err
+	}
+	return resetAt, nil
+}
+
 func nullableTime(value time.Time) any {
 	if value.IsZero() {
 		return nil

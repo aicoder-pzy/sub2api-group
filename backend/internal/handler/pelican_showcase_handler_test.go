@@ -44,10 +44,12 @@ func (r *showcaseSettingRepo) SetMultiple(_ context.Context, values map[string]s
 
 type showcaseHandlerRepo struct {
 	service.PelicanShowcaseRepository
-	groups  []*service.PelicanShowcaseGroup
-	items   []*service.PelicanShowcaseItem
-	item    *service.PelicanShowcaseItem
-	deleted bool
+	groups   []*service.PelicanShowcaseGroup
+	items    []*service.PelicanShowcaseItem
+	item     *service.PelicanShowcaseItem
+	deleted  bool
+	resetID  int64
+	resetErr error
 }
 
 func (r *showcaseHandlerRepo) ListGroups(context.Context) ([]*service.PelicanShowcaseGroup, error) {
@@ -60,6 +62,49 @@ func (r *showcaseHandlerRepo) GetItem(context.Context, int64, int, time.Time) (*
 	return r.item, nil
 }
 func (r *showcaseHandlerRepo) Delete(context.Context, int64) (bool, error) { return r.deleted, nil }
+func (r *showcaseHandlerRepo) ResetIntelligence(_ context.Context, groupID int64) (time.Time, error) {
+	r.resetID = groupID
+	if r.resetErr != nil {
+		return time.Time{}, r.resetErr
+	}
+	for _, group := range r.groups {
+		if group.ID == groupID {
+			group.IntelligenceProbe = service.NewPelicanIntelligenceProbe(0, 0, nil)
+		}
+	}
+	return time.Date(2026, 10, 14, 16, 0, 0, 0, time.UTC), nil
+}
+
+func TestPelicanShowcaseHandler_ResetIntelligenceInvalidatesPublicAPI(t *testing.T) {
+	repo := &showcaseHandlerRepo{groups: []*service.PelicanShowcaseGroup{{ID: 7,
+		IntelligenceProbe: service.NewPelicanIntelligenceProbe(8, 3, nil)}}}
+	h := newShowcaseHandler(map[string]string{
+		service.SettingKeyPelicanShowcaseEnabled: "true",
+		service.SettingKeyPelicanShowcaseConfig:  `{}`,
+	}, repo)
+	before := publicPelicanRequest(h, http.MethodGet, "", nil)
+	require.Equal(t, http.StatusOK, before.Code)
+	require.Contains(t, before.Body.String(), `"sample_count":11`)
+	w := serveShowcase(http.MethodPost, "/groups/:id", h.ResetIntelligence)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, int64(7), repo.resetID, "uses group ID, not plan ID")
+	require.Contains(t, w.Body.String(), `"reset_at":"2026-10-14T16:00:00Z"`)
+	after := publicPelicanRequest(h, http.MethodGet, "", map[string]string{"If-None-Match": before.Header().Get("ETag")})
+	require.Equal(t, http.StatusOK, after.Code, "old conditional requests must not receive 304")
+	require.Contains(t, after.Body.String(), `"sample_count":0`)
+	require.Contains(t, after.Body.String(), `"normal_rate":null`)
+
+	repo.resetErr = service.ErrGroupNotFound
+	require.Equal(t, http.StatusNotFound, serveShowcase(http.MethodPost, "/groups/:id", h.ResetIntelligence).Code)
+	for _, id := range []string{"0", "-1", "abc", "9223372036854775808"} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, "/groups/"+id, nil)
+		c.Params = gin.Params{{Key: "id", Value: id}}
+		h.ResetIntelligence(c)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	}
+}
 
 func newShowcaseHandler(values map[string]string, repo *showcaseHandlerRepo) *PelicanShowcaseHandler {
 	settings := service.NewSettingService(&showcaseSettingRepo{toggleSettingRepo{values: values}}, &config.Config{})
