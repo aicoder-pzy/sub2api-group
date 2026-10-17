@@ -61,12 +61,12 @@ func TestPelicanAssessmentHTMLOnlyAndPersistence(t *testing.T) {
 			require.Equal(t, "/api/v1/tests", req.URL.Path)
 			var payload map[string]any
 			require.NoError(t, json.NewDecoder(req.Body).Decode(&payload))
-			require.Equal(t, map[string]any{"benchmark": "pelican", "html": html}, payload)
+			require.Equal(t, map[string]any{"benchmark": "html", "model": "gpt-6-astra", "base_url": "https://api.example.com/v1", "api_key": "unused-html-classification", "html": html}, payload)
 			require.NotEmpty(t, req.Header.Get("Idempotency-Key"))
-			return assessmentResponse(202, `{"id":"safe-task-id","benchmark":"pelican","status":"running"}`), nil
+			return assessmentResponse(202, `{"id":"safe-task-id","benchmark":"html","status":"running"}`), nil
 		}
 		require.Equal(t, "/api/v1/tests/safe-task-id", req.URL.Path)
-		return assessmentResponse(200, `{"id":"safe-task-id","benchmark":"pelican","status":"succeeded","assessment":{"quality":"degraded","reason":"simple artwork","source":"source_classifier:test"}}`), nil
+		return assessmentResponse(200, `{"id":"safe-task-id","benchmark":"html","status":"succeeded","assessment":{"quality":"degraded","reason":"simple artwork","source":"source_classifier:test"}}`), nil
 	})
 	ctx := context.WithValue(context.Background(), bpsRequestScopeKey{}, "DO_NOT_FORWARD_KEY")
 	saved, err := svc.Lookup(ctx, html)
@@ -115,6 +115,17 @@ func TestPelicanAssessmentValidationAndRedirects(t *testing.T) {
 	require.Equal(t, 1, calls)
 }
 
+func TestPelicanAssessmentRejectsGenerationTasks(t *testing.T) {
+	repo := &assessmentMemoryRepo{}
+	svc := NewPelicanAssessmentService(repo)
+	svc.client.Transport = assessmentTransport(func(*http.Request) (*http.Response, error) {
+		return assessmentResponse(202, `{"id":"generation-task","benchmark":"pelican","status":"running"}`), nil
+	})
+	_, err := svc.Start(context.Background(), "<html><body>drawing</body></html>")
+	require.Error(t, err)
+	require.Nil(t, repo.record, "a generation task must never be saved as HTML classification")
+}
+
 func TestPelicanAssessmentUnknownFailuresAndRetryAfter(t *testing.T) {
 	for _, test := range []struct {
 		name, body string
@@ -122,12 +133,12 @@ func TestPelicanAssessmentUnknownFailuresAndRetryAfter(t *testing.T) {
 		quality    string
 		failed     bool
 	}{
-		{"unknown", `{"id":"task","benchmark":"pelican","status":"succeeded","assessment":{"quality":"unknown","reason":"unclassified","source":"local"}}`, 200, "unknown", false},
-		{"missing assessment", `{"id":"task","benchmark":"pelican","status":"succeeded"}`, 200, "", true},
-		{"wrong benchmark", `{"id":"task","benchmark":"candy","status":"succeeded"}`, 200, "", true},
-		{"wrong task", `{"id":"other","benchmark":"pelican","status":"succeeded"}`, 200, "", true},
-		{"bad quality", `{"id":"task","benchmark":"pelican","status":"succeeded","assessment":{"quality":"perfect"}}`, 200, "", true},
-		{"failed", `{"id":"task","benchmark":"pelican","status":"failed","error":"private upstream message"}`, 200, "", true},
+		{"unknown", `{"id":"task","benchmark":"html","status":"succeeded","assessment":{"quality":"unknown","reason":"unclassified","source":"local"}}`, 200, "unknown", false},
+		{"missing assessment", `{"id":"task","benchmark":"html","status":"succeeded"}`, 200, "", true},
+		{"wrong benchmark", `{"id":"task","benchmark":"pelican","status":"succeeded"}`, 200, "", true},
+		{"wrong task", `{"id":"other","benchmark":"html","status":"succeeded"}`, 200, "", true},
+		{"bad quality", `{"id":"task","benchmark":"html","status":"succeeded","assessment":{"quality":"perfect"}}`, 200, "", true},
+		{"failed", `{"id":"task","benchmark":"html","status":"failed","error":"private upstream message"}`, 200, "", true},
 		{"busy", `{}`, 429, "", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {

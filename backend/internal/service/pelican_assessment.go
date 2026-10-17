@@ -118,12 +118,20 @@ func (s *PelicanAssessmentService) Start(ctx context.Context, html string) (*Pel
 	if previous != nil && (previous.Status == "succeeded" || previous.Status == "running") {
 		return previous, nil
 	}
-	// Only these two fields can cross the third-party boundary. Never marshal a
-	// frontend request, account, test result or gateway payload here.
+	// HTML classification requires fixed protocol metadata but never uses an
+	// upstream API. Keep these invalid placeholders independent of credentials.
+	// Never marshal a frontend request, account, test result or gateway payload.
 	payload, err := json.Marshal(struct {
 		Benchmark string `json:"benchmark"`
+		Model     string `json:"model"`
+		BaseURL   string `json:"base_url"`
+		APIKey    string `json:"api_key"`
 		HTML      string `json:"html"`
-	}{Benchmark: "pelican", HTML: html})
+	}{
+		Benchmark: "html", Model: "gpt-6-astra",
+		BaseURL: "https://api.example.com/v1", APIKey: "unused-html-classification",
+		HTML: html,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +139,7 @@ func (s *PelicanAssessmentService) Start(ctx context.Context, html string) (*Pel
 	if err != nil {
 		return nil, err
 	}
-	if !pelicanAssessmentTaskID.MatchString(result.ID) || result.Benchmark != "pelican" {
+	if !pelicanAssessmentTaskID.MatchString(result.ID) || result.Benchmark != "html" {
 		return nil, assessmentUnavailable("invalid response from the HTML assessment service")
 	}
 	record := &PelicanAssessmentRecord{Hash: hash, Status: "running", TaskID: result.ID, Deadline: time.Now().Add(10 * time.Minute)}
@@ -180,7 +188,7 @@ func (s *PelicanAssessmentService) Poll(ctx context.Context, hash string) (*Peli
 			return record, nil
 		}
 		record.Status, record.Error = "failed", "HTML assessment could not be completed; quality is unknown"
-	} else if result.Benchmark != "pelican" || result.ID != record.TaskID {
+	} else if result.Benchmark != "html" || result.ID != record.TaskID {
 		record.Status, record.Error = "failed", "HTML assessment returned an invalid task; quality is unknown"
 	} else {
 		switch result.Status {

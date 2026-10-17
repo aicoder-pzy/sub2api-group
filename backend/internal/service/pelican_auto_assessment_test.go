@@ -27,10 +27,10 @@ func TestPelicanAutoAssessmentDecoratesOnlyAfterEvaluation(t *testing.T) {
 				if req.Method == http.MethodPost {
 					var payload map[string]any
 					require.NoError(t, json.NewDecoder(req.Body).Decode(&payload))
-					require.Equal(t, map[string]any{"benchmark": "pelican", "html": source}, payload)
-					return assessmentResponse(202, `{"id":"auto-test","benchmark":"pelican","status":"running"}`), nil
+					require.Equal(t, map[string]any{"benchmark": "html", "model": "gpt-6-astra", "base_url": "https://api.example.com/v1", "api_key": "unused-html-classification", "html": source}, payload)
+					return assessmentResponse(202, `{"id":"auto-test","benchmark":"html","status":"running"}`), nil
 				}
-				return assessmentResponse(200, `{"id":"auto-test","benchmark":"pelican","status":"succeeded","assessment":{"quality":"`+quality+`","reason":"<script>unsafe</script>\"","source":"classifier:test"}}`), nil
+				return assessmentResponse(200, `{"id":"auto-test","benchmark":"html","status":"succeeded","assessment":{"quality":"`+quality+`","reason":"<script>unsafe</script>\"","source":"classifier:test"}}`), nil
 			})
 			output := svc.AssessOutput(context.Background(), "Answer:\n```html\n"+source+"\n```")
 			require.Equal(t, 2, calls)
@@ -95,9 +95,9 @@ func TestPelicanAutomaticManualAndScheduledPaths(t *testing.T) {
 			assessment.client.Transport = assessmentTransport(func(req *http.Request) (*http.Response, error) {
 				require.Empty(t, req.Header.Get("Authorization"), "account OAuth credentials must never reach assessment")
 				if req.Method == http.MethodPost {
-					return assessmentResponse(202, `{"id":"flow-test","benchmark":"pelican","status":"running"}`), nil
+					return assessmentResponse(202, `{"id":"flow-test","benchmark":"html","status":"running"}`), nil
 				}
-				return assessmentResponse(200, `{"id":"flow-test","benchmark":"pelican","status":"succeeded","assessment":{"quality":"normal","reason":"drawing","source":"classifier:test"}}`), nil
+				return assessmentResponse(200, `{"id":"flow-test","benchmark":"html","status":"succeeded","assessment":{"quality":"normal","reason":"drawing","source":"classifier:test"}}`), nil
 			})
 			if background {
 				result, err := svc.RunPelicanBackground(context.Background(), account.ID, "claude-opus-5-5", &PelicanTestConfig{QuestionKind: "pelican", Prompt: "draw", ReasoningEffort: "medium"})

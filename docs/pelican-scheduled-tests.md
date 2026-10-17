@@ -8,7 +8,8 @@
 
 作品右上角显示“满血 AI · 正常”（绿色）、“满血 AI · 疑似降智”（红色）或“满血 AI · 无法判定”（灰色）。角标写入 HTML，因此下载和开放作品 API 获取的文件也包含结果；本站预览使用独立角标保持缩略图和手机上的文字清晰。分组测试在评估前释放上游账号并发名额，评估不会造成换号。已有历史作品不自动批量上传，仍可点击“评估作品”查看分类。
 
-- 固定请求地址为 `https://manxue.ai/api/v1/tests`，请求体严格只有 `benchmark: "pelican"` 和 `html`。HTML 源码不超过 2 MiB；不发送 API Key、上游地址、模型参数、账号资料、票据或 OAuth 凭据。
+- 固定请求地址为 `https://manxue.ai/api/v1/tests`，使用 `benchmark: "html"` 评估已有源码，HTML 不超过 2 MiB。按当前协议固定附带 `model: "gpt-6-astra"`、`base_url: "https://api.example.com/v1"` 和 `api_key: "unused-html-classification"`；后两者是无效占位值，HTML 分类不调用其上游。固定模型字段只是协议要求，不代表作品的实际作答模型。提交和查询均只接受 `benchmark: "html"` 的响应，不使用会生成新作品的 `pelican` 模式。
+- 不读取或发送本站/上游真实 API Key、上游地址、账号资料、票据或 OAuth 凭据；占位值不来自环境变量、数据库或用户输入。
 - 本站接口只接受 `html` 字段，拒绝 `api_key`、`base_url`、`credentials` 等额外字段。评估服务没有账号或凭据依赖；使用独立 HTTP 客户端，无 Cookie、代理鉴权和凭据插件，不复制入站请求头、不跟随重定向。
 - 优先提取原始生成源码，不上传本站角标或预览加入的 CSP、测量脚本。只含 SVG 时沿用已有的独立 HTML 包装；非 HTML/纯文本答案不显示评估入口。
 - 异步查询结果，尊重服务繁忙时的 `Retry-After`。关闭预览停止本站轮询；重新打开可接续已有任务。成功分类、原因、来源及评估时间按源码 SHA-256 保存到新增 `pelican_html_assessments` 表；该表不保存源码或凭据。同一份作品在不同入口复用结果，不重复上传。
