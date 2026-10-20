@@ -1099,7 +1099,7 @@ func openAIStreamAddedEventStartsClientOutput(payload []byte, eventType string) 
 	}
 
 	switch strings.TrimSpace(eventType) {
-	case "response.output_item.added":
+	case "response.output_item.added", "response.output_item.done":
 		item := gjson.GetBytes(payload, "item")
 		if !item.Exists() || !item.IsObject() {
 			return true
@@ -1114,7 +1114,7 @@ func openAIStreamAddedEventStartsClientOutput(payload []byte, eventType string) 
 				return false
 			}
 			for _, part := range summary.Array() {
-				if strings.TrimSpace(part.Get("type").String()) != "summary_text" || part.Get("text").String() != "" {
+				if strings.TrimSpace(part.Get("type").String()) != "summary_text" || strings.TrimSpace(part.Get("text").String()) != "" {
 					return true
 				}
 			}
@@ -1127,11 +1127,11 @@ func openAIStreamAddedEventStartsClientOutput(payload []byte, eventType string) 
 			for _, part := range content.Array() {
 				switch strings.TrimSpace(part.Get("type").String()) {
 				case "output_text":
-					if part.Get("text").String() != "" {
+					if strings.TrimSpace(part.Get("text").String()) != "" {
 						return true
 					}
 				case "refusal":
-					if part.Get("refusal").String() != "" {
+					if strings.TrimSpace(part.Get("refusal").String()) != "" {
 						return true
 					}
 				default:
@@ -1148,25 +1148,25 @@ func openAIStreamAddedEventStartsClientOutput(payload []byte, eventType string) 
 		default:
 			return true
 		}
-	case "response.content_part.added":
+	case "response.content_part.added", "response.content_part.done":
 		part := gjson.GetBytes(payload, "part")
 		if !part.Exists() || !part.IsObject() {
 			return true
 		}
 		switch strings.TrimSpace(part.Get("type").String()) {
 		case "output_text":
-			return part.Get("text").String() != ""
+			return strings.TrimSpace(part.Get("text").String()) != ""
 		case "refusal":
-			return part.Get("refusal").String() != ""
+			return strings.TrimSpace(part.Get("refusal").String()) != ""
 		default:
 			return true
 		}
-	case "response.reasoning_summary_part.added":
+	case "response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
 		part := gjson.GetBytes(payload, "part")
 		if !part.Exists() || !part.IsObject() || strings.TrimSpace(part.Get("type").String()) != "summary_text" {
 			return true
 		}
-		return part.Get("text").String() != ""
+		return strings.TrimSpace(part.Get("text").String()) != ""
 	default:
 		return true
 	}
@@ -1188,8 +1188,25 @@ func openAIStreamDataStartsClientOutput(data, eventType string) bool {
 		// （content_policy / invalid_request 等）维持原样转发，保留上游错误细节。
 		payload := []byte(trimmed)
 		return !openAIStreamFailedEventShouldFailover(payload, extractOpenAISSEErrorMessage(payload))
-	case "response.output_item.added", "response.content_part.added", "response.reasoning_summary_part.added":
+	case "response.output_item.added", "response.output_item.done",
+		"response.content_part.added", "response.content_part.done",
+		"response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
 		return openAIStreamAddedEventStartsClientOutput([]byte(trimmed), eventType)
+	case "response.output_text.delta", "response.reasoning_text.delta",
+		"response.reasoning_summary_text.delta", "response.refusal.delta":
+		// Keep leading whitespace attempt-local. It must not prevent switching
+		// accounts on a later failure, nor disarm the first-output deadline.
+		if gjson.Valid(trimmed) {
+			return strings.TrimSpace(gjson.Get(trimmed, "delta").String()) != ""
+		}
+	case "response.output_text.done", "response.reasoning_text.done", "response.reasoning_summary_text.done":
+		if gjson.Valid(trimmed) {
+			return strings.TrimSpace(gjson.Get(trimmed, "text").String()) != ""
+		}
+	case "response.refusal.done":
+		if gjson.Valid(trimmed) {
+			return strings.TrimSpace(gjson.Get(trimmed, "refusal").String()) != ""
+		}
 	}
 	return !openAIStreamEventIsMetadata(eventType)
 }

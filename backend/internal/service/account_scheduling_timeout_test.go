@@ -38,6 +38,7 @@ type schedulingTimeoutUpstream struct {
 	success      bool
 	keepalive    bool
 	largePrelude bool
+	whitespace   bool
 	stream       *schedulingTimeoutBody
 	heartbeat    <-chan struct{}
 }
@@ -61,6 +62,9 @@ func (upstream *schedulingTimeoutUpstream) Do(request *http.Request, _ string, _
 	}
 	if upstream.output {
 		payload += "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n"
+	}
+	if upstream.whitespace {
+		payload += `data: {"type":"response.output_text.delta","delta":" "}` + "\n\n"
 	}
 	if strings.HasSuffix(request.URL.Path, "/chat/completions") {
 		payload = "data: {\"id\":\"chat-timeout\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n"
@@ -150,11 +154,14 @@ func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 		keepalive    bool
 		grok         bool
 		largePrelude bool
+		whitespace   bool
 	}{
 		{name: "native_headers", headers: true},
 		{name: "passthrough_headers", passthrough: true, headers: true},
 		{name: "native_preamble"},
 		{name: "passthrough_preamble", passthrough: true},
+		{name: "native_whitespace", whitespace: true},
+		{name: "passthrough_whitespace", passthrough: true, whitespace: true},
 		{name: "native_after_output", output: true},
 		{name: "passthrough_after_output", passthrough: true, output: true},
 		{name: "chat_headers", chat: true, headers: true},
@@ -205,7 +212,7 @@ func TestFastestFailoverTimeoutForwardAndReconnect(t *testing.T) {
 				}
 				account.Credentials = map[string]any{"api_key": "test-key", "base_url": "https://api.example.com", "model_mapping": map[string]any{"model-a": "upstream-a", "model-b": "upstream-b"}}
 			}
-			upstream := &schedulingTimeoutUpstream{headers: scenario.headers, output: scenario.output, success: scenario.success, keepalive: scenario.keepalive, largePrelude: scenario.largePrelude}
+			upstream := &schedulingTimeoutUpstream{headers: scenario.headers, output: scenario.output, success: scenario.success, keepalive: scenario.keepalive, largePrelude: scenario.largePrelude, whitespace: scenario.whitespace}
 			cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
 			svc := &OpenAIGatewayService{accountRepo: repo, cache: cache, httpUpstream: upstream, cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
 			if scenario.keepalive {
