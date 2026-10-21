@@ -191,6 +191,12 @@ const routes: RouteRecordRaw[] = [
 
   // ==================== User Routes ====================
   {
+    path: '/chat',
+    name: 'Chat',
+    component: () => import('@/views/user/ChatView.vue'),
+    meta: { requiresAuth: true, title: 'Chat', titleKey: 'chat.title' }
+  },
+  {
     path: '/',
     redirect: '/home'
   },

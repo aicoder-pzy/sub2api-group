@@ -9,6 +9,7 @@ import pelicanShowcase from './pelicanShowcase'
 import pelicanTests from './pelicanTests'
 import misc from './misc'
 import channelStatistics from './channelStatistics'
+import chat from './chat'
 
 export default {
   ...landing,
@@ -20,5 +21,6 @@ export default {
   ...pelicanShowcase,
   pelicanTests,
   channelStatistics,
+  ...chat,
   ...misc,
 }

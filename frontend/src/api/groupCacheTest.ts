@@ -1,4 +1,5 @@
 import { buildGatewayUrl } from '@/api/url'
+import { consumeSSE, SSEError } from '@/utils/sse'
 import { list as listUsage } from '@/api/admin/usage'
 import {
   CACHE_ENDPOINTS, billFromUsage, buildCachePrefix, buildCacheRequest, nonnegative, validCacheSettings,
@@ -30,52 +31,6 @@ export function parseCacheUsage(protocol: CacheProtocol, value: unknown, previou
     output: nonnegative(usage[chat ? 'completion_tokens' : 'output_tokens']),
     read: nonnegative(object(usage[chat ? 'prompt_tokens_details' : 'input_tokens_details']).cached_tokens),
     write: nonnegative(object(usage[chat ? 'prompt_tokens_details' : 'input_tokens_details']).cache_write_tokens)
-  }
-}
-
-/** Parse SSE incrementally, including CRLF, split UTF-8, comments, and multi-line data. */
-async function consumeSSE(response: Response, onData: (value: unknown) => boolean, signal: AbortSignal): Promise<void> {
-  if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) throw new ProbeError('invalid_stream')
-  const reader = response.body.getReader(), decoder = new TextDecoder()
-  let buffer = '', data: string[] = [], done = false
-  const dispatch = () => {
-    if (!data.length) return
-    const payload = data.join('\n')
-    data = []
-    if (payload === '[DONE]') { done = onData('[DONE]'); return }
-    let parsed: unknown
-    try { parsed = JSON.parse(payload) } catch { throw new ProbeError('invalid_stream') }
-    done = onData(parsed)
-  }
-  const line = (raw: string) => {
-    const value = raw.endsWith('\r') ? raw.slice(0, -1) : raw
-    if (!value) dispatch()
-    else if (value.startsWith('data:')) data.push(value.slice(5).replace(/^ /, ''))
-  }
-  const cancel = () => { void reader.cancel().catch(() => {}) }
-  signal.addEventListener('abort', cancel, { once: true })
-  try {
-    while (!done) {
-      if (signal.aborted) throw new ProbeError('aborted')
-      const chunk = await reader.read()
-      buffer += decoder.decode(chunk.value, { stream: !chunk.done })
-      if (buffer.length + data.reduce((n, d) => n + d.length, 0) > 2_000_000) throw new ProbeError('invalid_stream')
-      let end: number
-      while (!done && (end = buffer.indexOf('\n')) >= 0) {
-        line(buffer.slice(0, end)); buffer = buffer.slice(end + 1)
-      }
-      if (chunk.done) {
-        if (buffer && !done) line(buffer)
-        if (!done) dispatch()
-        break
-      }
-    }
-    if (signal.aborted) throw new ProbeError('aborted')
-    if (!done) throw new ProbeError('incomplete')
-  } finally {
-    signal.removeEventListener('abort', cancel)
-    await reader.cancel().catch(() => {})
-    reader.releaseLock()
   }
 }
 
@@ -157,7 +112,7 @@ export async function probeCacheRound(run: CacheTestRun, round: CacheRound, key:
     }, controller.signal)
     round.status = 'completed'
   } catch (error) {
-    round.error = timedOut ? 'timeout' : signal.aborted ? 'aborted' : error instanceof ProbeError ? error.code : 'network'
+    round.error = timedOut ? 'timeout' : signal.aborted ? 'aborted' : error instanceof ProbeError || error instanceof SSEError ? error.code : 'network'
     round.status = signal.aborted ? 'stopped' : 'failed'
   } finally {
     round.durationMs = Math.round(performance.now() - started)

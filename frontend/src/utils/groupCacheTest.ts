@@ -77,10 +77,7 @@ export const CACHE_ENDPOINTS: Record<CacheProtocol, string> = {
 }
 const efforts = ['', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra', 'max']
 const boundedInteger = (n: number, min: number, max: number) => Number.isInteger(n) && n >= min && n <= max
-export function createCacheTestId(): string {
-  // getRandomValues also works on self-hosted HTTP origins where randomUUID is unavailable.
-  return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
-}
+export { createRandomId as createCacheTestId } from './id'
 export function validCacheSettings(s: CacheTestSettings): boolean {
   return ['responses', 'chat', 'messages'].includes(s.protocol) && typeof s.model === 'string' &&
     s.model.trim().length > 0 && s.model.length <= 200 && boundedInteger(s.rounds, 2, 6) &&

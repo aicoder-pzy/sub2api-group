@@ -200,6 +200,8 @@ import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 
+const ChatIcon = { render: () => h(Icon, { name: 'chat' }) }
+
 interface NavItem {
   path: string
   label: string
@@ -723,6 +725,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     items.push({ path: '/dashboard', label: t('nav.dashboard'), icon: DashboardIcon })
   }
   items.push(
+    { path: '/chat', label: t('chat.title'), icon: ChatIcon },
     {path:'/pelican-showcase',label:t('nav.pelicanShowcase'),icon:SignalIcon},
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
@@ -850,6 +853,7 @@ const adminNavItems = computed((): NavItem[] => {
   // 简单模式下，在系统设置前插入 API密钥
   if (authStore.isSimpleMode) {
     const filtered = visible.filter(item => !item.hideInSimpleMode)
+    filtered.push({ path: '/chat', label: t('chat.title'), icon: ChatIcon })
     filtered.push({path:'/pelican-showcase',label:t('nav.pelicanShowcase'),icon:SignalIcon},
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
