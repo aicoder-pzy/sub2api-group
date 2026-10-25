@@ -66,6 +66,13 @@ export default {
 
   // API Keys
   keys: {
+    modelMapping: '模型映射',
+    modelMappingFrom: '请求模型名',
+    modelMappingTo: '实际模型名',
+    modelMappingAdd: '添加映射',
+    modelMappingRemove: '删除映射',
+    modelMappingHint: '仅对当前 Key 生效，精确匹配一次；未匹配的模型保持原样。目标模型须在分组允许范围内，调度和计费按目标模型及现有渠道规则执行。WebSocket 请重新连接后使用新规则。',
+    modelMappingInvalid: '最多 100 条映射；模型名不能为空或含空白、通配符；请求模型名不可重复。',
     title: 'API 密钥',
     description: '管理您的 API 密钥和访问令牌',
     searchPlaceholder: '搜索名称或Key...',

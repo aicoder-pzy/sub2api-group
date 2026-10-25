@@ -1931,6 +1931,7 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 }
 
 type openAIResponsesWSUsageLogCase struct {
+	keyModelMapping        map[string]string
 	simpleModeRejectAtRead int64
 	compositeResolver      *service.CompositeRouteResolver
 	accountPlatform        string
@@ -3067,6 +3068,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	if tc.simpleModeRejectAtRead > 0 {
 		apiKey.RateLimit5h = 1
 	}
+	apiKey.ModelMapping = tc.keyModelMapping
 	if tc.group != nil {
 		apiKey.Group = tc.group
 	}

@@ -748,6 +748,7 @@ export interface CompositeRouteDecision {
 }
 
 export interface ApiKey {
+  model_mapping?: Record<string, string> | null
   id: number
   user_id: number
   key: string
@@ -780,6 +781,7 @@ export interface ApiKey {
 }
 
 export interface CreateApiKeyRequest {
+  model_mapping?: Record<string, string>
   name: string
   group_id?: number | null
   custom_key?: string // Optional custom API Key
@@ -793,6 +795,7 @@ export interface CreateApiKeyRequest {
 }
 
 export interface UpdateApiKeyRequest {
+  model_mapping?: Record<string, string>
   name?: string
   group_id?: number | null
   status?: 'active' | 'inactive'

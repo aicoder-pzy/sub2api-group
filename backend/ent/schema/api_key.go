@@ -57,6 +57,9 @@ func (APIKey) Fields() []ent.Field {
 		field.JSON("ip_blacklist", []string{}).
 			Optional().
 			Comment("Blocked IPs/CIDRs"),
+		field.JSON("model_mapping", map[string]string{}).
+			Optional().
+			Comment("Per-key exact model aliases, applied before group and account routing"),
 
 		// ========== Quota fields ==========
 		// Quota limit in USD (0 = unlimited)

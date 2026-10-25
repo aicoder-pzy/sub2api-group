@@ -44,9 +44,17 @@
             </div>
             <div class="flex items-center gap-1"><span>{{ t('admin.users.columns.created') }}: {{ formatDateTime(key.created_at) }}</span></div>
           </div>
+          <button type="button" class="btn btn-secondary mt-3 text-xs" @click="editMapping(key)">{{ t('keys.modelMapping') }} ({{ Object.keys(key.model_mapping || {}).length }})</button>
         </div>
       </div>
     </div>
+  </BaseDialog>
+
+  <BaseDialog :show="mappingKey !== null" :title="t('keys.modelMapping')" @close="mappingKey = null">
+    <form class="space-y-4" @submit.prevent="saveMapping">
+      <KeyModelMappingEditor v-model="mappingEntries" />
+      <button type="submit" class="btn btn-primary" :disabled="savingMapping">{{ t('common.save') }}</button>
+    </form>
   </BaseDialog>
 
   <!-- Group Selector Dropdown -->
@@ -113,6 +121,8 @@ import { adminAPI } from '@/api/admin'
 import { formatDateTime } from '@/utils/format'
 import type { AdminUser, AdminGroup, ApiKey } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import KeyModelMappingEditor from '@/components/keys/KeyModelMappingEditor.vue'
+import { buildKeyModelMapping, keyModelMappingEntries, type KeyModelMappingEntry } from '@/utils/keyModelMapping'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 
@@ -120,6 +130,32 @@ const props = defineProps<{ show: boolean; user: AdminUser | null }>()
 const emit = defineEmits(['close'])
 const { t } = useI18n()
 const appStore = useAppStore()
+
+const mappingKey = ref<ApiKey | null>(null)
+const mappingEntries = ref<KeyModelMappingEntry[]>([])
+const savingMapping = ref(false)
+const editMapping = (key: ApiKey) => {
+  mappingKey.value = key
+  mappingEntries.value = keyModelMappingEntries(key.model_mapping)
+}
+const saveMapping = async () => {
+  if (!mappingKey.value) return
+  let mapping: Record<string, string>
+  try { mapping = buildKeyModelMapping(mappingEntries.value) } catch {
+    appStore.showError(t('keys.modelMappingInvalid'))
+    return
+  }
+  savingMapping.value = true
+  try {
+    const result = await adminAPI.apiKeys.updateApiKeyModelMapping(mappingKey.value.id, mapping)
+    const index = apiKeys.value.findIndex(key => key.id === result.api_key.id)
+    if (index !== -1) apiKeys.value[index] = result.api_key
+    mappingKey.value = null
+    appStore.showSuccess(t('keys.keyUpdatedSuccess'))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('keys.failedToSave'))
+  } finally { savingMapping.value = false }
+}
 
 const apiKeys = ref<ApiKey[]>([])
 const allGroups = ref<AdminGroup[]>([])
@@ -148,6 +184,7 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 watch(() => [props.show, props.user?.id] as const, ([show], _, onCleanup) => {
   onCleanup(() => { requestVersion++ })
   closeGroupSelector()
+  mappingKey.value = null
   if (show && props.user) {
     load()
     loadGroups()

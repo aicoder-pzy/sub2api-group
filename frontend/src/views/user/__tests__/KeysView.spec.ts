@@ -5,6 +5,7 @@ import { nextTick } from 'vue'
 import type { ApiKey } from '@/types'
 import { keysAPI } from '@/api'
 import KeysView from '../KeysView.vue'
+import KeyModelMappingEditor from '@/components/keys/KeyModelMappingEditor.vue'
 
 const {
   listKeys,
@@ -334,6 +335,40 @@ describe('user KeysView column settings', () => {
     wrapper.unmount()
   })
 
+  it('loads, saves and clears key model mappings', async () => {
+    const key = { ...createApiKey(), group_id: 1, model_mapping: { alias: 'target' } }
+    listKeys.mockResolvedValue({ items: [key], total: 1, page: 1, page_size: 20, pages: 1 })
+    updateKey.mockResolvedValue(key)
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'common.edit').trigger('click')
+    const editor = wrapper.getComponent(KeyModelMappingEditor)
+    expect(editor.props('modelValue')).toEqual([{ from: 'alias', to: 'target' }])
+    editor.vm.$emit('update:modelValue', [{ from: 'my-model', to: 'gpt-6.1-sol' }])
+    await nextTick()
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+    expect(updateKey).toHaveBeenLastCalledWith(key.id, expect.objectContaining({ model_mapping: { 'my-model': 'gpt-6.1-sol' } }))
+    await getButtonByText(wrapper, 'common.edit').trigger('click')
+    wrapper.getComponent(KeyModelMappingEditor).vm.$emit('update:modelValue', [])
+    await nextTick()
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+    expect(updateKey).toHaveBeenLastCalledWith(key.id, expect.objectContaining({ model_mapping: {} }))
+    wrapper.unmount()
+  })
+
+  it('rejects duplicate mapping sources before submitting', async () => {
+    listKeys.mockResolvedValue({ items: [{ ...createApiKey(), group_id: 1 }], total: 1, page: 1, page_size: 20, pages: 1 })
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'common.edit').trigger('click')
+    wrapper.getComponent(KeyModelMappingEditor).vm.$emit('update:modelValue', [{ from: 'a', to: 'b' }, { from: 'a', to: 'c' }])
+    await nextTick()
+    await wrapper.get('#key-form').trigger('submit')
+    expect(updateKey).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalledWith('keys.modelMappingInvalid')
+    wrapper.unmount()
+  })
+
   it('uses the default API key columns with low-frequency columns hidden', async () => {
     const wrapper = await mountView()
 
@@ -607,11 +642,14 @@ describe('user KeysView column settings', () => {
       expect(showError).toHaveBeenCalledWith('keys.groupRequired')
 
       await groupSelect(wrapper).vm.$emit('update:modelValue', 5)
+      wrapper.getComponent(KeyModelMappingEditor).vm.$emit('update:modelValue', [{ from: 'alias', to: 'target' }])
+      await nextTick()
       vi.mocked(keysAPI.create).mockResolvedValue({ ...createApiKey(), group_id: 5 })
       await wrapper.get('#key-form').trigger('submit')
       await flushPromises()
       expect(keysAPI.create).toHaveBeenCalledOnce()
       expect(vi.mocked(keysAPI.create).mock.calls[0].slice(0, 2)).toEqual(['My key', 5])
+      expect(vi.mocked(keysAPI.create).mock.calls[0][8]).toEqual({ alias: 'target' })
     })
 
     it('defaults to a provider with available groups and disables empty categories', async () => {

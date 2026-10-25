@@ -26,7 +26,13 @@ export async function updateApiKeyGroup(id: number, groupId: number | null): Pro
   return data
 }
 
+export async function updateApiKeyModelMapping(id: number, modelMapping: Record<string, string>): Promise<UpdateApiKeyGroupResult> {
+  const { data } = await apiClient.put<UpdateApiKeyGroupResult>(`/admin/api-keys/${id}`, { model_mapping: modelMapping })
+  return data
+}
+
 export const apiKeysAPI = {
+  updateApiKeyModelMapping,
   updateApiKeyGroup
 }
 

@@ -2,10 +2,12 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import UserApiKeysModal from '../UserApiKeysModal.vue'
 import type { AdminUser } from '@/types'
+import KeyModelMappingEditor from '@/components/keys/KeyModelMappingEditor.vue'
 
-const { getKeys } = vi.hoisted(() => ({ getKeys: vi.fn() }))
+const { getKeys, updateMapping } = vi.hoisted(() => ({ getKeys: vi.fn(), updateMapping: vi.fn() }))
 vi.mock('@/api/admin', () => ({ adminAPI: {
   users: { getUserApiKeys: getKeys }, groups: { getAll: vi.fn().mockResolvedValue([]) },
+  apiKeys: { updateApiKeyModelMapping: updateMapping },
 } }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError: vi.fn(), showSuccess: vi.fn() }) }))
 vi.mock('@/utils/format', () => ({ formatDateTime: (value: string) => value }))
@@ -38,6 +40,17 @@ async function switchUser(wrapper: Awaited<ReturnType<typeof open>>) {
 }
 
 describe('user API key loading', () => {
+  it('lets administrators save mappings for the selected user key', async () => {
+    getKeys.mockResolvedValue(keys(1, 'user-key'))
+    const wrapper = await open(); await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('keys.modelMapping'))!.trigger('click')
+    wrapper.getComponent(KeyModelMappingEditor).vm.$emit('update:modelValue', [{ from: 'alias', to: 'target' }])
+    updateMapping.mockResolvedValue({ api_key: { ...keys(1, 'user-key').items[0], model_mapping: { alias: 'target' } } })
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(updateMapping).toHaveBeenCalledWith(1, { alias: 'target' })
+    expect(wrapper.text()).toContain('keys.modelMapping (1)')
+  })
   it('does not display the previous user keys when the next load fails', async () => {
     getKeys.mockResolvedValueOnce(keys(1, 'first-user-key')).mockRejectedValueOnce(new Error('unavailable'))
     const wrapper = await open(); await flushPromises()

@@ -66,6 +66,13 @@ export default {
 
   // API Keys
   keys: {
+    modelMapping: 'Model mapping',
+    modelMappingFrom: 'Requested model',
+    modelMappingTo: 'Target model',
+    modelMappingAdd: 'Add mapping',
+    modelMappingRemove: 'Remove mapping',
+    modelMappingHint: 'Applies only to this key, with one exact match. Unmatched models pass through. Targets must be allowed by the group; routing and billing use the target and existing channel rules. Reconnect WebSocket sessions after changing mappings.',
+    modelMappingInvalid: 'At most 100 mappings. Model names must be nonempty without whitespace or wildcards, and source names must be unique.',
     title: 'API Keys',
     description: 'Manage your API keys and access tokens',
     searchPlaceholder: 'Search name or key...',

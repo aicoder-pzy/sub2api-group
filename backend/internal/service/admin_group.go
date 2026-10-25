@@ -1475,6 +1475,24 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 	return result, nil
 }
 
+func (s *adminServiceImpl) AdminUpdateAPIKeyModelMapping(ctx context.Context, keyID int64, mapping map[string]string) (*APIKey, error) {
+	if err := ValidateAPIKeyModelMapping(mapping); err != nil {
+		return nil, err
+	}
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)
+	if err != nil {
+		return nil, err
+	}
+	apiKey.ModelMapping = mapping
+	if err := s.apiKeyRepo.Update(ctx, apiKey, APIKeyUpdateFields{ModelMapping: true}); err != nil {
+		return nil, err
+	}
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+	}
+	return apiKey, nil
+}
+
 // AdminResetAPIKeyRateLimitUsage resets all API key rate-limit usage windows.
 func (s *adminServiceImpl) AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*APIKey, error) {
 	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)

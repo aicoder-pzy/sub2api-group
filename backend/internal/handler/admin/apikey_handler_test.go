@@ -24,6 +24,20 @@ func setupAPIKeyHandler(adminSvc service.AdminService) *gin.Engine {
 	return router
 }
 
+func TestAdminAPIKeyHandler_ModelMapping(t *testing.T) {
+	svc := newStubAdminService()
+	svc.apiKeys = []service.APIKey{{ID: 10, UserID: 7, Name: "fixture"}}
+	router := setupAPIKeyHandler(svc)
+	for _, body := range []string{`{"model_mapping":{"alias":"target"}}`, `{"model_mapping":{}}`} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/api-keys/10", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+	require.Empty(t, svc.apiKeys[0].ModelMapping)
+}
+
 func TestAdminAPIKeyHandler_UpdateGroup_InvalidID(t *testing.T) {
 	router := setupAPIKeyHandler(newStubAdminService())
 	body := `{"group_id": 2}`

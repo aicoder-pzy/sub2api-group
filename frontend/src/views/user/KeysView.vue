@@ -581,6 +581,8 @@
         </div>
 
         <!-- Custom Key Section (only for create) -->
+        <KeyModelMappingEditor v-model="modelMappingEntries" />
+
         <div v-if="!showEditModal" class="space-y-3">
           <div class="flex items-center justify-between">
             <label class="input-label mb-0">{{ t('keys.customKeyLabel') }}</label>
@@ -1211,6 +1213,8 @@ import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
+import KeyModelMappingEditor from '@/components/keys/KeyModelMappingEditor.vue'
+import { buildKeyModelMapping, keyModelMappingEntries, type KeyModelMappingEntry } from '@/utils/keyModelMapping'
 	import DataTable from '@/components/common/DataTable.vue'
 	import Pagination from '@/components/common/Pagination.vue'
 	import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -1428,6 +1432,8 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
     groupButtonRefs.value.delete(keyId)
   }
 }
+
+const modelMappingEntries = ref<KeyModelMappingEntry[]>([])
 
 const formData = ref({
   name: '',
@@ -1694,6 +1700,7 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
 }
 
 const editKey = (key: ApiKey) => {
+  modelMappingEntries.value = keyModelMappingEntries(key.model_mapping)
   selectedKey.value = key
   const hasIPRestriction = (key.ip_whitelist?.length > 0) || (key.ip_blacklist?.length > 0)
   const hasExpiration = !!key.expires_at
@@ -1798,6 +1805,11 @@ const confirmDelete = (key: ApiKey) => {
 }
 
 const handleSubmit = async () => {
+  let modelMapping: Record<string, string>
+  try { modelMapping = buildKeyModelMapping(modelMappingEntries.value) } catch {
+    appStore.showError(t('keys.modelMappingInvalid'))
+    return
+  }
   // Validate group_id is required
   if (formData.value.group_id === null) {
     appStore.showError(t('keys.groupRequired'))
@@ -1855,6 +1867,7 @@ const handleSubmit = async () => {
   try {
     if (showEditModal.value && selectedKey.value) {
       const updates: UpdateApiKeyRequest = {
+        model_mapping: modelMapping,
         name: formData.value.name,
         group_id: formData.value.group_id,
         ip_whitelist: ipWhitelist,
@@ -1880,7 +1893,8 @@ const handleSubmit = async () => {
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData
+        rateLimitData,
+        modelMapping
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -1920,6 +1934,7 @@ const handleDelete = async () => {
 }
 
 const closeModals = () => {
+  modelMappingEntries.value = []
   showCreateModal.value = false
   showEditModal.value = false
   selectedKey.value = null

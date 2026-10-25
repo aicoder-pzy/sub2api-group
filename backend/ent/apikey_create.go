@@ -139,6 +139,12 @@ func (_c *APIKeyCreate) SetIPBlacklist(v []string) *APIKeyCreate {
 	return _c
 }
 
+// SetModelMapping sets the "model_mapping" field.
+func (_c *APIKeyCreate) SetModelMapping(v map[string]string) *APIKeyCreate {
+	_c.mutation.SetModelMapping(v)
+	return _c
+}
+
 // SetQuota sets the "quota" field.
 func (_c *APIKeyCreate) SetQuota(v float64) *APIKeyCreate {
 	_c.mutation.SetQuota(v)
@@ -547,6 +553,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 		_spec.SetField(apikey.FieldIPBlacklist, field.TypeJSON, value)
 		_node.IPBlacklist = value
 	}
+	if value, ok := _c.mutation.ModelMapping(); ok {
+		_spec.SetField(apikey.FieldModelMapping, field.TypeJSON, value)
+		_node.ModelMapping = value
+	}
 	if value, ok := _c.mutation.Quota(); ok {
 		_spec.SetField(apikey.FieldQuota, field.TypeFloat64, value)
 		_node.Quota = value
@@ -844,6 +854,24 @@ func (u *APIKeyUpsert) UpdateIPBlacklist() *APIKeyUpsert {
 // ClearIPBlacklist clears the value of the "ip_blacklist" field.
 func (u *APIKeyUpsert) ClearIPBlacklist() *APIKeyUpsert {
 	u.SetNull(apikey.FieldIPBlacklist)
+	return u
+}
+
+// SetModelMapping sets the "model_mapping" field.
+func (u *APIKeyUpsert) SetModelMapping(v map[string]string) *APIKeyUpsert {
+	u.Set(apikey.FieldModelMapping, v)
+	return u
+}
+
+// UpdateModelMapping sets the "model_mapping" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateModelMapping() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldModelMapping)
+	return u
+}
+
+// ClearModelMapping clears the value of the "model_mapping" field.
+func (u *APIKeyUpsert) ClearModelMapping() *APIKeyUpsert {
+	u.SetNull(apikey.FieldModelMapping)
 	return u
 }
 
@@ -1280,6 +1308,27 @@ func (u *APIKeyUpsertOne) UpdateIPBlacklist() *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) ClearIPBlacklist() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearIPBlacklist()
+	})
+}
+
+// SetModelMapping sets the "model_mapping" field.
+func (u *APIKeyUpsertOne) SetModelMapping(v map[string]string) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetModelMapping(v)
+	})
+}
+
+// UpdateModelMapping sets the "model_mapping" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateModelMapping() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateModelMapping()
+	})
+}
+
+// ClearModelMapping clears the value of the "model_mapping" field.
+func (u *APIKeyUpsertOne) ClearModelMapping() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearModelMapping()
 	})
 }
 
@@ -1918,6 +1967,27 @@ func (u *APIKeyUpsertBulk) UpdateIPBlacklist() *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) ClearIPBlacklist() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearIPBlacklist()
+	})
+}
+
+// SetModelMapping sets the "model_mapping" field.
+func (u *APIKeyUpsertBulk) SetModelMapping(v map[string]string) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetModelMapping(v)
+	})
+}
+
+// UpdateModelMapping sets the "model_mapping" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateModelMapping() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateModelMapping()
+	})
+}
+
+// ClearModelMapping clears the value of the "model_mapping" field.
+func (u *APIKeyUpsertBulk) ClearModelMapping() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearModelMapping()
 	})
 }
 
