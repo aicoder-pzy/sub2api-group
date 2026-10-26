@@ -55,3 +55,53 @@ func TestPelicanGroupRouterRoutesThroughTheGatewayScheduler(t *testing.T) {
 	_, err = router.route(ctx, group, model, map[int64]struct{}{1: {}, 2: {}})
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
 }
+
+func TestSmartChannelPelicanRouterPreservesPublicModelThroughFinalAdmission(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic} {
+		for _, composite := range []bool{false, true} {
+			name := platform + "/native"
+			if composite {
+				name = platform + "/composite"
+			}
+			t.Run(name, func(t *testing.T) {
+				ctx := context.Background() // Scheduled tests have no HTTP model context.
+				group := &Group{ID: 71, Platform: platform, Status: StatusActive, Hydrated: true, AccountSchedulingMode: AccountSchedulingModeSmartChannel}
+				public, upstream := "claude-sonnet-4-5", "claude-sonnet-4-5"
+				if composite {
+					group.Platform, public = PlatformComposite, "public-alias"
+				}
+				account := Account{ID: 1, Platform: platform, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1,
+					GroupIDs: []int64{group.ID}, AccountGroups: []AccountGroup{{GroupID: group.ID}},
+					Credentials: map[string]any{"model_mapping": map[string]any{upstream: upstream}}}
+				settings := &SettingService{settingRepo: &panelRateLimitSettingRepo{}}
+				rules := ModelAccountRoutingSettings{Rules: []ModelAccountRoutingRule{{Model: public, AccountIDs: []int64{1}}, {Model: "denied", AccountIDs: []int64{}}}}
+				require.NoError(t, settings.SetModelAccountRouting(ctx, group.ID, rules))
+				if composite {
+					rules.Rules = append(rules.Rules, ModelAccountRoutingRule{Model: upstream, AccountIDs: []int64{}})
+					require.NoError(t, settings.SetModelAccountRouting(ctx, group.ID, rules))
+				}
+				cfg := testConfig()
+				concurrency := NewConcurrencyService(schedulerTestConcurrencyCache{})
+				cache := &accountSchedulingCacheStub{bindings: make(map[string]int64)}
+				gateway := &GatewayService{
+					accountRepo: &mockAccountRepoForPlatform{accounts: []Account{account}, accountsByID: map[int64]*Account{1: &account}},
+					groupRepo:   &mockGroupRepoForGateway{groups: map[int64]*Group{group.ID: group}},
+					cfg:         cfg, cache: cache, concurrencyService: concurrency, settingService: settings,
+					compositeResolver: NewCompositeRouteResolver(compositeRouteRepoStub{routes: []CompositeModelRoute{{ID: 1, GroupID: group.ID, PublicModel: public,
+						MatchType: CompositeRouteMatchExact, Endpoint: CompositeRouteEndpointAny, TargetPlatform: platform, UpstreamModel: upstream, Enabled: true}}}),
+				}
+				openai := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{account}}, cfg: cfg, cache: cache, concurrencyService: concurrency, settingService: settings}
+				router := &gatewayPelicanGroupRouter{gateway: gateway, openai: openai, concurrency: concurrency}
+				route, err := router.route(ctx, group, public, nil)
+				require.NoError(t, err, "the real post-slot admission must see the public model")
+				require.EqualValues(t, 1, route.account.ID)
+				require.Equal(t, upstream, route.model)
+				route.release()
+				rules.Rules[0].AccountIDs = []int64{}
+				require.NoError(t, settings.SetModelAccountRouting(ctx, group.ID, rules))
+				_, err = router.route(ctx, group, public, nil)
+				require.Error(t, err, "fixing test context must not bypass an explicit denial")
+			})
+		}
+	}
+}

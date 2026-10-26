@@ -67,7 +67,7 @@ func TestModelAutoLiveSelectorsKeepTrialsOutOfPrimaryBinding(t *testing.T) {
 }
 
 func TestFastestFailoverPelicanUsesLiveSchedulerPaths(t *testing.T) {
-	for _, mode := range []string{AccountSchedulingModeFastestFailover, AccountSchedulingModeQualityPreferred, AccountSchedulingModeModelAuto} {
+	for _, mode := range []string{AccountSchedulingModeFastestFailover, AccountSchedulingModeQualityPreferred, AccountSchedulingModeModelAuto, AccountSchedulingModeSmartChannel} {
 		for _, platform := range []string{PlatformOpenAI, PlatformAnthropic} {
 			for _, loadBatch := range []bool{false, true} {
 				t.Run(mode+"/"+platform+"/"+map[bool]string{false: "legacy", true: "load_aware"}[loadBatch], func(t *testing.T) {
@@ -99,9 +99,9 @@ func TestFastestFailoverPelicanUsesLiveSchedulerPaths(t *testing.T) {
 					cfg.Gateway.Scheduling.LoadBatchEnabled = loadBatch
 					concurrency := NewConcurrencyService(schedulerTestConcurrencyCache{})
 					groups := &mockGroupRepoForGateway{groups: map[int64]*Group{groupID: group}}
-					openai := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cache: cache, cfg: cfg, concurrencyService: concurrency, usageLogRepo: accountSchedulingQualityStub{quality: quality}}
+					openai := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cache: cache, cfg: cfg, settingService: &SettingService{settingRepo: &panelRateLimitSettingRepo{}}, concurrencyService: concurrency, usageLogRepo: accountSchedulingQualityStub{quality: quality}}
 					require.NoError(t, openai.setStickySessionAccountID(ctx, &groupID, "old-session", 1, time.Minute))
-					gateway := &GatewayService{accountRepo: &mockAccountRepoForPlatform{accounts: accounts, accountsByID: accountsByID}, groupRepo: groups, cache: cache, cfg: cfg, concurrencyService: concurrency, usageLogRepo: accountSchedulingQualityStub{quality: quality}}
+					gateway := &GatewayService{accountRepo: &mockAccountRepoForPlatform{accounts: accounts, accountsByID: accountsByID}, groupRepo: groups, cache: cache, cfg: cfg, settingService: &SettingService{settingRepo: &panelRateLimitSettingRepo{}}, concurrencyService: concurrency, usageLogRepo: accountSchedulingQualityStub{quality: quality}}
 					selectID := func(want int64, session string) {
 						requestCtx := WithFastestFailoverRequestState(ctx)
 						var selected *AccountSelectionResult

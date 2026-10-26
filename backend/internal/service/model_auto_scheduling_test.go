@@ -11,7 +11,7 @@ import (
 
 func modelAutoSample(p95 float64) GroupModelAccountQuality {
 	now := time.Now()
-	return GroupModelAccountQuality{Successes: 100, Quality: &AccountQualityEvidence{LatestVerdict: "normal", LatestAt: &now, NormalStreak: 5, Normal: 5, LatencyP95MS: p95}, Auto: &ModelAutoAccountEvidence{Effort: "medium", Buckets: []ModelAutoSpeedBucket{{ContextBucket: 1, Samples: 30, P50MS: p95 / 2, P95MS: p95, OutputTPS: 50, OutputSamples: 30, CostRatio: 0.1}}}}
+	return GroupModelAccountQuality{Successes: 100, Quality: &AccountQualityEvidence{LatestVerdict: "normal", LatestAt: &now, NormalStreak: 5, Normal: 5, Effort: "medium", TestEffort: "medium", LatencyP95MS: p95}, Auto: &ModelAutoAccountEvidence{Effort: "medium", Buckets: []ModelAutoSpeedBucket{{ContextBucket: 1, Samples: 30, P50MS: p95 / 2, P95MS: p95, OutputTPS: 50, OutputSamples: 30, CostRatio: 0.1}}}}
 }
 
 func TestModelAutoPromotionRequiresComparableSustainedEvidence(t *testing.T) {
@@ -55,6 +55,8 @@ type modelAutoCacheFake struct {
 	counts   map[string]int
 	ready    bool
 	reviews  int
+	cooldown time.Duration
+	backups  []int64
 }
 
 func (c *modelAutoCacheFake) ReviewModelAutoCandidate(_ context.Context, _ int64, _ string, _ string, input ModelAutoReviewInput) (*ModelAutoReview, error) {
@@ -64,7 +66,8 @@ func (c *modelAutoCacheFake) ReviewModelAutoCandidate(_ context.Context, _ int64
 func (c *modelAutoCacheFake) GetModelAutoReview(context.Context, int64, string, string) (*ModelAutoReview, error) {
 	return nil, nil
 }
-func (c *modelAutoCacheFake) AssignModelAutoSession(_ context.Context, _ int64, model, session string, primary int64, valid, backups []int64) (int64, bool, error) {
+func (c *modelAutoCacheFake) AssignModelAutoSession(_ context.Context, _ int64, model, session string, primary int64, valid, backups []int64, cooldown time.Duration) (int64, bool, error) {
+	c.cooldown, c.backups = cooldown, append([]int64(nil), backups...)
 	key := model + ":" + session
 	for _, id := range valid {
 		if c.sessions[key] == id {
@@ -105,6 +108,11 @@ func testModelAutoTrialsSessionsPromotionAndFailure(t *testing.T, mode string) {
 	}
 	id, trial := selectRequest("m", "trial", accounts)
 	require.EqualValues(t, 2, id)
+	if mode == AccountSchedulingModeSmartChannel {
+		require.Equal(t, 30*time.Minute, cache.cooldown)
+	} else {
+		require.Zero(t, cache.cooldown, "legacy model_auto keeps its allocation policy")
+	}
 	require.EqualValues(t, 1, cache.bindings[groupModelSchedulingStickyKey("m")], "successful trial must not replace the primary")
 	for i := 0; i < 3; i++ {
 		id, _ = selectRequest("m", "trial", accounts)
@@ -151,5 +159,34 @@ func testModelAutoTrialsSessionsPromotionAndFailure(t *testing.T, mode string) {
 	for i := 0; i < 3; i++ {
 		id, _ = selectRequest("m", "a", accounts)
 		require.EqualValues(t, 2, id, "all-degraded fallback must not rotate indefinitely")
+	}
+}
+
+func TestSmartChannelOnlyTrialsFreshQualityAtRequestedEffort(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*GroupModelAccountQuality)
+	}{
+		{"missing", func(s *GroupModelAccountQuality) { s.Quality = nil }},
+		{"unknown", func(s *GroupModelAccountQuality) { s.Quality.LatestVerdict = "unknown" }},
+		{"stale", func(s *GroupModelAccountQuality) { old := time.Now().Add(-25 * time.Hour); s.Quality.LatestAt = &old }},
+		{"other effort", func(s *GroupModelAccountQuality) { s.Quality.TestEffort = "low" }},
+		{"pending", func(s *GroupModelAccountQuality) {
+			s.Degradation = &PelicanDegradationState{Status: "pending", SampledAt: time.Now()}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			groupID := int64(71)
+			ctx := WithRequestedReasoningEffort(smartChannelTestContext(), "medium")
+			cache := &modelAutoCacheFake{accountSchedulingCacheStub: &accountSchedulingCacheStub{bindings: map[string]int64{groupModelSchedulingStickyKey("m"): 1}}, sessions: map[string]int64{}, counts: map[string]int{}}
+			quality := map[int64]GroupModelAccountQuality{1: modelAutoSample(10000), 2: modelAutoSample(7000), 3: modelAutoSample(12000)}
+			candidate := quality[2]
+			test.change(&candidate)
+			quality[2] = candidate
+			request := prepareFastestFailoverBinding(withModelAutoSession(ctx, "new"), cache, "m")
+			_ = fastestFailoverCandidateOrder(request, accountSchedulingQualityStub{quality: quality}, cache, &groupID, "m", []*Account{{ID: 1}, {ID: 2}, {ID: 3}})
+			require.Equal(t, []int64{3}, cache.backups, "unverified backup cannot receive deliberate natural-traffic trials")
+			require.Equal(t, 30*time.Minute, cache.cooldown)
+		})
 	}
 }

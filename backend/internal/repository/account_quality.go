@@ -71,10 +71,13 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
  percentile_cont(0.95) WITHIN GROUP(ORDER BY u.first_token_ms) AS p95
  FROM usage_logs u,chosen c WHERE u.group_id=$1 AND COALESCE(NULLIF(BTRIM(u.requested_model),''),u.model)=$2
  AND u.created_at>=NOW()-INTERVAL '24 hours' AND u.stream AND u.first_token_ms>0
+ AND u.duration_ms>=u.first_token_ms AND u.output_tokens>0
  AND (COALESCE(u.reasoning_effort,'')=c.effort OR c.effort='')
  AND NOT EXISTS(SELECT 1 FROM ops_error_logs e
  LEFT JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.upstream_errors)='array' THEN e.upstream_errors ELSE '[]'::jsonb END) event ON true
- WHERE e.group_id=$1 AND e.request_id=u.request_id
+ WHERE e.group_id=u.group_id AND e.api_key_id=u.api_key_id
+ AND ((NULLIF(e.request_id,'') IS NOT NULL AND e.request_id=u.request_id)
+ OR (NULLIF(e.client_request_id,'') IS NOT NULL AND u.request_id='client:'||e.client_request_id))
  AND COALESCE(NULLIF(BTRIM(e.requested_model),''),e.model)=$2 AND e.created_at>=NOW()-INTERVAL '24 hours'
  AND COALESCE(NULLIF((event->>'account_id')::bigint,0),e.account_id)=u.account_id AND e.error_phase IN ('upstream','account_auth')
  AND COALESCE(e.is_count_tokens,false)=false AND COALESCE(e.error_owner,'') NOT IN ('client','user')

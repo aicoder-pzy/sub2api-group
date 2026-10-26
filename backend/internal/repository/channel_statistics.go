@@ -24,9 +24,9 @@ const channelStatisticsSQL = `WITH usage AS MATERIALIZED (
  ORDER BY request_id,api_key_id,group_id,requested,created_at DESC,id DESC
 ), errors AS MATERIALIZED (
  SELECT e.*,COALESCE(NULLIF(BTRIM(e.requested_model),''),e.model) AS requested,
- COALESCE(NULLIF(e.request_id,''),'error:'||e.id::text) AS request_key,
+ COALESCE('client:'||NULLIF(e.client_request_id,''),NULLIF(e.request_id,''),'error:'||e.id::text) AS request_key,
  u.effort FROM ops_error_logs e LEFT JOIN request_efforts u
- ON u.request_id=e.request_id AND u.api_key_id=e.api_key_id
+ ON u.request_id=COALESCE('client:'||NULLIF(e.client_request_id,''),NULLIF(e.request_id,'')) AND u.api_key_id=e.api_key_id
  AND u.group_id IS NOT DISTINCT FROM e.group_id
  AND u.requested=COALESCE(NULLIF(BTRIM(e.requested_model),''),e.model)
  WHERE e.created_at >= $1 AND e.created_at < $2

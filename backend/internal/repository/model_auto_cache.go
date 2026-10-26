@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
@@ -88,12 +89,27 @@ local selected=tonumber(ARGV[1])
 local backups=cjson.decode(ARGV[3])
 local sequence=redis.call('INCR',KEYS[2])
 redis.call('EXPIRE',KEYS[2],604800)
-if #backups>0 and sequence%10==0 then selected=backups[(math.floor(sequence/10)-1)%#backups+1] end
+if #backups>0 then
+  local cooldown=tonumber(ARGV[4])
+  if cooldown>0 then
+    local last=tonumber(redis.call('GET',KEYS[3]) or '0')
+    -- Start on the first eligible new session, then require ten new sessions
+    -- AND a shared cooldown. Existing bindings never advance either limit.
+    if (last==0 or sequence-last>=10) and redis.call('SET',KEYS[5],1,'NX','EX',cooldown) then
+      local trial=redis.call('INCR',KEYS[4])
+      redis.call('EXPIRE',KEYS[4],604800)
+      redis.call('SET',KEYS[3],sequence,'EX',604800)
+      selected=backups[(trial-1)%#backups+1]
+    end
+  elseif sequence%10==0 then
+    selected=backups[(math.floor(sequence/10)-1)%#backups+1]
+  end
+end
 redis.call('SET',KEYS[1],selected,'EX',3600)
 return {selected,1}
 `)
 
-func (c *gatewayCache) AssignModelAutoSession(ctx context.Context, groupID int64, model, session string, primary int64, valid, backups []int64) (int64, bool, error) {
+func (c *gatewayCache) AssignModelAutoSession(ctx context.Context, groupID int64, model, session string, primary int64, valid, backups []int64, trialCooldown time.Duration) (int64, bool, error) {
 	if valid == nil {
 		valid = []int64{}
 	}
@@ -110,7 +126,7 @@ func (c *gatewayCache) AssignModelAutoSession(ctx context.Context, groupID int64
 	}
 	prefix := fmt.Sprintf("model_auto:session:%d:%s:", groupID, base64.RawURLEncoding.EncodeToString([]byte(model)))
 	digest := sha256.Sum256([]byte(session))
-	values, err := assignModelAutoSessionScript.Run(ctx, c.rdb, []string{prefix + hex.EncodeToString(digest[:]), prefix + "counter"}, primary, validJSON, backupJSON).Int64Slice()
+	values, err := assignModelAutoSessionScript.Run(ctx, c.rdb, []string{prefix + hex.EncodeToString(digest[:]), prefix + "counter", prefix + "trial-sequence", prefix + "trial-count", prefix + "trial-cooldown"}, primary, validJSON, backupJSON, int64(trialCooldown/time.Second)).Int64Slice()
 	if err != nil {
 		return 0, false, err
 	}

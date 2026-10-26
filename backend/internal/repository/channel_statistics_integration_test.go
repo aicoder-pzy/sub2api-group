@@ -45,7 +45,8 @@ INSERT INTO upstream_quality_samples VALUES
  (1,1,'other','xhigh','pelican','normal','2026-10-12 08:00:00+08'),
  (1,1,'m','medium','pelican','normal','2026-10-12 08:00:00+08'),
  (1,NULL,'m','xhigh','pelican','normal','2026-10-12 08:00:00+08'),
- (1,1,'m','xhigh','answer','normal','2026-10-12 08:00:00+08');`)
+ (1,1,'m','xhigh','answer','normal','2026-10-12 08:00:00+08');
+ALTER TABLE ops_error_logs ADD COLUMN client_request_id text;`)
 	require.NoError(t, err)
 	start, err := time.Parse(time.RFC3339, "2026-10-12T00:00:00+08:00")
 	require.NoError(t, err)
@@ -78,6 +79,13 @@ INSERT INTO upstream_quality_samples VALUES
 	require.EqualValues(t, 2, got.Summary.Normal, "medium included only when effort is unfiltered")
 	require.True(t, got.Accounts[2].AccountDeleted)
 	require.Nil(t, got.Accounts[2].TTFTP50MS, "missing first-token times must not become zero")
+	_, err = tx.ExecContext(ctx, `UPDATE usage_logs SET request_id='client:retry' WHERE request_id='r';
+UPDATE ops_error_logs SET request_id='server-retry',client_request_id='retry' WHERE id=1;`)
+	require.NoError(t, err)
+	got, err = repo.GetChannelStatistics(ctx, query, start, start.Add(24*time.Hour))
+	require.NoError(t, err)
+	require.EqualValues(t, 2, got.Summary.Successes, "same-channel retry is not a clean success; the other account's fallback remains successful")
+	require.EqualValues(t, 2, got.Summary.Failures)
 	query.Model = "no-data"
 	got, err = repo.GetChannelStatistics(ctx, query, start, start.Add(24*time.Hour))
 	require.NoError(t, err)

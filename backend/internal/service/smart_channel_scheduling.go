@@ -13,6 +13,19 @@ func smartChannelEnabled(ctx context.Context) bool {
 	return group != nil && group.AccountSchedulingMode == AccountSchedulingModeSmartChannel
 }
 
+// Unknown, stale or differently tested reasoning efforts remain available for
+// fault recovery, but must not receive deliberate trials on healthy traffic.
+func smartChannelTrialEligible(ctx context.Context, sample GroupModelAccountQuality) bool {
+	if sample.Quality.tier(time.Now()) > 1 {
+		return false
+	}
+	effort := sample.Quality.Effort
+	if requested := RequestedReasoningEffortFromContext(ctx); requested != nil {
+		effort = *requested
+	}
+	return effort == "" || sample.Quality.TestEffort == effort
+}
+
 // Empty mappings and passthrough are transport policies, not declarations that
 // a relay can serve every public model. An explicit group rule is checked by
 // modelAccountCapability before this fallback is used.

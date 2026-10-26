@@ -644,6 +644,9 @@ type gatewayPelicanGroupRouter struct {
 
 func (r *gatewayPelicanGroupRouter) route(ctx context.Context, group *Group, model string, excluded map[int64]struct{}) (*pelicanGroupRoute, error) {
 	ctx = context.WithValue(ctx, ctxkey.Group, group)
+	// Non-HTTP tests need the same public model context as gateway requests,
+	// including the final admission check after a composite model rewrite.
+	ctx = context.WithValue(ctx, ctxkey.Model, model)
 	ctx, _ = WithGatewayTokenRequestPricing(ctx)
 	platform, upstreamModel := group.Platform, model
 	if platform == PlatformComposite {

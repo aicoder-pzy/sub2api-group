@@ -178,7 +178,8 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 		WITH failure_requests AS (
 			SELECT
 				COALESCE(NULLIF((event->>'account_id')::bigint, 0), errors.account_id) AS account_id,
-				COALESCE(NULLIF(errors.request_id, ''), 'error:' || errors.id::text) AS request_key,
+				errors.api_key_id,
+				COALESCE('client:' || NULLIF(errors.client_request_id, ''), NULLIF(errors.request_id, ''), 'error:' || errors.id::text) AS request_key,
 				MAX(errors.created_at) AS last_failure_at
 			FROM ops_error_logs errors
 			LEFT JOIN LATERAL jsonb_array_elements(
@@ -192,17 +193,19 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 			  AND COALESCE(errors.is_count_tokens, false) = false
 			  AND COALESCE(errors.error_owner, '') NOT IN ('client', 'user')
 			  AND COALESCE(event->>'scope', '') NOT IN ('request', 'provider', 'proxy')
-			GROUP BY 1, 2
+			GROUP BY 1, 2, 3
 		), successes AS (
 			SELECT usage.account_id,
 			       COUNT(*) FILTER (WHERE NOT EXISTS (
 			           SELECT 1 FROM failure_requests failure
 			           WHERE failure.account_id = usage.account_id
+			             AND failure.api_key_id = usage.api_key_id
 			             AND failure.request_key = usage.request_id
 			       )) AS successes,
 			       MAX(usage.created_at) FILTER (WHERE NOT EXISTS (
 			           SELECT 1 FROM failure_requests failure
 			           WHERE failure.account_id = usage.account_id AND failure.request_key = usage.request_id
+			             AND failure.api_key_id = usage.api_key_id
 			       )) AS last_success_at,
 			       percentile_cont(0.95) WITHIN GROUP (
 			           ORDER BY CASE WHEN usage.stream AND usage.first_token_ms > 0
@@ -210,6 +213,7 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 			       ) FILTER (WHERE NOT EXISTS (
 			           SELECT 1 FROM failure_requests failure
 			           WHERE failure.account_id = usage.account_id AND failure.request_key = usage.request_id
+			             AND failure.api_key_id = usage.api_key_id
 			       )) AS latency_ms
 			FROM usage_logs usage
 			WHERE usage.group_id = $1

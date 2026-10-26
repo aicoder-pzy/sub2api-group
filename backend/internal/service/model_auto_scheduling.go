@@ -50,7 +50,7 @@ type ModelAutoReviewInput struct {
 type ModelAutoSchedulingCache interface {
 	ReviewModelAutoCandidate(context.Context, int64, string, string, ModelAutoReviewInput) (*ModelAutoReview, error)
 	GetModelAutoReview(context.Context, int64, string, string) (*ModelAutoReview, error)
-	AssignModelAutoSession(context.Context, int64, string, string, int64, []int64, []int64) (int64, bool, error)
+	AssignModelAutoSession(context.Context, int64, string, string, int64, []int64, []int64, time.Duration) (int64, bool, error)
 }
 
 type modelAutoQualityRepository interface {
@@ -347,11 +347,17 @@ func orderModelAutoScheduling(ctx context.Context, cache GatewayCache, groupID i
 	}
 	valid := make([]int64, 0, len(candidates))
 	backups := make([]int64, 0, len(candidates))
+	var trialCooldown time.Duration
+	if smartChannelEnabled(ctx) {
+		trialCooldown = 30 * time.Minute
+	}
 	for _, account := range candidates {
 		if modelAutoHealthy(samples[account.ID], int64(settings.MinimumSamples)) {
 			valid = append(valid, account.ID)
 			if activeHealthy && primary == activeID && account.ID != activeID && !modelAutoPending(samples[activeID]) && !modelAutoPending(samples[account.ID]) {
-				backups = append(backups, account.ID)
+				if !smartChannelEnabled(ctx) || smartChannelTrialEligible(ctx, samples[account.ID]) {
+					backups = append(backups, account.ID)
+				}
 			}
 		}
 	}
@@ -361,7 +367,7 @@ func orderModelAutoScheduling(ctx context.Context, cache GatewayCache, groupID i
 		valid = append(valid, primary)
 	}
 	sort.Slice(backups, func(i, j int) bool { return backups[i] < backups[j] })
-	selected, fresh, err := autoCache.AssignModelAutoSession(ctx, groupID, model, session, primary, valid, backups)
+	selected, fresh, err := autoCache.AssignModelAutoSession(ctx, groupID, model, session, primary, valid, backups, trialCooldown)
 	if err != nil || selected <= 0 {
 		return moveModelAutoFirst(ordered, activeOrReplacement(activeHealthy, activeID, ordered[0].ID))
 	}
