@@ -205,13 +205,6 @@ func TestIPRiskUsesTrustedChainEvenWhenLegacyHeadersAreEnabled(t *testing.T) {
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, 403, w.Code)
-	// Signed internal forwarding sets this marker before the risk middleware.
-	r2 := gin.New()
-	require.NoError(t, r2.SetTrustedProxies(nil))
-	r2.Use(func(c *gin.Context) { ippkg.SetVerifiedForwardedIP(c, "198.51.100.1"); c.Next() })
-	r2.Use(m.Middleware())
-	r2.GET("/", func(c *gin.Context) { c.Status(200) })
-	require.Equal(t, 403, riskRequest(r2, "GET", "/", "127.0.0.1", "Mozilla/5.0", "").Code)
 }
 
 func TestIPRiskCountriesAndUnknownPolicy(t *testing.T) {

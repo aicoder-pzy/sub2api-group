@@ -159,9 +159,12 @@ func (s *AccountTestService) modelTraceSampleWithHeartbeat(c *gin.Context, ctx c
 		select {
 		case sample := <-result:
 			return sample
-		case <-ctx.Done():
-			return ModelTraceSample{Error: "cancelled"}
 		case <-ticker.C:
+			// The native upstream request observes ctx. Wait for it to release
+			// its response body before returning or starting another sample.
+			if ctx.Err() != nil {
+				continue
+			}
 			_, _ = fmt.Fprint(c.Writer, ": keepalive\n\n")
 			c.Writer.Flush()
 		}
@@ -249,6 +252,8 @@ func (s *AccountTestService) runModelTraceSample(ctx context.Context, accountID 
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		sample.Error = "timeout"
+	case errors.Is(ctx.Err(), context.Canceled):
+		sample.Error = "cancelled"
 	case err != nil || message != "":
 		// Do not persist provider error bodies, which may echo credentials.
 		sample.Error = "generation_failed"

@@ -127,9 +127,6 @@ func (m *Manager) Middleware() gin.HandlerFunc {
 		if peerIP, err := netip.ParseAddr(peer); err == nil && peerIP.Unmap() == address {
 			source = "direct_peer"
 		}
-		if _, exists := c.Get("sub2api.verified_forwarded_ip"); exists {
-			source = "verified_serverless"
-		}
 		path := c.FullPath()
 		if path == "" {
 			path = "<static-or-unmatched>"

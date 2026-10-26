@@ -12,7 +12,7 @@
             <div class="text-xs text-gray-500 dark:text-gray-400">{{ account.platform }} · {{ t('admin.accounts.pelicanTest.subtitle') }}</div>
           </div>
         </div>
-        <span class="whitespace-nowrap rounded-full bg-white px-2.5 py-1 text-xs font-medium text-amber-700 shadow-sm dark:bg-dark-800 dark:text-amber-300">
+        <span v-if="activeTab !== 'modeltrace'" class="whitespace-nowrap rounded-full bg-white px-2.5 py-1 text-xs font-medium text-amber-700 shadow-sm dark:bg-dark-800 dark:text-amber-300">
           {{ t('admin.accounts.pelicanTest.noScoring') }}
         </span>
       </div>
