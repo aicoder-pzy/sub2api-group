@@ -46,7 +46,7 @@ func recheckSmartChannelAdmission(ctx context.Context, selected *Account, repo A
 	if err != nil || latest == nil {
 		return selected, true, "channel_state_unavailable"
 	}
-	group := ctx.Value(ctxkey.Group).(*Group)
+	group, _ := ctx.Value(ctxkey.Group).(*Group)
 	model, _ := ctx.Value(ctxkey.Model).(string)
 	if strings.TrimSpace(model) == "" {
 		model, _ = RequestedPublicModelFromContext(ctx)

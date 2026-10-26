@@ -59,7 +59,8 @@ func TestSmartChannelCapabilityDeclarations(t *testing.T) {
 func TestSmartChannelCapacitySpilloverPreservesPrimary(t *testing.T) {
 	ctx := smartChannelTestContext()
 	groupID := int64(71)
-	state := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	state, ok := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	require.True(t, ok)
 	state.smartCapacityWaited = true // Exercise the spill after the shared wait budget.
 	accounts := []Account{
 		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, Credentials: map[string]any{"model_mapping": map[string]any{"gpt-6.1-sol": "gpt-6.1-sol"}}},
@@ -202,7 +203,10 @@ func TestRelayRequestErrorsDoNotDisableChannels(t *testing.T) {
 	require.True(t, IsOpsRequestScopedError(c))
 	events, exists := c.Get(OpsUpstreamErrorsKey)
 	require.True(t, exists)
-	require.Equal(t, "request", events.([]*OpsUpstreamErrorEvent)[0].Scope)
+	typedEvents, ok := events.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.NotEmpty(t, typedEvents)
+	require.Equal(t, "request", typedEvents[0].Scope)
 	require.False(t, shouldFailoverOpenAIPassthroughResponse(account, 502, []byte(body)))
 	w = httptest.NewRecorder()
 	c, _ = gin.CreateTestContext(w)

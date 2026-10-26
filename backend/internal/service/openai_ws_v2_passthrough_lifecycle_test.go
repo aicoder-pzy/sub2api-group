@@ -249,7 +249,7 @@ func TestPassthroughLifecycle_LaterTurnPreOutputRateLimitRequestsReconnect(t *te
 	require.Equal(t, coderws.StatusTryAgainLater, websocketCloseErr.Code)
 	require.Equal(t, "upstream rate limit exceeded; please reconnect", websocketCloseErr.Reason)
 	require.Len(t, repo.rateLimitCalls, 1)
-	require.WithinDuration(t, time.Unix(resetAt, 0), repo.rateLimitCalls[0], 2*time.Second)
+	require.WithinDuration(t, time.Now().Add(5*time.Second), repo.rateLimitCalls[0], 2*time.Second)
 
 	select {
 	case err := <-serverErr:

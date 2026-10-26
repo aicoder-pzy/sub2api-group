@@ -1291,7 +1291,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
 		// A relay's internal Codex quota is not the quota of our API key (#515).
-		if account.Type == AccountTypeAPIKey {
+		if account.Type == AccountTypeAPIKey && gjson.GetBytes(responseBody, "error.type").String() != "GoUsageLimitError" {
 			s.apply429FallbackRateLimit(ctx, account, "openai_apikey_upstream_429")
 			return
 		}
