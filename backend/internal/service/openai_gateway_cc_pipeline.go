@@ -132,6 +132,7 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 		AccountName:        account.Name,
 		UpstreamStatusCode: resp.StatusCode,
 		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		Scope:              openAIRelayErrorScope(account, resp.StatusCode, respBody),
 		Kind:               "failover",
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,

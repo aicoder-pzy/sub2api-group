@@ -33,6 +33,33 @@ func declaredSmartChannelCapability(account *Account, model string) (bool, strin
 	return false, "unknown"
 }
 
+// Recheck after acquiring a slot: a channel's declarations or runtime state may
+// have changed while this request was queued. Legacy modes keep their checks.
+func recheckSmartChannelAdmission(ctx context.Context, selected *Account, repo AccountRepository, settings *SettingService) (*Account, bool, string) {
+	if !smartChannelEnabled(ctx) {
+		return selected, false, ""
+	}
+	if selected == nil || repo == nil {
+		return selected, true, "channel_state_unavailable"
+	}
+	latest, err := repo.GetByID(ctx, selected.ID)
+	if err != nil || latest == nil {
+		return selected, true, "channel_state_unavailable"
+	}
+	group := ctx.Value(ctxkey.Group).(*Group)
+	model, _ := ctx.Value(ctxkey.Model).(string)
+	if strings.TrimSpace(model) == "" {
+		model, _ = RequestedPublicModelFromContext(ctx)
+	}
+	if !settings.IsModelAccountAllowed(ctx, &group.ID, model, latest.ID, latest) {
+		return latest, true, "model_not_declared"
+	}
+	if !latest.IsSchedulableForModelWithContext(ctx, model) {
+		return latest, true, "channel_unavailable"
+	}
+	return latest, false, ""
+}
+
 // Queue briefly on the selected channel, then allow a request-local capacity
 // spillover. All candidates share this one wait, including subsequent retries.
 // Existing Redis wait counters bound the number of pending requests.

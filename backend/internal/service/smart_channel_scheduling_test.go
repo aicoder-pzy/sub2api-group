@@ -91,6 +91,24 @@ func TestSmartChannelCapacitySpilloverPreservesPrimary(t *testing.T) {
 	require.Equal(t, int64(2), groupModelSchedulingActiveAccount(faultCtx, cache, &groupID, "gpt-6.1-sol"), "a completed fault takeover may update the primary")
 }
 
+func TestSmartChannelAdmissionRechecksDeclarationAfterWait(t *testing.T) {
+	ctx := context.WithValue(smartChannelTestContext(), ctxkey.Model, "gpt-6.1-sol")
+	selected := Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{"model_mapping": map[string]any{"gpt-6.1-sol": "gpt-6.1-sol"}}}
+	latest := selected
+	latest.Credentials = nil
+	repo := schedulerTestOpenAIAccountRepo{accounts: []Account{latest}}
+	settings := &SettingService{settingRepo: &panelRateLimitSettingRepo{}}
+	for _, terminal := range []func(context.Context, *Account) (*Account, bool, string){
+		(&OpenAIGatewayService{accountRepo: repo, settingService: settings}).ProfitControlVetoLatest,
+		(&GatewayService{accountRepo: repo, settingService: settings}).GatewayProfitControlVetoLatest,
+	} {
+		_, vetoed, reason := terminal(ctx, &selected)
+		require.True(t, vetoed, "a removed declaration cannot pass admission on a stale selection")
+		require.Equal(t, "model_not_declared", reason)
+	}
+}
+
 type smartChannelWaitCache struct {
 	ConcurrencyCache
 	entered int
@@ -181,4 +199,17 @@ func TestRelayRequestErrorsDoNotDisableChannels(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, 403, w.Code)
 	require.Contains(t, w.Body.String(), "session_blocked_by_cyber_policy")
+	require.True(t, IsOpsRequestScopedError(c))
+	events, exists := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, exists)
+	require.Equal(t, "request", events.([]*OpsUpstreamErrorEvent)[0].Scope)
+	require.False(t, shouldFailoverOpenAIPassthroughResponse(account, 502, []byte(body)))
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+	err = svc.handleErrorResponsePassthrough(context.Background(), &http.Response{StatusCode: 403, Header: http.Header{}}, c, account, nil, []byte(body))
+	require.Error(t, err)
+	require.Contains(t, w.Body.String(), "session_blocked_by_cyber_policy")
+	require.True(t, IsOpsRequestScopedError(c))
+	require.Equal(t, "provider", openAIRelayErrorScope(account, 403, []byte(`{"error":{"type":"upstream_error","message":"failed to WebSocket dial: expected handshake response status code 101 but got 403"}}`)))
 }

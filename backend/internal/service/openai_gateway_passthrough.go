@@ -774,6 +774,9 @@ func stripOpenAILegacyResponsesBeta(headers http.Header) {
 }
 
 func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, responseBody []byte) bool {
+	if isOpenAIRelayPolicyRejection(account, statusCode, responseBody) {
+		return false
+	}
 	if hit, _, _ := detectOpenAICyberPolicy(responseBody); hit {
 		return false
 	}
@@ -915,6 +918,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 		UpstreamStatusCode:   resp.StatusCode,
 		UpstreamRequestID:    resp.Header.Get("x-request-id"),
 		Passthrough:          true,
+		Scope:                openAIRelayErrorScope(account, resp.StatusCode, body),
 		Kind:                 "failover",
 		Message:              upstreamMsg,
 		Detail:               upstreamDetail,
@@ -941,6 +945,11 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 ) error {
 	MarkResponseCommitted(c)
 	body := s.redactAgentIdentitySensitiveBody(ctx, account, responseBody)
+	if isOpenAIRelayPolicyRejection(account, resp.StatusCode, body) {
+		message, _ := recordOpenAIRelayPolicyRejection(c, account, resp.StatusCode, resp.Header, body)
+		writeOpenAIUpstreamClientError(c, resp.StatusCode, body, message)
+		return fmt.Errorf("upstream policy rejected this request")
+	}
 
 	// cyber_policy 仍按原始 body 打内部标记，供 handler 事后写风控/邮件；面向客户端的
 	// 错误体在下方统一重建。cyber 是上游网络安全策略拦截，不冷却账号，
@@ -983,6 +992,7 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 		UpstreamStatusCode:   resp.StatusCode,
 		UpstreamRequestID:    resp.Header.Get("x-request-id"),
 		Passthrough:          true,
+		Scope:                openAIRelayErrorScope(account, resp.StatusCode, body),
 		Kind:                 "http_error",
 		Message:              upstreamMsg,
 		Detail:               upstreamDetail,

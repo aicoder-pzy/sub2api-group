@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
@@ -54,4 +55,37 @@ func isOpenAIRelayPolicyRejection(account *Account, statusCode int, body []byte)
 	errorType := strings.TrimSpace(gjson.GetBytes(body, "error.type").String())
 	return statusCode == http.StatusForbidden && (strings.EqualFold(code, "content_policy_violation") ||
 		(code == "" && strings.EqualFold(errorType, "content_policy_violation")))
+}
+
+func openAIRelayErrorScope(account *Account, statusCode int, body []byte) string {
+	if isOpenAIRelayPolicyRejection(account, statusCode, body) {
+		return "request"
+	}
+	if isOpenAIRequestScoped403(account, statusCode, body) {
+		return "provider"
+	}
+	return ""
+}
+
+func recordOpenAIRelayPolicyRejection(c *gin.Context, account *Account, statusCode int, headers http.Header, body []byte) (string, string) {
+	message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(body))
+	errorType := "invalid_request_error"
+	if message == "" {
+		message = "Request blocked by upstream policy"
+	}
+	if isOpenAIUpstreamSessionBlocked(body) {
+		errorType = "permission_error"
+		if extractUpstreamErrorMessage(body) == "" {
+			message = "This session is blocked by upstream policy; start a new session"
+		}
+	}
+	MarkOpsRequestScopedError(c, errorType)
+	setOpsUpstreamError(c, statusCode, message, "")
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+		Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+		UpstreamStatusCode: statusCode, UpstreamRequestID: headers.Get("x-request-id"),
+		Kind: "http_error", Scope: "request", Reason: extractUpstreamErrorCode(body), Message: message,
+	})
+	return message, errorType
 }

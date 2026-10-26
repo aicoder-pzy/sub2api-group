@@ -591,14 +591,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	body := s.readUpstreamErrorBody(resp)
 	body = s.redactAgentIdentitySensitiveBody(ctx, account, body)
 	if isOpenAIRelayPolicyRejection(account, resp.StatusCode, body) {
-		message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(body))
-		if message == "" {
-			message = "Request blocked by upstream policy"
-			if isOpenAIUpstreamSessionBlocked(body) {
-				message = "This session is blocked by upstream policy; start a new session"
-			}
-		}
-		setOpsUpstreamError(c, resp.StatusCode, message, "")
+		message, _ := recordOpenAIRelayPolicyRejection(c, account, resp.StatusCode, resp.Header, body)
 		MarkResponseCommitted(c)
 		writeOpenAIUpstreamClientError(c, resp.StatusCode, body, message)
 		return nil, fmt.Errorf("upstream policy rejected this request")
@@ -673,6 +666,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 			AccountName:        account.Name,
 			UpstreamStatusCode: resp.StatusCode,
 			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			Scope:              openAIRelayErrorScope(account, resp.StatusCode, body),
 			Kind:               "failover",
 			Message:            upstreamMsg,
 			Detail:             upstreamDetail,
@@ -722,6 +716,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 			AccountName:        account.Name,
 			UpstreamStatusCode: resp.StatusCode,
 			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			Scope:              openAIRelayErrorScope(account, resp.StatusCode, body),
 			Kind:               "http_error",
 			Message:            upstreamMsg,
 			Detail:             upstreamDetail,
@@ -761,6 +756,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		AccountName:        account.Name,
 		UpstreamStatusCode: resp.StatusCode,
 		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		Scope:              openAIRelayErrorScope(account, resp.StatusCode, body),
 		Kind:               kind,
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,
@@ -855,16 +851,9 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 	body := s.readUpstreamErrorBody(resp)
 	body = s.redactAgentIdentitySensitiveBody(context.Background(), account, body)
 	if isOpenAIRelayPolicyRejection(account, resp.StatusCode, body) {
-		message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(body))
-		if message == "" {
-			message = "Request blocked by upstream policy"
-			if isOpenAIUpstreamSessionBlocked(body) {
-				message = "This session is blocked by upstream policy; start a new session"
-			}
-		}
-		setOpsUpstreamError(c, resp.StatusCode, message, "")
+		message, errorType := recordOpenAIRelayPolicyRejection(c, account, resp.StatusCode, resp.Header, body)
 		MarkResponseCommitted(c)
-		writeError(c, resp.StatusCode, "permission_error", message)
+		writeError(c, resp.StatusCode, errorType, message)
 		return nil, fmt.Errorf("upstream policy rejected this request")
 	}
 
@@ -941,6 +930,7 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 			AccountName:        account.Name,
 			UpstreamStatusCode: resp.StatusCode,
 			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			Scope:              openAIRelayErrorScope(account, resp.StatusCode, body),
 			Kind:               "http_error",
 			Message:            upstreamMsg,
 			Detail:             upstreamDetail,
@@ -973,6 +963,7 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 		AccountName:        account.Name,
 		UpstreamStatusCode: resp.StatusCode,
 		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		Scope:              openAIRelayErrorScope(account, resp.StatusCode, body),
 		Kind:               kind,
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,

@@ -1703,6 +1703,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	if err != nil || latest == nil {
 		return nil
 	}
+	if !s.IsModelAccountAllowed(ctx, groupID, requestedModel, latest.ID, latest) {
+		return nil
+	}
 	if !s.openAIAccountMatchesSchedulingGroup(latest, groupID) {
 		return nil
 	}

@@ -186,7 +186,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		for {
 			account, err := s.SelectAccountForModelWithExclusions(ctx, groupID, sessionHash, requestedModel, localExcluded)
 			if err != nil {
-				if waitAccount != nil && ctx.Err() == nil {
+				if waitAccount != nil && ctx.Err() == nil && s.checkAndRegisterSession(ctx, waitAccount, sessionHash) {
 					return s.newSelectionResult(ctx, waitAccount, false, nil, &AccountWaitPlan{AccountID: waitAccount.ID, MaxConcurrency: waitAccount.Concurrency, Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting})
 				}
 				return nil, err
@@ -1210,7 +1210,7 @@ func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Conte
 	if group != nil && usesFailoverScheduling(group.AccountSchedulingMode) && s.accountRepo != nil {
 		// Candidate snapshots can predate a timeout on another in-flight request.
 		latest, err := s.accountRepo.GetByID(ctx, account.ID)
-		if err != nil || latest == nil || !latest.IsSchedulableForModelWithContext(ctx, requestedModel) {
+		if err != nil || latest == nil || !s.settingService.IsModelAccountAllowed(ctx, groupID, requestedModel, latest.ID, latest) || !latest.IsSchedulableForModelWithContext(ctx, requestedModel) {
 			return false
 		}
 	}
@@ -1632,6 +1632,9 @@ func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Ac
 func (s *GatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {
 	hydrated, err := s.hydrateSelectedAccount(ctx, account)
 	if err != nil {
+		if acquired && release != nil {
+			release()
+		}
 		return nil, err
 	}
 	return attachSelectionProfitGate(ctx, &AccountSelectionResult{

@@ -347,7 +347,11 @@ func (s *OpenAIGatewayService) ProfitControlVetoLatest(ctx context.Context, sele
 	if s == nil {
 		return selected, false, ""
 	}
-	return profitControlVetoLatest(ctx, selected, s.schedulerSnapshot)
+	latest, vetoed, reason := recheckSmartChannelAdmission(ctx, selected, s.accountRepo, s.settingService)
+	if vetoed {
+		return latest, true, reason
+	}
+	return profitControlVetoLatest(ctx, latest, s.schedulerSnapshot)
 }
 
 // bindOpenAIStickySessionDuringSelection preserves the official eager binding
