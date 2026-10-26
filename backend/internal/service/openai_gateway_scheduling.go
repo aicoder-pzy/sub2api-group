@@ -533,7 +533,7 @@ func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) 
 	}
 	// A relay's observed Codex percentages describe an internal supplier account.
 	if smartChannelEnabled(ctx) && account.Type == AccountTypeAPIKey && !account.IsCNProvider() && !account.IsOpenCodeGo() {
-		return false
+		return false, openAIQuotaAutoPauseDecision{}
 	}
 
 	// 自动用卡有独立阈值：达到消费阈值时必须先退出调度；仅达到普通暂停阈值时，
