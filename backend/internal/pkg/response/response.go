@@ -59,7 +59,6 @@ func Accepted(c *gin.Context, data any) {
 // Error 返回错误响应
 func Error(c *gin.Context, statusCode int, message string) {
 	c.Set("response.error_reason", "")
-	c.Set("response.error_reason", "")
 	c.JSON(statusCode, Response{
 		Code:     statusCode,
 		Message:  message,
@@ -72,7 +71,6 @@ func Error(c *gin.Context, statusCode int, message string) {
 // optionally providing structured error fields (reason/metadata).
 func ErrorWithDetails(c *gin.Context, statusCode int, message, reason string, metadata map[string]string) {
 	c.Set("response.error_reason", reason)
-	c.Set("response.error_reason", "")
 	c.JSON(statusCode, Response{
 		Code:     statusCode,
 		Message:  message,
