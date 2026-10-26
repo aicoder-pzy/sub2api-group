@@ -1,5 +1,8 @@
+import ipRisk from './ipRisk'
+
 export default {
     settings: {
+      ipRisk,
       fastestFailover: {
         title: '最快故障切换 · 全局配置',
         description: '统一作用于所有启用“最快故障切换”或“质量优选”的分组，无需按分组重复配置。',

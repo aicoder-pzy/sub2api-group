@@ -17,7 +17,7 @@
         </span>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div v-if="activeTab !== 'modeltrace'" class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <TextArea
           v-model="prompt"
           :label="t('admin.accounts.pelicanTest.promptLabel')"
@@ -45,7 +45,7 @@
         </div>
       </div>
 
-      <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:border-dark-600 dark:bg-dark-800/70 dark:text-gray-300">
+      <div v-if="activeTab !== 'modeltrace'" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:border-dark-600 dark:bg-dark-800/70 dark:text-gray-300">
         <div class="flex items-start gap-2">
           <Icon name="shield" size="sm" class="mt-0.5 shrink-0 text-emerald-500" />
           <span>{{ deliveryContract }}</span>
@@ -73,6 +73,7 @@
           <button type="button" class="rounded-md px-3 py-1.5 text-sm font-medium"
             :class="activeTab === 'schedule' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-700'"
             @click="activeTab = 'schedule'">{{ t('admin.accounts.pelicanTest.schedule') }}</button>
+          <button type="button" class="rounded-md px-3 py-1.5 text-sm font-medium" :disabled="running" :class="activeTab === 'modeltrace' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-700'" @click="activeTab = 'modeltrace'">{{ t('modelTrace.tab') }}</button>
         </div>
         <span v-if="running" class="flex items-center gap-1.5 text-xs text-primary-600 dark:text-primary-300">
           <Icon name="refresh" size="sm" class="animate-spin" />
@@ -80,7 +81,9 @@
         </span>
       </div>
 
-      <ScheduledTestsPanel v-if="show && account && activeTab === 'schedule'" :key="account.id" :show="true" embedded
+      <ModelTracePanel v-if="show && account && activeTab === 'modeltrace'" :key="account.id" :account="account" v-model:model-id="modelId"
+        :model-options="availableModels.map(m => ({value:m.id,label:m.display_name || m.id}))" :reasoning-levels="reasoningOptions.map(o => o.value)" />
+      <ScheduledTestsPanel v-else-if="show && account && activeTab === 'schedule'" :key="account.id" :show="true" embedded
         :account-id="account.id" :default-model="modelId" :model-options="[{ value: modelId, label: modelId }]"
         :pelican-config="{ prompt, reasoning_effort: reasoningEffort, parallel_count: Number(parallelCount) }"
         :disabled="running" @preview="previewScheduled" @history="scheduledRecords = $event" />
@@ -153,7 +156,7 @@
         </button>
         <div class="flex gap-3">
           <button type="button" class="btn btn-secondary" :disabled="running" @click="handleClose">{{ t('common.close') }}</button>
-          <button v-if="activeTab !== 'schedule'" type="button" class="btn btn-primary flex items-center gap-2" :disabled="running || !canStart" @click="startTest">
+          <button v-if="activeTab !== 'schedule' && activeTab !== 'modeltrace'" type="button" class="btn btn-primary flex items-center gap-2" :disabled="running || !canStart" @click="startTest">
             <Icon v-if="running" name="refresh" size="sm" class="animate-spin" />
             <Icon v-else name="play" size="sm" />
             {{ running ? t('admin.accounts.pelicanTest.generating') : t('admin.accounts.pelicanTest.start') }}
@@ -169,6 +172,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { extractPelicanHtml as extractHtml } from '@/utils/pelicanHtml'
 import PelicanAssessment from './PelicanAssessment.vue'
+import ModelTracePanel from './ModelTracePanel.vue'
 import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
 import { CANDY_PROMPT } from '@/utils/intelligenceTest'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -232,7 +236,7 @@ async function loadModels() {
 }
 const reasoningEffort = ref('medium')
 const parallelCount = ref<string | number>(1)
-const activeTab = ref<'results' | 'history' | 'schedule'>('results')
+const activeTab = ref<'results' | 'history' | 'schedule' | 'modeltrace'>('results')
 const running = ref(false)
 const viewingScheduled = ref(false)
 const dashboardOpen = ref(false)

@@ -45,6 +45,7 @@ func RegisterAdminRoutes(
 
 		// 账号管理
 		registerAccountRoutes(admin, h, stepUpAuth)
+		admin.POST("/accounts/:id/modeltrace-test", h.Admin.Account.ModelTraceTest)
 		admin.GET("/pelican-group-tests", h.Admin.PelicanGroupTest.ListPlans)
 		admin.POST("/pelican-group-tests", h.Admin.PelicanGroupTest.CreatePlan)
 		admin.PUT("/pelican-group-tests/:id", h.Admin.PelicanGroupTest.UpdatePlan)
@@ -103,6 +104,7 @@ func RegisterAdminRoutes(
 
 		// 系统设置
 		registerSettingsRoutes(admin, h)
+		registerIPRiskRoutes(admin, h)
 
 		// 数据管理
 		registerDataManagementRoutes(admin, h, stepUpAuth)

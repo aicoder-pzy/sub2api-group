@@ -47,6 +47,7 @@
         <!-- Tab: Security — Admin API Key -->
         <div v-show="activeTab === 'security'" class="space-y-6">
           <DirectAccessSettings v-if="activeTab === 'security'" />
+          <RouterLink to="/admin/ip-risk" class="card block px-6 py-4 font-semibold text-primary-600">{{ t('admin.settings.ipRisk.title') }} →</RouterLink>
           <!-- Admin API Key Settings -->
           <div class="card">
             <div

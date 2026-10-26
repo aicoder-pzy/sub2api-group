@@ -10,6 +10,7 @@ import pelicanTests from './pelicanTests'
 import misc from './misc'
 import channelStatistics from './channelStatistics'
 import chat from './chat'
+import modelTrace from './modelTrace'
 
 export default {
   ...landing,
@@ -22,5 +23,6 @@ export default {
   pelicanTests,
   channelStatistics,
   ...chat,
+  modelTrace,
   ...misc,
 }

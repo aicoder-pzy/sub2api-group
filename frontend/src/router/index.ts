@@ -436,6 +436,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/ip-risk',
+    name: 'AdminIPRisk',
+    component: () => import('@/features/ip-risk/IPRiskView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'IP Risk Control', titleKey: 'admin.settings.ipRisk.title' }
+  },
+  {
     path: '/admin/audit-logs',
     name: 'AdminAuditLogs',
     component: () => import('@/views/admin/AuditLogView.vue'),

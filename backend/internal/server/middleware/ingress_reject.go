@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"math"
 	"net/netip"
 	"strconv"
@@ -8,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/iprisk"
+	ippkg "github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/gin-gonic/gin"
 )
 
@@ -47,6 +50,11 @@ func rejectInvalidAuthAbuse(c *gin.Context, apiKeyService interface {
 	if c == nil || apiKeyService == nil {
 		return false
 	}
+	// The shared guard only checks proven credential failures. A valid Key from
+	// the same public address must retain access, including behind shared NAT.
+	if manager := iprisk.AnonymousGuard(c); manager != nil && manager.AnonymousEnabled(c.Request.Context()) {
+		return false
+	}
 	retry, blocked := apiKeyService.CheckInvalidAuthAbuse(invalidAuthClientKey(c))
 	if !blocked {
 		return false
@@ -64,6 +72,16 @@ func recordInvalidAuthFailure(c *gin.Context, apiKeyService interface {
 	RecordInvalidAuthFailure(string)
 }) {
 	if c == nil || apiKeyService == nil {
+		return
+	}
+	if manager := iprisk.AnonymousGuard(c); manager != nil && manager.AnonymousEnabled(c.Request.Context()) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 200*time.Millisecond)
+		defer cancel()
+		ban, err := manager.AnonymousFailure(ctx, ippkg.GetTrustedClientIP(c), "unknown")
+		if err == nil && ban != nil {
+			c.Set("anonymous_auth_ban", true)
+			c.Header("Retry-After", strconv.FormatInt(max(int64(1), ban.ExpiresAt-time.Now().Unix()), 10))
+		}
 		return
 	}
 	apiKeyService.RecordInvalidAuthFailure(invalidAuthClientKey(c))

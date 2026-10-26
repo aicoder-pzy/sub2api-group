@@ -76,6 +76,9 @@ func NewErrorResponse(code, message string) ErrorResponse {
 
 // AbortWithError 中断请求并返回JSON错误
 func AbortWithError(c *gin.Context, statusCode int, code, message string) {
+	if c.GetBool("anonymous_auth_ban") && (code == "INVALID_API_KEY" || code == "API_KEY_REQUIRED" || code == "api_key_in_query_deprecated") {
+		statusCode, code, message = http.StatusTooManyRequests, "INVALID_AUTH_RATE_LIMITED", "Too many invalid authentication attempts; retry later"
+	}
 	c.JSON(statusCode, NewErrorResponse(code, message))
 	c.Abort()
 }

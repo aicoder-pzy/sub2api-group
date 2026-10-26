@@ -1,5 +1,8 @@
+import ipRisk from './ipRisk'
+
 export default {
     settings: {
+      ipRisk,
       fastestFailover: {
         title: 'Fastest failover · Global settings',
         description: 'Applies to every group using fastest failover or quality preference scheduling.',

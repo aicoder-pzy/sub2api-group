@@ -156,6 +156,7 @@ type AccountTestService struct {
 	modelMetadataRegistryAt   time.Time
 	pluginManager             *PluginManager
 	openaiGatewayService      *OpenAIGatewayService
+	modelTraceAccounts        sync.Map
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
@@ -373,6 +374,12 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
 	bindAccountTestPlatform(c, account)
+	if expected, ok := ctx.Value(modelTraceContextKey{}).(modelTraceEnvironment); ok {
+		actual, err := modelTraceEnvironmentForAccount(account, modelID)
+		if err != nil || actual != expected {
+			return s.sendErrorAndEnd(c, "ModelTrace account route changed during the test")
+		}
+	}
 	if testOpts.QualityCheck {
 		if err := validateScheduledQualityAccount(account, modelID); err != nil {
 			return s.sendErrorAndEnd(c, err.Error())
@@ -576,6 +583,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event
@@ -936,6 +944,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
 		payload = createPelicanOpenAIPayload(upstreamTestModelID, isOAuth, options.prompt, options.reasoningEffort)
 	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -2191,6 +2200,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	if len(reasoningEfforts) > 0 && reasoningEfforts[0] != "" {
 		payload["reasoning_effort"] = reasoningEfforts[0]
 	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2759,7 +2769,7 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				if _, probing := c.Get(schedulingProbeObserverKey); probing || pelicanTestRequested(c) {
+				if _, probing := c.Get(schedulingProbeObserverKey); probing || pelicanTestRequested(c) || modelTraceRequested(c.Request.Context()) {
 					return s.sendErrorAndEnd(c, "Stream ended before model completion")
 				}
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
@@ -2902,7 +2912,11 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 	// that stopped early is reported with the reason instead of as a success.
 	pelican := pelicanTestRequested(c)
 	stopReason, refusalCategory := "", ""
+	messageStopped := false
 	complete := func() error {
+		if modelTraceRequested(c.Request.Context()) && (!messageStopped || stopReason != "end_turn") {
+			return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+		}
 		if pelican {
 			if failure := pelicanClaudeStopFailure(stopReason, refusalCategory); failure != "" {
 				return s.sendErrorAndEnd(c, failure)
@@ -2962,6 +2976,7 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 				}
 			}
 		case "message_stop":
+			messageStopped = true
 			return complete()
 		case "error":
 			errorMsg := "Unknown error"
@@ -3008,7 +3023,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		usage.read(jsonStr)
 		if jsonStr == "[DONE]" {
-			if _, probing := c.Get(schedulingProbeObserverKey); (probing || pelicanTestRequested(c)) && !seenFinish {
+			if _, probing := c.Get(schedulingProbeObserverKey); (probing || pelicanTestRequested(c) || modelTraceRequested(c.Request.Context())) && !seenFinish {
 				return s.sendErrorAndEnd(c, "Chat Completions stream ended before finish_reason")
 			}
 			s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
@@ -3050,7 +3065,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 				}
 			}
 			if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
-				if _, probing := c.Get(schedulingProbeObserverKey); (probing || pelicanTestRequested(c)) && finishReason != "stop" {
+				if _, probing := c.Get(schedulingProbeObserverKey); (probing || pelicanTestRequested(c) || modelTraceRequested(c.Request.Context())) && finishReason != "stop" {
 					return s.sendErrorAndEnd(c, "Chat Completions response did not finish normally: "+finishReason)
 				}
 				seenFinish = true
@@ -3107,7 +3122,7 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
-			if _, probing := c.Get(schedulingProbeObserverKey); probing || pelicanTestRequested(c) {
+			if _, probing := c.Get(schedulingProbeObserverKey); probing || pelicanTestRequested(c) || modelTraceRequested(c.Request.Context()) {
 				if response, ok := data["response"].(map[string]any); ok {
 					if status, _ := response["status"].(string); status != "" && status != "completed" {
 						return s.sendErrorAndEnd(c, "OpenAI response did not complete: "+status)

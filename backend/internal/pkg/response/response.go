@@ -58,6 +58,8 @@ func Accepted(c *gin.Context, data any) {
 
 // Error 返回错误响应
 func Error(c *gin.Context, statusCode int, message string) {
+	c.Set("response.error_reason", "")
+	c.Set("response.error_reason", "")
 	c.JSON(statusCode, Response{
 		Code:     statusCode,
 		Message:  message,
@@ -69,6 +71,8 @@ func Error(c *gin.Context, statusCode int, message string) {
 // ErrorWithDetails returns an error response compatible with the existing envelope while
 // optionally providing structured error fields (reason/metadata).
 func ErrorWithDetails(c *gin.Context, statusCode int, message, reason string, metadata map[string]string) {
+	c.Set("response.error_reason", reason)
+	c.Set("response.error_reason", "")
 	c.JSON(statusCode, Response{
 		Code:     statusCode,
 		Message:  message,
@@ -94,6 +98,8 @@ func ErrorFrom(c *gin.Context, err error) bool {
 	ErrorWithDetails(c, statusCode, status.Message, status.Reason, status.Metadata)
 	return true
 }
+
+func ErrorReason(c *gin.Context) string { return c.GetString("response.error_reason") }
 
 // BadRequest 返回400错误
 func BadRequest(c *gin.Context, message string) {

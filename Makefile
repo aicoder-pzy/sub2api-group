@@ -28,6 +28,10 @@ FRONTEND_CRITICAL_VITEST := \
 	src/components/admin/account/__tests__/PelicanTestModal.spec.ts \
 	src/components/admin/account/__tests__/PelicanTestFields.spec.ts \
 	src/utils/__tests__/pelicanHtml.spec.ts \
+	src/api/admin/__tests__/modelTrace.spec.ts \
+	src/components/admin/account/__tests__/ModelTracePanel.spec.ts \
+	src/features/ip-risk/__tests__/IPRiskSettings.spec.ts \
+	src/features/ip-risk/__tests__/api.spec.ts \
 	src/utils/__tests__/pelicanPreview.spec.ts \
 	src/views/admin/__tests__/PrismView.spec.ts \
 	src/views/admin/__tests__/BPSTicketsView.spec.ts \
