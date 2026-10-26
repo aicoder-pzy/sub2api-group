@@ -138,7 +138,6 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	var checkedPolicy *ErrorPolicyResult
 	maxAttempts := geminiUpstreamAttemptLimit(ctx, account)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		checkedPolicy = nil
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
