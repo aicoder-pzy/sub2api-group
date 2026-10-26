@@ -117,6 +117,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			"This group is restricted to Claude Code clients (/v1/messages only)")
 		return
 	}
+	if geminiImageGenerationRejected(c, apiKey, nil, reqModel, channelMapping.MappedModel) {
+		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", service.ImageGenerationPermissionMessage())
+		return
+	}
 
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, body); decision != nil && !decision.AllowNextStage {
 		h.responsesSecurityAuditError(c, decision)
@@ -299,8 +303,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			accountReleaseFunc()
 		}
 
-		submitForwardUsage := func() {
-			// 6. Record usage
+		// 提交 usage 记录。成功路径与"流中断但 Forward 已观测到 usage 的部分结果"
+		// 错误路径共用；failover 错误恒定 result=nil，不会重复计费。
+		submitForwardUsage := func(result *service.ForwardResult) {
 			userAgent := c.GetHeader("User-Agent")
 			clientIP := ip.GetClientIP(c)
 			requestPayloadHash := service.HashUsageRequestPayload(body)
@@ -370,10 +375,14 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 				zap.Error(err),
 			)
+			if result != nil {
+				submitForwardUsage(result)
+			}
 			return
 		}
 
-		submitForwardUsage()
+		// 6. Record usage
+		submitForwardUsage(result)
 		return
 	}
 }

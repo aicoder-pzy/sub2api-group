@@ -462,7 +462,8 @@ func (w *fastestFailoverStreamWriter) Write(data []byte) (int, error) {
 		timedOut := w.attempt.timedOut
 		w.attempt.mutex.Unlock()
 		if timedOut {
-			return 0, context.DeadlineExceeded
+			w.err = context.DeadlineExceeded
+			return 0, w.err
 		}
 	}
 	if !w.started {

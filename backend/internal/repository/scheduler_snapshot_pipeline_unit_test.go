@@ -5,7 +5,6 @@ package repository
 import (
 	"context"
 	"net"
-	"strconv"
 	"testing"
 	"time"
 
@@ -32,7 +31,7 @@ func (h *snapshotReadHook) ProcessPipelineHook(next redis.ProcessPipelineHook) r
 	}
 }
 
-func TestSchedulerSnapshotPipelinesBoundedFieldsAndFreshLastUsed(t *testing.T) {
+func TestSchedulerSnapshotMemoKeepsFreshLastUsedAndDeletion(t *testing.T) {
 	ctx := context.Background()
 	cache := newSchedulerCacheUnit(t)
 	cache.mgetChunkSize = 2
@@ -53,23 +52,18 @@ func TestSchedulerSnapshotPipelinesBoundedFieldsAndFreshLastUsed(t *testing.T) {
 		require.Equal(t, accounts[i].ID, account.ID)
 	}
 	require.Equal(t, latest, *result[2].LastUsedAt)
-	require.Equal(t, 1, hook.direct)  // membership ZRANGE
-	require.Len(t, hook.pipelines, 3) // control pair + two bounded field pairs
-	for _, pair := range hook.pipelines[1:] {
-		require.Len(t, pair, 2)
-		for _, command := range pair {
-			require.Equal(t, "mget", command.Name())
-			require.LessOrEqual(t, len(command.Args())-1, 2)
-		}
-	}
+	require.Equal(t, 6, hook.direct) // tags, membership, two metadata chunks, two LRU chunks
+	require.Empty(t, hook.pipelines)
 	// Side-key changes must be visible without publishing a new bucket version.
 	newer := latest.Add(time.Minute)
 	require.NoError(t, cache.UpdateLastUsed(ctx, map[int64]time.Time{803: newer}))
+	hook.direct = 0
 	result, hit, err = cache.GetSnapshot(ctx, bucket)
 	require.NoError(t, err)
 	require.True(t, hit)
 	require.Equal(t, newer, *result[2].LastUsedAt)
-	require.NoError(t, cache.rdb.Del(ctx, schedulerAccountMetaKey(strconv.Itoa(802))).Err())
+	require.Equal(t, 3, hook.direct) // memo hit reads tags and fresh LRU only
+	require.NoError(t, cache.DeleteAccount(ctx, 802))
 	_, hit, err = cache.GetSnapshot(ctx, bucket)
 	require.NoError(t, err)
 	require.False(t, hit) // missing metadata cannot return a partial candidate pool
@@ -103,7 +97,8 @@ func TestSchedulerSnapshotPipelineControlErrors(t *testing.T) {
 			}
 			_, hit, err := cache.GetSnapshot(ctx, bucket)
 			require.False(t, hit)
-			if kind == "wrong_ready" || kind == "wrong_active" || kind == "cancelled" {
+			// MGET treats non-string control values as missing: fail closed.
+			if kind == "cancelled" {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
