@@ -57,6 +57,16 @@ func TestSmartChannelCapabilityDeclarations(t *testing.T) {
 }
 
 func TestSmartChannelCapacitySpilloverPreservesPrimary(t *testing.T) {
+	for _, batch := range []bool{false, true} {
+		name := "without_batch_load"
+		if batch {
+			name = "with_batch_load"
+		}
+		t.Run(name, func(t *testing.T) { testSmartChannelCapacitySpilloverPreservesPrimary(t, batch) })
+	}
+}
+
+func testSmartChannelCapacitySpilloverPreservesPrimary(t *testing.T, batch bool) {
 	ctx := smartChannelTestContext()
 	groupID := int64(71)
 	state, ok := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
@@ -73,6 +83,7 @@ func TestSmartChannelCapacitySpilloverPreservesPrimary(t *testing.T) {
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cache: cache,
 		cfg: &config.Config{}, settingService: &SettingService{settingRepo: &panelRateLimitSettingRepo{}},
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquireResults: map[int64]bool{1: false, 2: true, 3: true}})}
+	svc.cfg.Gateway.Scheduling.LoadBatchEnabled = batch
 	selection, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", "gpt-6.1-sol", nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), selection.Account.ID, "unknown model support cannot win even with higher priority and free capacity")

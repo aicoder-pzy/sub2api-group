@@ -1169,7 +1169,8 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		}
 		stickyAccountID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)
 	}
-	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
+	// Smart capacity spillover must work even when legacy batch load reads are off.
+	if !smartChannelEnabled(ctx) && (s.concurrencyService == nil || !cfg.LoadBatchEnabled) {
 		account, stickyHit, err := s.selectAccountForModelWithExclusionsStickyHit(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability, preferLowUpstreamRate)
 		if err != nil {
 			return nil, err
