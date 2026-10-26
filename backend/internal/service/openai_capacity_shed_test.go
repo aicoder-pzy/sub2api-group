@@ -293,7 +293,7 @@ func TestOpenAIStreamEmptyContentBeforeFailureCanFailOver(t *testing.T) {
 
 func TestOpenAIStreamReplayBoundaryPreservesContentAndToolCompletion(t *testing.T) {
 	for _, payload := range []string{
-		`{"type":"response.output_text.delta","delta":" "}`,
+		`{"type":"response.output_text.delta","delta":"hello"}`,
 		`{"type":"response.function_call_arguments.delta","delta":"{}"}`,
 		`{"type":"response.custom_tool_call_input.delta","delta":"run"}`,
 		`{"type":"response.function_call_arguments.done","arguments":""}`,

@@ -1200,15 +1200,18 @@ func openAIStreamDataStartsClientOutput(data, eventType string) bool {
 		// Keep leading whitespace attempt-local. It must not prevent switching
 		// accounts on a later failure, nor disarm the first-output deadline.
 		if gjson.Valid(trimmed) {
-			return strings.TrimSpace(gjson.Get(trimmed, "delta").String()) != ""
+			value := gjson.Get(trimmed, "delta")
+			return value.Type != gjson.String || strings.TrimSpace(value.String()) != ""
 		}
 	case "response.output_text.done", "response.reasoning_text.done", "response.reasoning_summary_text.done":
 		if gjson.Valid(trimmed) {
-			return strings.TrimSpace(gjson.Get(trimmed, "text").String()) != ""
+			value := gjson.Get(trimmed, "text")
+			return value.Type != gjson.String || strings.TrimSpace(value.String()) != ""
 		}
 	case "response.refusal.done":
 		if gjson.Valid(trimmed) {
-			return strings.TrimSpace(gjson.Get(trimmed, "refusal").String()) != ""
+			value := gjson.Get(trimmed, "refusal")
+			return value.Type != gjson.String || strings.TrimSpace(value.String()) != ""
 		}
 	case "response.function_call_arguments.delta", "response.custom_tool_call_input.delta":
 		if gjson.Valid(trimmed) {

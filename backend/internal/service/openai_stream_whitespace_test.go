@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 const openAIWhitespaceOnlyPrelude = `data: {"type":"response.created","response":{"id":"resp_whitespace"}}
@@ -112,7 +113,13 @@ func TestOpenAIStreamLeadingWhitespaceReplaySafety(t *testing.T) {
 					require.False(t, attempt.outputStarted, "whitespace must not disarm the first-output deadline")
 				case "success":
 					require.NoError(t, err)
-					require.Contains(t, rec.Body.String(), openAIWhitespaceOnlyPrelude, "preserve all staged whitespace once real output arrives")
+					// Native streams add created_at to the lifecycle response.
+					first, _, _ := strings.Cut(rec.Body.String(), "\n\n")
+					payload := strings.TrimPrefix(first, "data: ")
+					require.Equal(t, "response.created", gjson.Get(payload, "type").String())
+					require.Equal(t, "resp_whitespace", gjson.Get(payload, "response.id").String())
+					_, whitespace, _ := strings.Cut(openAIWhitespaceOnlyPrelude, "\n\n")
+					require.Contains(t, rec.Body.String(), whitespace, "preserve all staged whitespace once real output arrives")
 					require.Contains(t, rec.Body.String(), `"delta":"hello"`)
 					require.True(t, attempt.outputStarted)
 				case "tool_then_overload":
