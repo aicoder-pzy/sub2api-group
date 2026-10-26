@@ -1143,11 +1143,11 @@ func openAIStreamAddedEventStartsClientOutput(payload []byte, eventType string) 
 			}
 			return false
 		case "function_call":
-			return item.Get("arguments").String() != ""
+			return strings.TrimSpace(eventType) == "response.output_item.done" || item.Get("arguments").String() != ""
 		case "custom_tool_call":
-			return item.Get("input").String() != ""
+			return strings.TrimSpace(eventType) == "response.output_item.done" || item.Get("input").String() != ""
 		case "compaction":
-			return item.Get("encrypted_content").String() != ""
+			return strings.TrimSpace(eventType) == "response.output_item.done" || item.Get("encrypted_content").String() != ""
 		default:
 			return true
 		}

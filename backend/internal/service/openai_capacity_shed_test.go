@@ -299,6 +299,8 @@ func TestOpenAIStreamReplayBoundaryPreservesContentAndToolCompletion(t *testing.
 		`{"type":"response.function_call_arguments.done","arguments":""}`,
 		`{"type":"response.custom_tool_call_input.done","input":""}`,
 		`{"type":"response.output_item.done","item":{"type":"function_call","arguments":""}}`,
+		`{"type":"response.output_item.done","item":{"type":"custom_tool_call","input":""}}`,
+		`{"type":"response.output_item.done","item":{"type":"compaction","encrypted_content":""}}`,
 		`{"type":"response.output_item.done","item":{"type":"reasoning","encrypted_content":"ciphertext"}}`,
 		`{"type":"response.output_text.delta","delta":null}`,
 		`{"type":"response.output_text.delta"}`,
