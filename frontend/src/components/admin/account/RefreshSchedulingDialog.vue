@@ -20,7 +20,7 @@
       <div v-if="snapshot" class="space-y-3">
         <p v-if="snapshot.scheduling_mode === 'smart_channel'" class="rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">{{ t('admin.accounts.schedulingStatus.smartCoverage', { declared: snapshot.declared_channels ?? 0, available: snapshot.available_channels ?? 0 }) }} <span v-if="(snapshot.available_channels ?? 0) < 2">{{ t('admin.accounts.schedulingStatus.smartSingleChannel') }}</span></p>
         <template v-if="['model_auto', 'smart_channel'].includes(snapshot.scheduling_mode || '')">
-          <p class="rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">{{ t('admin.accounts.schedulingStatus.autoPolicy') }}</p>
+          <p class="rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">{{ t(snapshot.scheduling_mode === 'smart_channel' ? 'admin.accounts.schedulingStatus.smartPolicy' : 'admin.accounts.schedulingStatus.autoPolicy') }}</p>
           <p v-if="snapshot.model_auto_review" class="text-sm">{{ t('admin.accounts.schedulingStatus.autoReview', { id: snapshot.model_auto_review.candidate_id || '—', count: snapshot.model_auto_review.evaluations, hold: formatDateTime(new Date(snapshot.model_auto_review.hold_until).toISOString()) }) }} · {{ t(snapshot.model_auto_review.ready ? 'admin.accounts.schedulingStatus.autoReady' : 'admin.accounts.schedulingStatus.autoObserving') }}</p>
         </template>
         <p v-if="snapshot.scheduling_mode === 'quality_preferred'" class="text-xs text-gray-500">{{ t('admin.accounts.schedulingStatus.qualityPolicy') }}</p>
@@ -109,7 +109,7 @@ const { t } = useI18n()
 const model = ref('')
 const effort = ref('')
 const efforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
-const contextBuckets = ['<8K', '8K–32K', '32K–128K', '≥128K']
+const contextBuckets = ['<8K', '8K–32K', '32K–128K', '128K–200K', '200K–256K', '≥256K']
 const rate = (successes: number, failures: number) => successes + failures > 0 ? `${(100 * successes / (successes + failures)).toFixed(1)}% (${successes + failures})` : '—'
 const milliseconds = (value?: number) => value && value > 0 ? `${(value / 1000).toFixed(1)}s` : '—'
 const models = ref<string[]>([])

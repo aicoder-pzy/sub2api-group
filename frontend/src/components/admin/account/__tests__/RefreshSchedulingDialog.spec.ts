@@ -31,7 +31,8 @@ describe('active scheduling evaluation', () => {
       candidates: [{ account_id: 1, name: 'Supplier A', current: true, eligible: true,
         rank: 1, confidence: 'unknown', samples: 0, success_rate: null, recent_failures: 0,
         last_success_at: null, last_failure_at: null, cooldown_seconds: 0,
-        capability_source: 'group_rule', upstream_model: 'supplier-model-a' }],
+        capability_source: 'group_rule', upstream_model: 'supplier-model-a',
+        model_auto: { effort: 'medium', buckets: [3, 4, 5].map(context_bucket => ({ context_bucket, samples: 30, p50_ms: 1000, p95_ms: 2000, output_tps: 50, cost_ratio: 0.1, output_samples: 30 })) } }],
     })
     const wrapper = mount(RefreshSchedulingDialog, {
       props: { group: { ...group, account_scheduling_mode: 'smart_channel' }, readOnly: true },
@@ -42,7 +43,10 @@ describe('active scheduling evaluation', () => {
     expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.smartSingleChannel')
     expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.capabilitySources.group_rule')
     expect(wrapper.text()).toContain('supplier-model-a')
-    expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.autoPolicy')
+    expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.smartPolicy')
+    expect(wrapper.text()).toContain('128K–200K')
+    expect(wrapper.text()).toContain('200K–256K')
+    expect(wrapper.text()).toContain('≥256K')
     expect(wrapper.find('select').exists()).toBe(true)
     expect(fetch).not.toHaveBeenCalled()
     expect(wrapper.emitted('updated')).toBeUndefined()

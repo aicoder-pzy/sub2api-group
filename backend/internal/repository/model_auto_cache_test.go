@@ -172,4 +172,19 @@ func TestSmartChannelRedisTrialsRespectSharedCooldownAndSessionLimit(t *testing.
 	require.EqualValues(t, 1, id)
 	_, err := server.Get("model_auto:session:6:bQ:trial-count")
 	require.NoError(t, err)
+	// Race fresh sessions on a new scope: exactly one can reserve the trial.
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, _, err := cache.AssignModelAutoSession(ctx, 8, "m", strconv.Itoa(i), 1, []int64{1, 2, 3}, []int64{2, 3}, 30*time.Minute)
+			if err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	trials, err := server.Get("model_auto:session:8:bQ:trial-count")
+	require.NoError(t, err)
+	require.Equal(t, "1", trials, "concurrent replicas cannot multiply trial reservations")
 }
