@@ -364,7 +364,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			if errors.As(err, &failoverErr) {
 				if c.Writer.Size() != writerSizeBeforeForward {
 					if result != nil {
-						submitForwardUsage()
+						submitForwardUsage(result)
 					}
 					h.handleCCFailoverExhausted(c, failoverErr, true)
 					return

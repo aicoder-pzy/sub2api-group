@@ -347,7 +347,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				// Can't failover if streaming content already sent
 				if c.Writer.Size() != writerSizeBeforeForward {
 					if result != nil {
-						submitForwardUsage()
+						submitForwardUsage(result)
 					}
 					h.handleResponsesFailoverExhausted(c, failoverErr, true)
 					return

@@ -1180,7 +1180,6 @@ func openAIStreamDataStartsClientOutput(data, eventType string) bool {
 	if trimmed == "" {
 		return false
 	}
-	field := ""
 	switch strings.TrimSpace(eventType) {
 	case "response.failed":
 		return false
