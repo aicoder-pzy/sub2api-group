@@ -176,6 +176,11 @@ export default {
         interrupted: 'Connection interrupted without completion confirmation. Refresh the account list to check the current binding.'
       },
       schedulingStatus: {
+        smartCoverage: '{declared} channels declare this model; {available} are currently eligible.',
+        smartSingleChannel: 'Fewer than two eligible channels: no eligible backup.',
+        model_not_declared: 'Model support is undeclared; excluded from smart scheduling',
+        model_account_not_allowed: 'Excluded by this group\'s model routing rule',
+        capabilitySources: { group_rule: 'Group model rule', model_mapping: 'Channel model mapping', model_catalog: 'Synced model catalog', unknown: 'Model support unknown', unrestricted: 'Unrestricted' },
         autoPolicy: 'Automatic model optimization: 90% of new sessions use the primary; 10% try healthy backups. Healthy sessions retain their account. Promotion needs 20 samples at the same effort and comparable context size, three evaluations and a 30-minute hold. Latency promotion requires at least 20% and 1 second better P95 without a materially worse P50. Faults, multiplier violations and confirmed degradation fail over immediately. Routine tests follow the primary. This view never assigns trials or changes review state.',
         autoReview: 'Candidate #{id} · consecutive evaluations {count}/3 · hold primary until {hold}',
         autoReady: 'Ready after a successful new session', autoObserving: 'Observing',

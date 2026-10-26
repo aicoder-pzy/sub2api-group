@@ -2416,6 +2416,9 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 }
 
 func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, account *Account, headers http.Header, body []byte) {
+	if account != nil && account.Type == AccountTypeAPIKey {
+		return
+	}
 	if s == nil || s.accountRepo == nil || account == nil {
 		return
 	}

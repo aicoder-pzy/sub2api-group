@@ -176,6 +176,11 @@ export default {
         interrupted: '测试连接中断，未收到完成确认；请刷新账号列表确认当前调度。'
       },
       schedulingStatus: {
+        smartCoverage: '该模型已声明 {declared} 条渠道，当前可用 {available} 条。',
+        smartSingleChannel: '可用渠道不足两条，缺少可用备用。',
+        model_not_declared: '未声明支持该模型，智能调度已排除',
+        model_account_not_allowed: '不在本组该模型允许的渠道范围',
+        capabilitySources: { group_rule: '分组模型规则', model_mapping: '渠道模型映射', model_catalog: '已同步模型目录', unknown: '模型能力未知', unrestricted: '未限制' },
         autoPolicy: '模型自动优选：90% 新会话主用，10% 轮流试用健康备用；正常会话保持账号。至少 20 条同强度、同输入规模样本，连续三次评估且主用满 30 分钟才升级。首字升级需 P95 改善 ≥20% 且 ≥1 秒，P50 不明显变差。故障、倍率超限和确认降智立即处理；普通测智跟随主账号。查看本页不会触发试用或修改评估状态。',
         autoReview: '候选 #{id} · 连续评估 {count}/3 · 主用保持至 {hold}',
         autoReady: '可在新会话成功后升级', autoObserving: '继续观察',

@@ -150,6 +150,7 @@ const (
 	AccountSchedulingModeFastestFailover  = "fastest_failover"
 	AccountSchedulingModeQualityPreferred = "quality_preferred"
 	AccountSchedulingModeModelAuto        = "model_auto"
+	AccountSchedulingModeSmartChannel     = "smart_channel"
 )
 
 func normalizeAccountSchedulingMode(mode string) (string, error) {
@@ -163,7 +164,7 @@ func normalizeAccountSchedulingMode(mode string) (string, error) {
 }
 
 func usesFailoverScheduling(mode string) bool {
-	return mode == AccountSchedulingModeFastestFailover || mode == AccountSchedulingModeQualityPreferred || mode == AccountSchedulingModeModelAuto
+	return mode == AccountSchedulingModeFastestFailover || mode == AccountSchedulingModeQualityPreferred || mode == AccountSchedulingModeModelAuto || mode == AccountSchedulingModeSmartChannel
 }
 
 // IsGroupBindableInSimpleMode is the shared policy for groups that may be

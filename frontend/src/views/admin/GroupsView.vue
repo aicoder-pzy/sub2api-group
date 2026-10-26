@@ -524,7 +524,7 @@
         <div>
           <label class="input-label">{{ t("admin.groups.form.accountSchedulingMode") }}</label>
           <Select v-model="createForm.account_scheduling_mode" :options="accountSchedulingModeOptions" />
-          <p class="input-hint">{{ t(createForm.account_scheduling_mode === "model_auto" ? "admin.groups.form.accountSchedulingModelAutoHint" : "admin.groups.form.accountSchedulingModeHint") }}</p>
+          <p class="input-hint">{{ t(createForm.account_scheduling_mode === "smart_channel" ? "admin.groups.form.accountSchedulingSmartChannelHint" : createForm.account_scheduling_mode === "model_auto" ? "admin.groups.form.accountSchedulingModelAutoHint" : "admin.groups.form.accountSchedulingModeHint") }}</p>
         </div>
         <!-- 从分组复制账号 -->
         <div v-if="!authStore.isSimpleMode && copyAccountsGroupOptions.length > 0">
@@ -2178,7 +2178,7 @@
         <div>
           <label class="input-label">{{ t("admin.groups.form.accountSchedulingMode") }}</label>
           <Select v-model="editForm.account_scheduling_mode" :options="accountSchedulingModeOptions" />
-          <p class="input-hint">{{ t(editForm.account_scheduling_mode === "model_auto" ? "admin.groups.form.accountSchedulingModelAutoHint" : "admin.groups.form.accountSchedulingModeHint") }}</p>
+          <p class="input-hint">{{ t(editForm.account_scheduling_mode === "smart_channel" ? "admin.groups.form.accountSchedulingSmartChannelHint" : editForm.account_scheduling_mode === "model_auto" ? "admin.groups.form.accountSchedulingModelAutoHint" : "admin.groups.form.accountSchedulingModeHint") }}</p>
         </div>
         <template v-if="!authStore.isSimpleMode">
         <!-- 从分组复制账号（编辑时） -->
@@ -4656,6 +4656,7 @@ const platformOptions = computed(() =>
 );
 
 const accountSchedulingModeOptions = computed(() => [
+  { value: "smart_channel", label: t("admin.groups.form.accountSchedulingSmartChannel") },
   { value: "priority", label: t("admin.groups.form.accountSchedulingPriority") },
   { value: "fastest_failover", label: t("admin.groups.form.accountSchedulingFastestFailover") },
   { value: "quality_preferred", label: t("admin.groups.form.accountSchedulingQualityPreferred") },
@@ -4987,7 +4988,7 @@ const createForm = reactive({
   description: "",
   i18n: {} as GroupI18n,
   platform: "anthropic" as GroupPlatform,
-  account_scheduling_mode: "priority" as "priority" | "fastest_failover" | "quality_preferred" | "model_auto",
+  account_scheduling_mode: "priority" as "priority" | "fastest_failover" | "quality_preferred" | "model_auto" | "smart_channel",
   rate_multiplier: 1.0,
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
@@ -5355,7 +5356,7 @@ const editForm = reactive({
   description: "",
   i18n: {} as GroupI18n,
   platform: "anthropic" as GroupPlatform,
-  account_scheduling_mode: "priority" as "priority" | "fastest_failover" | "quality_preferred" | "model_auto",
+  account_scheduling_mode: "priority" as "priority" | "fastest_failover" | "quality_preferred" | "model_auto" | "smart_channel",
   rate_multiplier: 1.0,
   is_exclusive: false,
   status: "active" as "active" | "inactive",

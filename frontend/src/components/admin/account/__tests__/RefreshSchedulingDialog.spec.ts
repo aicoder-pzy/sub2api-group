@@ -22,6 +22,32 @@ function response(events: object[]) {
 }
 afterEach(() => vi.unstubAllGlobals())
 describe('active scheduling evaluation', () => {
+  it('shows smart model coverage, capability sources and promotion evidence without paid probes', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    vi.mocked(getGroupSchedulingStatus).mockResolvedValue({
+      scheduling_mode: 'smart_channel', model: 'model-a', current_account_id: 1,
+      declared_channels: 2, available_channels: 1, minimum_samples: 10, transition: null,
+      candidates: [{ account_id: 1, name: 'Supplier A', current: true, eligible: true,
+        rank: 1, confidence: 'unknown', samples: 0, success_rate: null, recent_failures: 0,
+        last_success_at: null, last_failure_at: null, cooldown_seconds: 0,
+        capability_source: 'group_rule', upstream_model: 'supplier-model-a' }],
+    })
+    const wrapper = mount(RefreshSchedulingDialog, {
+      props: { group: { ...group, account_scheduling_mode: 'smart_channel' }, readOnly: true },
+      global: { stubs: { BaseDialog: { template: '<div><slot/><slot name="footer"/></div>' } } },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.smartCoverage')
+    expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.smartSingleChannel')
+    expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.capabilitySources.group_rule')
+    expect(wrapper.text()).toContain('supplier-model-a')
+    expect(wrapper.text()).toContain('admin.accounts.schedulingStatus.autoPolicy')
+    expect(wrapper.find('select').exists()).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    wrapper.unmount()
+  })
   it('shows automatic promotion evidence without triggering a trial or review', async () => {
     const fetch = vi.fn()
     vi.stubGlobal('fetch', fetch)

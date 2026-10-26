@@ -300,6 +300,9 @@ const (
 // CheckErrorPolicy 检查自定义错误码和临时不可调度规则。
 // 自定义错误码开启时覆盖后续所有逻辑（包括临时不可调度）。
 func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel ...string) ErrorPolicyResult {
+	if isOpenAIRelayRequestError(account, statusCode, responseBody) {
+		return ErrorPolicySkipped
+	}
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	if account.IsCustomErrorCodesEnabled() {
 		if account.ShouldHandleErrorCode(statusCode) {
@@ -331,6 +334,9 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
+	if isOpenAIRelayRequestError(account, statusCode, responseBody) {
+		return false
+	}
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	// Team 联动熔断必须先于池模式/自定义错误码/临时不可调度的各类早退；
 	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
@@ -343,6 +349,14 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		if tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, nil)) &&
 			s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
 			return true
+		}
+		if smartChannelEnabled(ctx) && account.Platform == PlatformOpenAI {
+			if statusCode == http.StatusTooManyRequests {
+				s.handle429(ctx, account, headers, responseBody)
+			}
+			if s.HandleUpstreamModelNotFound(ctx, account, tempUnschedulableModel(ctx, requestedModel), statusCode, responseBody) {
+				return true
+			}
 		}
 		slog.Info("pool_mode_error_skipped", "account_id", account.ID, "status_code", statusCode)
 		return false
@@ -1276,6 +1290,11 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	}
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
+		// A relay's internal Codex quota is not the quota of our API key (#515).
+		if account.Type == AccountTypeAPIKey {
+			s.apply429FallbackRateLimit(ctx, account, "openai_apikey_upstream_429")
+			return
+		}
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
 		s.persistOpenAICodexSnapshot(ctx, account, headers)
 		notifyOpenAIAutoReset(account.ID)

@@ -14,6 +14,12 @@ import (
 )
 
 func TestPelicanDegradationConfirmationAndRollingBudget(t *testing.T) {
+	for _, mode := range []string{"quality_preferred", "smart_channel"} {
+		t.Run(mode, func(t *testing.T) { testPelicanDegradationConfirmationAndRollingBudget(t, mode) })
+	}
+}
+
+func testPelicanDegradationConfirmationAndRollingBudget(t *testing.T, firstMode string) {
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Microsecond)
 	base := now
@@ -24,7 +30,7 @@ func TestPelicanDegradationConfirmationAndRollingBudget(t *testing.T) {
 	})
 	groups := createPelicanGroupTestGroups(t, "confirmation", "confirmation-other")
 	for i, group := range groups {
-		mode := "quality_preferred"
+		mode := firstMode
 		if i == 1 {
 			mode = "model_auto"
 		}

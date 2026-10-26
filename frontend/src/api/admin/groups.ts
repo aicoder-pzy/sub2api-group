@@ -6,6 +6,8 @@
 import { apiClient } from '../client'
 
 export interface SchedulingCandidateStatus {
+  capability_source?: string
+  upstream_model?: string
   model_auto?: { effort: string; buckets: { context_bucket: number; samples: number; p50_ms: number; p95_ms: number; output_tps: number; cost_ratio: number; output_samples: number }[] }
   model_auto_reason?: string
   degradation?: { status: 'pending' | 'confirmed' | 'normal'; sampled_at: string; due_at?: string }
@@ -41,6 +43,8 @@ export interface SchedulingCandidateStatus {
 }
 
 export interface GroupSchedulingStatus {
+  declared_channels?: number
+  available_channels?: number
   model_auto_review?: { primary_id: number; candidate_id: number; evaluations: number; next_evaluation: number; hold_until: number; ready: boolean; reason: string }
 	scheduling_mode?: string
 	recommended_account_id?: number

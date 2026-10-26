@@ -10,6 +10,8 @@ import (
 )
 
 type SchedulingCandidateStatus struct {
+	CapabilitySource      string                    `json:"capability_source,omitempty"`
+	UpstreamModel         string                    `json:"upstream_model,omitempty"`
 	Degradation           *PelicanDegradationState  `json:"degradation,omitempty"`
 	Quality               *AccountQualityEvidence   `json:"quality,omitempty"`
 	Auto                  *ModelAutoAccountEvidence `json:"model_auto,omitempty"`
@@ -37,6 +39,8 @@ type SchedulingCandidateStatus struct {
 }
 
 type GroupSchedulingStatus struct {
+	DeclaredChannels     int                             `json:"declared_channels"`
+	AvailableChannels    int                             `json:"available_channels"`
 	SchedulingMode       string                          `json:"scheduling_mode"`
 	RecommendedAccountID int64                           `json:"recommended_account_id"`
 	Model                string                          `json:"model"`
@@ -114,6 +118,7 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 			return nil, err
 		}
 		account := &accounts[i]
+		declared, source := s.settingService.modelAccountCapability(ctx, &groupID, model, account.ID, account)
 		sample := quality[account.ID]
 		status := SchedulingCandidateStatus{AccountID: account.ID, Name: account.Name, Current: account.ID == activeID,
 			SchedulingPreferred: accountSchedulingPreferred(account), Priority: account.Priority,
@@ -121,6 +126,16 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 			Confidence: sample.confidence(int64(settings.MinimumSamples)), Samples: sample.attempts(), RecentFailures: sample.RecentFailures,
 			LastSuccessAt: sample.LastSuccessAt, LastFailureAt: sample.LastFailureAt,
 			IntelligenceVerdict: sample.IntelligenceVerdict, IntelligenceReason: sample.IntelligenceReason, IntelligenceAt: sample.IntelligenceAt}
+		if smartChannelEnabled(ctx) {
+			status.CapabilitySource = source
+			status.UpstreamModel = account.GetMappedModel(upstreamModel)
+			if account.IsOpenAICompatible() {
+				status.UpstreamModel = resolveOpenAIAccountUpstreamModelForRequest(account, upstreamModel, false)
+			}
+			if declared {
+				result.DeclaredChannels++
+			}
+		}
 		if modelAutoEnabled(ctx) {
 			status.Auto = sample.Auto
 			status.AutoReason = modelAutoPromotionReason(quality[activeID], sample)
@@ -152,6 +167,7 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 		selected, selectionErr := selectAccount(excluded)
 		status.Eligible = !account.IsSyntheticUITest() && selectionErr == nil && selected != nil && selected.ID == account.ID
 		if status.Eligible {
+			result.AvailableChannels++
 			eligible = append(eligible, account)
 		} else {
 			status.Reason = "unavailable"
@@ -163,6 +179,12 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 			}
 			if account.Status != StatusActive || !account.Schedulable {
 				status.Reason = "paused"
+			}
+			if smartChannelEnabled(ctx) && !declared {
+				status.Reason = "model_not_declared"
+				if source == "group_rule" {
+					status.Reason = "model_account_not_allowed"
+				}
 			}
 		}
 		statuses[account.ID] = status

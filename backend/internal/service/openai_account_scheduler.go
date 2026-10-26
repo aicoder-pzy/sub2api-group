@@ -1777,7 +1777,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if account == nil {
 		return false, "account_nil"
 	}
-	if s != nil && s.service != nil && !s.service.IsModelAccountAllowed(ctx, req.GroupID, req.RequestedModel, account.ID) {
+	if s != nil && s.service != nil && !s.service.IsModelAccountAllowed(ctx, req.GroupID, req.RequestedModel, account.ID, account) {
 		return false, "model_account_not_allowed"
 	}
 	if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {

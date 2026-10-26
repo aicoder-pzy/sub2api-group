@@ -81,8 +81,14 @@ func (c *modelAutoCacheFake) AssignModelAutoSession(_ context.Context, _ int64, 
 }
 
 func TestModelAutoTrialsSessionsPromotionAndFailureAreSeparate(t *testing.T) {
+	for _, mode := range []string{AccountSchedulingModeModelAuto, AccountSchedulingModeSmartChannel} {
+		t.Run(mode, func(t *testing.T) { testModelAutoTrialsSessionsPromotionAndFailure(t, mode) })
+	}
+}
+
+func testModelAutoTrialsSessionsPromotionAndFailure(t *testing.T, mode string) {
 	groupID := int64(6)
-	base := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: groupID, AccountSchedulingMode: AccountSchedulingModeModelAuto})
+	base := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: groupID, AccountSchedulingMode: mode})
 	cache := &modelAutoCacheFake{accountSchedulingCacheStub: &accountSchedulingCacheStub{bindings: make(map[string]int64)}, sessions: make(map[string]int64), counts: make(map[string]int)}
 	accounts := []*Account{{ID: 1}, {ID: 2}, {ID: 3}}
 	repo := accountSchedulingQualityStub{quality: map[int64]GroupModelAccountQuality{1: modelAutoSample(10000), 2: modelAutoSample(7000), 3: modelAutoSample(12000)}}

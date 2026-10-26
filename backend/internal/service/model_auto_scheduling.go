@@ -62,7 +62,7 @@ type modelAutoPrimaryOnlyKey struct{}
 
 func modelAutoEnabled(ctx context.Context) bool {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
-	return group != nil && group.AccountSchedulingMode == AccountSchedulingModeModelAuto
+	return group != nil && (group.AccountSchedulingMode == AccountSchedulingModeModelAuto || group.AccountSchedulingMode == AccountSchedulingModeSmartChannel)
 }
 
 func withModelAutoSession(ctx context.Context, session string) context.Context {

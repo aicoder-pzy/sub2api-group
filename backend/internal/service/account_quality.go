@@ -53,7 +53,7 @@ type qualityProbeReservations struct {
 
 func qualityPreferredEnabled(ctx context.Context) bool {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
-	return group != nil && (group.AccountSchedulingMode == AccountSchedulingModeQualityPreferred || group.AccountSchedulingMode == AccountSchedulingModeModelAuto)
+	return group != nil && (group.AccountSchedulingMode == AccountSchedulingModeQualityPreferred || group.AccountSchedulingMode == AccountSchedulingModeModelAuto || group.AccountSchedulingMode == AccountSchedulingModeSmartChannel)
 }
 
 func qualityProbe(ctx context.Context) bool { return ctx.Value(qualitySchedulingProbeKey{}) != nil }

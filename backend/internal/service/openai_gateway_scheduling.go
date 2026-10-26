@@ -531,6 +531,11 @@ func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) 
 	if account == nil || !account.IsOpenAI() {
 		return false, openAIQuotaAutoPauseDecision{}
 	}
+	// A relay's observed Codex percentages describe an internal supplier account.
+	if smartChannelEnabled(ctx) && account.Type == AccountTypeAPIKey && !account.IsCNProvider() && !account.IsOpenCodeGo() {
+		return false
+	}
+
 	// 自动用卡有独立阈值：达到消费阈值时必须先退出调度；仅达到普通暂停阈值时，
 	// 只有新鲜状态明确存在可用卡才继续放行到消费阈值。
 	if config := ResolveOpenAIAutoResetCreditConfig(account); config.Enabled {
@@ -1290,7 +1295,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			filterStats.exclude("excluded")
 			continue
 		}
-		if !s.IsModelAccountAllowed(ctx, groupID, requestedModel, acc.ID) {
+		if !s.IsModelAccountAllowed(ctx, groupID, requestedModel, acc.ID, acc) {
 			filterStats.exclude("model_account_not_allowed")
 			continue
 		}
@@ -1322,13 +1327,17 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	}
 	if fastestFailoverEnabled(ctx, groupID) {
 		ordered := fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, candidates, s.settingService.FastestFailoverSettings(ctx))
+		var waitAccount *Account
 		for _, account := range ordered {
 			account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
 			if account == nil {
 				continue
 			}
-			result, acquireErr := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+			result, acquireErr := acquireSmartChannelSlot(ctx, account, s.concurrencyService, cfg.FallbackMaxWaiting, s.tryAcquireAccountSlot)
 			if acquireErr != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
 				continue
 			}
 			if result != nil && result.Acquired {
@@ -1336,15 +1345,27 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				if selectErr != nil {
 					return nil, selectErr
 				}
-				if sessionHash != "" && !gatewayProfitControlGateActive(ctx) {
+				if waitAccount != nil {
+					preserveSmartChannelCapacitySelection(ctx, selection)
+				}
+				if sessionHash != "" && !selection.CapacitySpillover && !gatewayProfitControlGateActive(ctx) {
 					_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, account.ID, openaiStickySessionTTL)
 				}
 				return selection, nil
+			}
+			if smartChannelEnabled(ctx) {
+				if waitAccount == nil {
+					waitAccount = account
+				}
+				continue
 			}
 			return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 				AccountID: account.ID, MaxConcurrency: account.Concurrency,
 				Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting,
 			})
+		}
+		if waitAccount != nil {
+			return s.newSelectionResult(ctx, waitAccount, false, nil, &AccountWaitPlan{AccountID: waitAccount.ID, MaxConcurrency: waitAccount.Concurrency, Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting})
 		}
 		return nil, noAvailableOpenAISelectionError(requestedModel, false, filterStats.summary(""))
 	}
@@ -1594,7 +1615,7 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccountBeforeProfit(
 	if account == nil {
 		return nil
 	}
-	if !s.IsModelAccountAllowed(ctx, groupID, requestedModel, account.ID) {
+	if !s.IsModelAccountAllowed(ctx, groupID, requestedModel, account.ID, account) {
 		return nil
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
@@ -1655,7 +1676,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	if account == nil {
 		return nil
 	}
-	if !s.IsModelAccountAllowed(ctx, groupID, requestedModel, account.ID) {
+	if !s.IsModelAccountAllowed(ctx, groupID, requestedModel, account.ID, account) {
 		return nil
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)

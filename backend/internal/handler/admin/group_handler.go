@@ -185,7 +185,7 @@ func sanitizeUpdateGroupRequestForSimpleMode(req *UpdateGroupRequest) {
 
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
-	AccountSchedulingMode     string                        `json:"account_scheduling_mode" binding:"omitempty,oneof=priority fastest_failover quality_preferred model_auto"`
+	AccountSchedulingMode     string                        `json:"account_scheduling_mode" binding:"omitempty,oneof=priority fastest_failover quality_preferred model_auto smart_channel"`
 	Name                      string                        `json:"name" binding:"required"`
 	Description               string                        `json:"description"`
 	I18n                      service.GroupI18n             `json:"i18n"` // 名称与描述的界面语言译文
@@ -263,7 +263,7 @@ type CreateGroupRequest struct {
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
-	AccountSchedulingMode     *string                        `json:"account_scheduling_mode" binding:"omitempty,oneof=priority fastest_failover quality_preferred model_auto"`
+	AccountSchedulingMode     *string                        `json:"account_scheduling_mode" binding:"omitempty,oneof=priority fastest_failover quality_preferred model_auto smart_channel"`
 	Name                      string                         `json:"name"`
 	Description               *string                        `json:"description"`
 	I18n                      *service.GroupI18n             `json:"i18n"` // 缺省不修改，传入则整体替换

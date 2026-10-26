@@ -182,21 +182,41 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			localExcluded[k] = v
 		}
 
+		var waitAccount *Account
 		for {
 			account, err := s.SelectAccountForModelWithExclusions(ctx, groupID, sessionHash, requestedModel, localExcluded)
 			if err != nil {
+				if waitAccount != nil && ctx.Err() == nil {
+					return s.newSelectionResult(ctx, waitAccount, false, nil, &AccountWaitPlan{AccountID: waitAccount.ID, MaxConcurrency: waitAccount.Concurrency, Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting})
+				}
 				return nil, err
 			}
 
-			result, err := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
-			if err == nil && result.Acquired {
+			result, err := acquireSmartChannelSlot(ctx, account, s.concurrencyService, cfg.FallbackMaxWaiting, s.tryAcquireAccountSlot)
+			if err == nil && result != nil && result.Acquired {
 				// 获取槽位后检查会话限制（使用 sessionHash 作为会话标识符）
 				if !s.checkAndRegisterSession(ctx, account, sessionHash) {
 					result.ReleaseFunc()                   // 释放槽位
 					localExcluded[account.ID] = struct{}{} // 排除此账号
 					continue                               // 重新选择
 				}
-				return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
+				selection, selectionErr := s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
+				if waitAccount != nil {
+					preserveSmartChannelCapacitySelection(ctx, selection)
+				}
+				return selection, selectionErr
+			}
+
+			if smartChannelEnabled(ctx) && err == nil {
+				if waitAccount == nil {
+					waitAccount = account
+				}
+				localExcluded[account.ID] = struct{}{}
+				ctx = context.WithValue(ctx, modelAutoPrimaryOnlyKey{}, true)
+				continue
+			}
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
 			}
 
 			// 对于等待计划的情况，也需要先检查会话限制
@@ -1183,7 +1203,7 @@ func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Conte
 	if account == nil {
 		return false
 	}
-	if !s.settingService.IsModelAccountAllowed(ctx, groupID, requestedModel, account.ID) {
+	if !s.settingService.IsModelAccountAllowed(ctx, groupID, requestedModel, account.ID, account) {
 		return false
 	}
 	group, _ := ctx.Value(ctxkey.Group).(*Group)

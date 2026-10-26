@@ -120,12 +120,20 @@ func (s *SettingService) SetModelAccountRouting(ctx context.Context, groupID int
 
 // Restrictions apply only within the scheduling group, to the public request
 // model before channel/account mapping. A failed read denies that group's requests.
-func (s *SettingService) IsModelAccountAllowed(ctx context.Context, groupID *int64, requestedModel string, accountID int64) bool {
+func (s *SettingService) IsModelAccountAllowed(ctx context.Context, groupID *int64, requestedModel string, accountID int64, accounts ...*Account) bool {
+	allowed, _ := s.modelAccountCapability(ctx, groupID, requestedModel, accountID, accounts...)
+	return allowed
+}
+
+func (s *SettingService) modelAccountCapability(ctx context.Context, groupID *int64, requestedModel string, accountID int64, accounts ...*Account) (bool, string) {
 	if target, _ := ctx.Value(pelicanDegradationTargetKey{}).(int64); target > 0 && target != accountID {
-		return false
+		return false, "group_rule"
 	}
 	if s == nil || s.settingRepo == nil || groupID == nil || *groupID <= 0 {
-		return true
+		if smartChannelEnabled(ctx) {
+			return false, "unknown"
+		}
+		return true, "unrestricted"
 	}
 	if model, ok := ctx.Value(ctxkey.Model).(string); ok && strings.TrimSpace(model) != "" {
 		requestedModel = model
@@ -150,19 +158,25 @@ func (s *SettingService) IsModelAccountAllowed(ctx context.Context, groupID *int
 		s.modelAccountRoutingCache[*groupID] = cache
 	}
 	if cache.err != nil {
-		return false
+		return false, "group_rule"
 	}
 	ids, restricted := cache.accounts[strings.TrimSpace(requestedModel)]
 	if !restricted {
-		return true
+		if group, _ := ctx.Value(ctxkey.Group).(*Group); group != nil && group.ID == *groupID && smartChannelEnabled(ctx) {
+			if len(accounts) == 0 || accounts[0] == nil || accounts[0].ID != accountID {
+				return false, "unknown"
+			}
+			return declaredSmartChannelCapability(accounts[0], strings.TrimSpace(requestedModel))
+		}
+		return true, "unrestricted"
 	}
 	_, allowed := ids[accountID]
-	return allowed
+	return allowed, "group_rule"
 }
 
-func (s *OpenAIGatewayService) IsModelAccountAllowed(ctx context.Context, groupID *int64, requestedModel string, accountID int64) bool {
+func (s *OpenAIGatewayService) IsModelAccountAllowed(ctx context.Context, groupID *int64, requestedModel string, accountID int64, accounts ...*Account) bool {
 	if s == nil {
 		return false
 	}
-	return s.settingService.IsModelAccountAllowed(ctx, groupID, requestedModel, accountID)
+	return s.settingService.IsModelAccountAllowed(ctx, groupID, requestedModel, accountID, accounts...)
 }

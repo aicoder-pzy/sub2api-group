@@ -550,15 +550,15 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 			return 0, nil, "", nil
 		}
 	}
-	if !s.IsModelAccountAllowed(ctx, groupID, requestedModel, accountID) {
-		return 0, nil, "", nil
-	}
-
 	account, err := s.getSchedulableAccount(ctx, accountID)
 	if err != nil || account == nil {
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return 0, nil, "", nil
 	}
+	if !s.IsModelAccountAllowed(ctx, groupID, requestedModel, accountID, account) {
+		return 0, nil, "", nil
+	}
+
 	// OAuth/SetupToken continuation state lives on the WSv2 session and cannot
 	// survive an HTTP fallback. Official API-key Responses HTTP requests are
 	// different: previous_response_id is supported by the provider and scoped to
