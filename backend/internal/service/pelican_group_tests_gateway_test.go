@@ -97,6 +97,19 @@ func TestSmartChannelPelicanRouterPreservesPublicModelThroughFinalAdmission(t *t
 				require.EqualValues(t, 1, route.account.ID)
 				require.Equal(t, upstream, route.model)
 				route.release()
+				// A switch supplement targets the committed primary and must not
+				// test a stale channel after waiting for a concurrency slot.
+				rememberGroupModelSchedulingAccount(ctx, cache, &group.ID, upstream, 1)
+				probe := context.WithValue(ctx, qualitySchedulingProbeKey{}, true)
+				probe = context.WithValue(probe, pelicanDegradationTargetKey{}, int64(1))
+				probe = context.WithValue(probe, pelicanSwitchTestKey{}, int64(1))
+				route, err = router.route(probe, group, public, nil)
+				require.NoError(t, err)
+				require.EqualValues(t, 1, route.account.ID)
+				route.release()
+				rememberGroupModelSchedulingAccount(ctx, cache, &group.ID, upstream, 2)
+				_, err = router.route(probe, group, public, nil)
+				require.Error(t, err, "a stale switch must not spend tokens on the old primary")
 				rules.Rules[0].AccountIDs = []int64{}
 				require.NoError(t, settings.SetModelAccountRouting(ctx, group.ID, rules))
 				_, err = router.route(ctx, group, public, nil)

@@ -162,7 +162,9 @@ type PelicanGroupTestService struct {
 	settings     *SettingService
 	now          func() time.Time
 	// runs tracks background runs so tests can wait for them.
-	runs sync.WaitGroup
+	runs        sync.WaitGroup
+	switchMu    sync.Mutex
+	switchSlots chan struct{}
 }
 
 func NewPelicanGroupTestService(
@@ -643,35 +645,12 @@ type gatewayPelicanGroupRouter struct {
 }
 
 func (r *gatewayPelicanGroupRouter) route(ctx context.Context, group *Group, model string, excluded map[int64]struct{}) (*pelicanGroupRoute, error) {
-	ctx = context.WithValue(ctx, ctxkey.Group, group)
-	// Non-HTTP tests need the same public model context as gateway requests,
-	// including the final admission check after a composite model rewrite.
-	ctx = context.WithValue(ctx, ctxkey.Model, model)
-	ctx, _ = WithGatewayTokenRequestPricing(ctx)
-	platform, upstreamModel := group.Platform, model
-	if platform == PlatformComposite {
-		decision, matched, err := r.gateway.resolveCompositeRouteDecision(ctx, group, model, CompositeRouteEndpointAny)
-		if err != nil {
-			return nil, err
-		}
-		if !matched {
-			return nil, fmt.Errorf("%w supporting model: %s (composite target platform unknown)", ErrNoAvailableAccounts, model)
-		}
-		ctx = WithCompositeRouteDecision(ctx, decision)
-		platform = decision.TargetPlatform
-		if rewritten := strings.TrimSpace(decision.UpstreamModel); rewritten != "" {
-			upstreamModel = rewritten
-		}
-	}
-	var bindingCache GatewayCache
-	if isOpenAIResponsesGatewayPlatform(platform) {
-		bindingCache = r.openai.cache
-	} else {
-		bindingCache = r.gateway.cache
+	ctx, platform, upstreamModel, bindingCache, err := r.routingContext(ctx, group, model)
+	if err != nil {
+		return nil, err
 	}
 	ctx = prepareFastestFailoverBinding(ctx, bindingCache, upstreamModel)
 	var selection *AccountSelectionResult
-	var err error
 	if isOpenAIResponsesGatewayPlatform(platform) {
 		selection, _, err = r.openai.SelectAccountWithSchedulerForCapability(ctx, &group.ID, "", "", upstreamModel, excluded,
 			OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions, false, false, true, NormalizeOpenAICompatiblePlatform(platform))
@@ -687,6 +666,13 @@ func (r *gatewayPelicanGroupRouter) route(ctx context.Context, group *Group, mod
 	release, err := r.holdSlot(ctx, selection)
 	if err != nil {
 		return nil, err
+	}
+	if target, _ := ctx.Value(pelicanSwitchTestKey{}).(int64); target > 0 {
+		current, err := bindingCache.GetSessionAccountID(ctx, group.ID, groupModelSchedulingStickyKey(upstreamModel))
+		if err != nil || current != target {
+			release()
+			return nil, ErrNoAvailableAccounts
+		}
 	}
 	admissionCtx := ContextWithSelectionProfitGate(ctx, selection)
 	var latest *Account
@@ -713,6 +699,37 @@ func (r *gatewayPelicanGroupRouter) route(ctx context.Context, group *Group, mod
 		}
 		return true
 	}}, nil
+}
+
+// Share public-model and composite-route handling with switch-triggered tests.
+func (r *gatewayPelicanGroupRouter) routingContext(ctx context.Context, group *Group, model string) (context.Context, string, string, GatewayCache, error) {
+	ctx = context.WithValue(ctx, ctxkey.Group, group)
+	// Non-HTTP tests need the same public model context as gateway requests,
+	// including the final admission check after a composite model rewrite.
+	ctx = context.WithValue(ctx, ctxkey.Model, model)
+	ctx, _ = WithGatewayTokenRequestPricing(ctx)
+	platform, upstreamModel := group.Platform, model
+	if platform == PlatformComposite {
+		decision, matched, err := r.gateway.resolveCompositeRouteDecision(ctx, group, model, CompositeRouteEndpointAny)
+		if err != nil {
+			return ctx, "", "", nil, err
+		}
+		if !matched {
+			return ctx, "", "", nil, fmt.Errorf("%w supporting model: %s (composite target platform unknown)", ErrNoAvailableAccounts, model)
+		}
+		ctx = WithCompositeRouteDecision(ctx, decision)
+		platform = decision.TargetPlatform
+		if rewritten := strings.TrimSpace(decision.UpstreamModel); rewritten != "" {
+			upstreamModel = rewritten
+		}
+	}
+	var bindingCache GatewayCache
+	if isOpenAIResponsesGatewayPlatform(platform) {
+		bindingCache = r.openai.cache
+	} else {
+		bindingCache = r.gateway.cache
+	}
+	return ctx, platform, upstreamModel, bindingCache, nil
 }
 
 // holdSlot returns the slot the scheduler acquired, or waits for one like a queued user

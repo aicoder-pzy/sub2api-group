@@ -66,6 +66,10 @@ func (s *ScheduledTestRunnerService) Start() {
 			logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] not started (invalid schedule): %v", err)
 			return
 		}
+		// Separate from configured test crons and long-running scheduled work.
+		c.Schedule(cron.Every(10*time.Second), cron.FuncJob(func() {
+			s.pelicanGroups.RunSwitchTests(context.Background(), time.Now())
+		}))
 		s.cron = c
 		s.cron.Start()
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] started (tick=every minute)")
