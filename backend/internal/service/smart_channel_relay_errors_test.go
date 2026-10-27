@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -77,7 +78,46 @@ func TestRelayCapacityDoesNotOverrideAuthoritativeErrors(t *testing.T) {
 				require.False(t, svc.HandleUpstreamError(context.Background(), &Account{ID: 21, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, tc.status, http.Header{}, body, "gpt-6.1-sol"))
 				require.Empty(t, repo.modelRateLimitCalls)
 				require.Zero(t, repo.tempCalls)
+				gateway := &OpenAIGatewayService{rateLimitService: svc}
+				require.False(t, gateway.handleOpenAIAccountUpstreamError(context.Background(), &Account{ID: 21, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, tc.status, http.Header{}, body, "gpt-6.1-sol"))
+				require.Empty(t, repo.modelRateLimitCalls)
+				require.Zero(t, repo.tempCalls)
 			}
 		})
+	}
+}
+
+func TestSmartChannelExplicitModelCooldownPolicyTakesPrecedence(t *testing.T) {
+	for _, pool := range []bool{false, true} {
+		for _, gatewayPath := range []bool{false, true} {
+			for _, status := range []int{http.StatusNotFound, http.StatusServiceUnavailable} {
+				t.Run(fmt.Sprintf("pool=%t/gateway=%t/status=%d", pool, gatewayPath, status), func(t *testing.T) {
+					repo := &modelNotFoundAccountRepoStub{}
+					svc := &RateLimitService{accountRepo: repo}
+					gateway := &OpenAIGatewayService{rateLimitService: svc}
+					account := &Account{ID: 21, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+						Credentials: map[string]any{"pool_mode": pool, "temp_unschedulable_enabled": true,
+							"temp_unschedulable_rules": []any{map[string]any{
+								"error_code": float64(status), "keywords": []any{"model not found", "server is overloaded"},
+								"duration_minutes": float64(7), "scope": "model",
+							}}}}
+					body := []byte(`{"error":{"code":"model_not_found","message":"model not found"}}`)
+					if status == http.StatusServiceUnavailable {
+						body = []byte(`{"error":{"message":"server is overloaded"}}`)
+					}
+					ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: 24, AccountSchedulingMode: AccountSchedulingModeSmartChannel})
+					if gatewayPath {
+						require.True(t, gateway.handleOpenAIAccountUpstreamError(ctx, account, status, nil, body, "gpt-6.1-sol"))
+					} else {
+						require.True(t, svc.HandleUpstreamError(ctx, account, status, nil, body, "gpt-6.1-sol"))
+					}
+					require.Zero(t, repo.tempCalls)
+					require.Len(t, repo.modelRateLimitCalls, 1)
+					require.Equal(t, "gpt-6.1-sol", repo.modelRateLimitCalls[0].scope)
+					require.WithinDuration(t, time.Now().Add(7*time.Minute), repo.modelRateLimitCalls[0].resetAt, 2*time.Second)
+					require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account))
+				})
+			}
+		}
 	}
 }

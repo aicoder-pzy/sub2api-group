@@ -344,7 +344,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 	if account.Platform == PlatformOpenAI && !customErrorCodesEnabled &&
 		isOpenAIRequestScopedCapacityResponse(statusCode, headers, responseBody) &&
-		!tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, requestedModel)) {
+		len(matchTempUnschedulableRules(account, statusCode, responseBody)) == 0 {
 		return false
 	}
 
@@ -2608,12 +2608,16 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	default:
 		return false
 	}
-	if smartChannelEnabled(ctx) && account.Type == AccountTypeAPIKey && account.IsOpenAICompatible() && !account.IsCustomErrorCodesEnabled() {
-		cooldown = 30 * time.Second
-	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
 	if modelKey == "" {
 		return false
+	}
+	if smartChannelEnabled(ctx) && account.Type == AccountTypeAPIKey && account.IsOpenAICompatible() && !account.IsCustomErrorCodesEnabled() {
+		if tempUnschedRulesApply(account, statusCode, responseBody, modelKey) &&
+			s.tryTempUnschedulable(ctx, account, statusCode, responseBody, modelKey) {
+			return true
+		}
+		cooldown = 30 * time.Second
 	}
 	if shouldSkipCodexPlanGatedImageModelCooldown(ctx, reason, requestedModel, modelKey) {
 		return true

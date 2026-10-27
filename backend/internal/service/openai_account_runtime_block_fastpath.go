@@ -106,7 +106,9 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 	// Capacity shedding describes this request, not account health. Keep the
 	// account schedulable while the request-local retry budget handles recovery.
-	if account != nil && account.Platform == PlatformOpenAI && isOpenAIRequestScopedCapacityResponse(statusCode, headers, responseBody) {
+	if account != nil && account.Platform == PlatformOpenAI && !account.IsCustomErrorCodesEnabled() &&
+		isOpenAIRequestScopedCapacityResponse(statusCode, headers, responseBody) &&
+		len(matchTempUnschedulableRules(account, statusCode, responseBody)) == 0 {
 		return false
 	}
 	stateCtx, cancel := openAIAccountStateContext(ctx)

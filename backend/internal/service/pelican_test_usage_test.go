@@ -196,7 +196,7 @@ func TestPelicanCostUsesAccountStatsPricingAndFreezesEvidence(t *testing.T) {
 	for _, rate := range []float64{0, 0.2, 1} {
 		t.Run(fmt.Sprint(rate), func(t *testing.T) {
 			group := &Group{ID: 4, RateMultiplier: 99}
-			channel := &Channel{ID: 1, AccountStatsPricingRules: []AccountStatsPricingRule{{
+			channel := &Channel{ID: 1, Status: StatusActive, AccountStatsPricingRules: []AccountStatsPricingRule{{
 				AccountIDs: []int64{11}, Pricing: []ChannelModelPricing{{
 					Models: []string{"claude-sonnet-4"}, Platform: PlatformAnthropic,
 					InputPrice: testCostRate(6e-6), OutputPrice: testCostRate(30e-6),
@@ -211,6 +211,7 @@ func TestPelicanCostUsesAccountStatsPricingAndFreezesEvidence(t *testing.T) {
 			a := &Account{ID: 11, Platform: PlatformAnthropic, RateMultiplier: testCostRate(rate), Extra: map[string]any{"cost_multiplier": 0.1}}
 			cost, partial := collector.cost(ctx, newTestBillingService(), a)
 			require.False(t, partial)
+			require.NotNil(t, cost)
 			require.InDelta(t, (0.006+0.015)*rate, *cost, 1e-12)
 			require.Len(t, collector.details, 1)
 			detail := collector.details[0]
