@@ -84,3 +84,13 @@ func (r *pelicanGroupTestRepository) ReleaseSwitchTest(ctx context.Context, plan
 	_, err := r.db.ExecContext(ctx, `UPDATE pelican_group_test_plans SET running_until=NULL WHERE id=$1 AND running_until=$2`, planID, until)
 	return err
 }
+
+func (r *pelicanGroupTestRepository) HasRecentSwitchTest(ctx context.Context, groupID, accountID int64, model, effort string, now time.Time) (bool, error) {
+	var recent bool
+	err := r.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM upstream_quality_samples s
+ WHERE s.account_id=$2 AND s.model=$3 AND (s.group_id=$1 OR s.group_id IS NULL)
+ AND s.effort=$4 AND s.kind='pelican' AND s.sampled_at>=$5::timestamptz-INTERVAL '1 hour'
+ AND s.sampled_at<=$5 AND (s.verdict IN ('normal','degraded') OR s.sampled_at>=$5::timestamptz-INTERVAL '5 minutes'))`,
+		groupID, accountID, model, effort, now).Scan(&recent)
+	return recent, err
+}

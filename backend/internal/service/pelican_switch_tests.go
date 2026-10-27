@@ -19,6 +19,7 @@ type PelicanSwitchTestCache interface {
 type pelicanSwitchTestRepository interface {
 	ClaimSwitchTest(context.Context, *PelicanGroupTestPlan, int64, string, time.Time, time.Time) (bool, error)
 	ReleaseSwitchTest(context.Context, int64, time.Time) error
+	HasRecentSwitchTest(context.Context, int64, int64, string, string, time.Time) (bool, error)
 }
 
 type pelicanSwitchTestRoute struct {
@@ -28,6 +29,37 @@ type pelicanSwitchTestRoute struct {
 
 type pelicanSwitchTestRouter interface {
 	switchTestRoute(context.Context, *Group, string) (*pelicanSwitchTestRoute, error)
+}
+
+// The pre-existing degradation replacement path also tests a new primary.
+// Use the same evidence/cooldown gate so it cannot duplicate the new worker.
+func (s *PelicanGroupTestService) claimReplacementTest(ctx context.Context, plan *PelicanGroupTestPlan, group *Group, accountID int64, model string) (bool, error) {
+	repo, ok := s.repo.(pelicanSwitchTestRepository)
+	if !ok {
+		return false, nil
+	}
+	effort := ""
+	if plan.PelicanConfig != nil {
+		effort = plan.PelicanConfig.ReasoningEffort
+	}
+	now := s.now()
+	recent, err := repo.HasRecentSwitchTest(ctx, group.ID, accountID, model, effort, now)
+	if err != nil || recent {
+		return false, err
+	}
+	router, ok := s.router.(pelicanSwitchTestRouter)
+	if !ok {
+		return false, nil
+	}
+	route, err := router.switchTestRoute(ctx, group, plan.ModelID)
+	if err != nil || route == nil {
+		return false, err
+	}
+	change, err := route.cache.GetGroupModelSchedulingTransition(ctx, group.ID, route.model)
+	if err != nil || change == nil || change.AccountID != accountID {
+		return false, err
+	}
+	return route.cache.ClaimPelicanSwitchTest(ctx, group.ID, plan.ModelID, route.model, effort, change, now, s.settings.FastestFailoverSettings(ctx).DegradationTestsPerHour)
 }
 
 func (r *gatewayPelicanGroupRouter) switchTestRoute(ctx context.Context, group *Group, model string) (*pelicanSwitchTestRoute, error) {

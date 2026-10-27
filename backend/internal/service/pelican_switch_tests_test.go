@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -25,6 +26,10 @@ func (r *switchTestRepo) ClaimSwitchTest(ctx context.Context, plan *PelicanGroup
 func (r *switchTestRepo) ReleaseSwitchTest(context.Context, int64, time.Time) error {
 	r.released++
 	return nil
+}
+
+func (r *switchTestRepo) HasRecentSwitchTest(context.Context, int64, int64, string, string, time.Time) (bool, error) {
+	return !r.eligible, nil
 }
 
 type switchTestCache struct {
@@ -130,6 +135,26 @@ func TestSwitchTestsHonorFreshnessPlansAndOnlyCommittedSmartPrimaries(t *testing
 			svc.runs.Wait()
 			require.Empty(t, repo.results)
 			require.Zero(t, cache.claims)
+		})
+	}
+}
+
+func TestSmartDegradationReplacementSharesSwitchFreshnessAndCooldown(t *testing.T) {
+	for _, recent := range []bool{true, false} {
+		t.Run(fmt.Sprint("recent_", recent), func(t *testing.T) {
+			plan := groupTestPlan(1)
+			repo := &switchTestRepo{groupTestRepoFake: newGroupTestRepoFake(plan), eligible: !recent}
+			cache := &switchTestCache{allow: true, change: &GroupModelSchedulingTransition{PreviousAccountID: 1, AccountID: 2, ChangedAt: groupTestNow.Add(-time.Second)}}
+			router := switchTestRouter{cache: cache}
+			svc, _ := newGroupTestService(repo.groupTestRepoFake, router, nil)
+			svc.repo = repo
+			group := &Group{ID: 4, Status: StatusActive, AccountSchedulingMode: AccountSchedulingModeSmartChannel}
+			ok, err := svc.claimReplacementTest(context.Background(), plan, group, 2, "upstream")
+			require.NoError(t, err)
+			require.Equal(t, !recent, ok)
+			ok, err = svc.claimReplacementTest(context.Background(), plan, group, 2, "upstream")
+			require.NoError(t, err)
+			require.False(t, ok, "replacement and background worker must share their reservation")
 		})
 	}
 }

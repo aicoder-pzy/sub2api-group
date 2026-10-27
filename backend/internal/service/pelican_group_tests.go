@@ -509,6 +509,16 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 				continue
 			}
 		}
+		if handling && work.Action == "replacement" && group.AccountSchedulingMode == AccountSchedulingModeSmartChannel {
+			claimed, err := s.claimReplacementTest(ctx, plan, group, route.account.ID, route.model)
+			if err != nil || !claimed {
+				route.release()
+				if err != nil {
+					return s.newResult(plan, started, s.now(), "replacement_quality_evidence_unavailable")
+				}
+				return nil
+			}
+		}
 		var sample *ScheduledTestResult
 		generationConfig, checks, checkErr := withPelicanQualityChecks(plan.PelicanConfig)
 		if checkErr != nil {

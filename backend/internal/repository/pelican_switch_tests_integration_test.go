@@ -63,6 +63,9 @@ func TestSwitchTestLeaseReusesRecentEvidenceAndPreservesSchedule(t *testing.T) {
 			t.Cleanup(func() {
 				_, _ = integrationDB.ExecContext(ctx, `DELETE FROM upstream_quality_samples WHERE id=$1`, sampleID)
 			})
+			recent, err := repo.HasRecentSwitchTest(ctx, group.ID, account.ID, plan.ModelID, "high", now)
+			require.NoError(t, err)
+			require.Equal(t, scenario.blocks, recent, "replacement and background workers must use the same evidence")
 			require.Equal(t, !scenario.blocks, claim(), "freshness must use the same channel, model, and effort")
 			require.NoError(t, repo.ReleaseSwitchTest(ctx, plan.ID, until))
 		})
