@@ -6,10 +6,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -107,7 +109,9 @@ func TestSmartChannelExplicitModelCooldownPolicyTakesPrecedence(t *testing.T) {
 					}
 					ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: 24, AccountSchedulingMode: AccountSchedulingModeSmartChannel})
 					if gatewayPath {
-						failover := gateway.failoverOpenAIUpstreamHTTPError(ctx, nil, account, &http.Response{StatusCode: status, Header: http.Header{}}, body, "", "gpt-6.1-sol")
+						c, _ := gin.CreateTestContext(httptest.NewRecorder())
+						c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+						failover := gateway.failoverOpenAIUpstreamHTTPError(ctx, c, account, &http.Response{StatusCode: status, Header: http.Header{}}, body, "", "gpt-6.1-sol")
 						require.NotNil(t, failover)
 						require.False(t, failover.RetryableOnSameAccount)
 					} else {
