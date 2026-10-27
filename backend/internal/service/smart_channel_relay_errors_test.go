@@ -107,7 +107,9 @@ func TestSmartChannelExplicitModelCooldownPolicyTakesPrecedence(t *testing.T) {
 					}
 					ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: 24, AccountSchedulingMode: AccountSchedulingModeSmartChannel})
 					if gatewayPath {
-						require.True(t, gateway.handleOpenAIAccountUpstreamError(ctx, account, status, nil, body, "gpt-6.1-sol"))
+						failover := gateway.failoverOpenAIUpstreamHTTPError(ctx, nil, account, &http.Response{StatusCode: status, Header: http.Header{}}, body, "", "gpt-6.1-sol")
+						require.NotNil(t, failover)
+						require.False(t, failover.RetryableOnSameAccount)
 					} else {
 						require.True(t, svc.HandleUpstreamError(ctx, account, status, nil, body, "gpt-6.1-sol"))
 					}
