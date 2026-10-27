@@ -92,7 +92,7 @@ func TestRelayCapacityDoesNotOverrideAuthoritativeErrors(t *testing.T) {
 func TestSmartChannelExplicitModelCooldownPolicyTakesPrecedence(t *testing.T) {
 	for _, pool := range []bool{false, true} {
 		for _, gatewayPath := range []bool{false, true} {
-			for _, status := range []int{http.StatusNotFound, http.StatusServiceUnavailable} {
+			for _, status := range []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable} {
 				t.Run(fmt.Sprintf("pool=%t/gateway=%t/status=%d", pool, gatewayPath, status), func(t *testing.T) {
 					repo := &modelNotFoundAccountRepoStub{}
 					svc := &RateLimitService{accountRepo: repo}
@@ -104,7 +104,7 @@ func TestSmartChannelExplicitModelCooldownPolicyTakesPrecedence(t *testing.T) {
 								"duration_minutes": float64(7), "scope": "model",
 							}}}}
 					body := []byte(`{"error":{"code":"model_not_found","message":"model not found"}}`)
-					if status == http.StatusServiceUnavailable {
+					if status != http.StatusNotFound {
 						body = []byte(`{"error":{"message":"server is overloaded"}}`)
 					}
 					ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: 24, AccountSchedulingMode: AccountSchedulingModeSmartChannel})

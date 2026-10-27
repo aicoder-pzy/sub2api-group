@@ -152,18 +152,12 @@ func TestOpenAIGatewayService_ForwardAsAnthropic_CapacityShedReturnsRequestScope
 		rateLimitService: rateLimitService,
 	}
 	account := &Account{
-		ID: 5099, Name: "temporary-unschedulable", Platform: PlatformOpenAI,
+		ID: 5099, Name: "capacity-shedding", Platform: PlatformOpenAI,
 		Type: AccountTypeAPIKey, Concurrency: 1,
 		Credentials: map[string]any{
-			"api_key":                    "sk-test",
-			"base_url":                   "http://upstream.example",
-			"model_provider":             "env-openai",
-			"temp_unschedulable_enabled": true,
-			"temp_unschedulable_rules": []any{map[string]any{
-				"error_code":       float64(http.StatusBadRequest),
-				"keywords":         []any{"our servers are currently overloaded", "please try again later"},
-				"duration_minutes": float64(1),
-			}},
+			"api_key":        "sk-test",
+			"base_url":       "http://upstream.example",
+			"model_provider": "env-openai",
 		},
 	}
 
