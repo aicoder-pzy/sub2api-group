@@ -2,8 +2,12 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -14,8 +18,33 @@ import (
 type pelicanTestUsageKey struct{}
 
 type pelicanTestUsageCollector struct {
-	model    string
-	requests []*pelicanTestUsage
+	model     string
+	requests  []*pelicanTestUsage
+	group     *Group
+	channels  *ChannelService
+	effort    string
+	pricingAt time.Time
+	details   []PelicanTestCostDetail
+}
+
+// Frozen estimates for every attempted upstream stream, including failures.
+// No credentials or request/response content are retained here.
+type PelicanTestCostDetail struct {
+	AccountID       int64           `json:"account_id"`
+	Model           string          `json:"model"`
+	Protocol        string          `json:"protocol"`
+	ServiceTier     string          `json:"service_tier"`
+	ReasoningEffort string          `json:"reasoning_effort"`
+	Tokens          UsageTokens     `json:"tokens"`
+	RateMultiplier  *float64        `json:"rate_multiplier"`
+	RateSource      string          `json:"rate_source"`
+	PricingAt       time.Time       `json:"pricing_at"`
+	PricingVersion  string          `json:"pricing_version,omitempty"`
+	PricingSnapshot json.RawMessage `json:"pricing_snapshot,omitempty"`
+	BaseCost        *CostBreakdown  `json:"base_cost,omitempty"`
+	AccountBaseCost *float64        `json:"account_base_cost"`
+	CostUSD         *float64        `json:"cost_usd"`
+	Incomplete      bool            `json:"incomplete"`
 }
 
 type pelicanTestUsage struct {
@@ -152,27 +181,102 @@ func (u *pelicanTestUsage) read(raw string) {
 // Return a cost snapshot, not a debit. Use the account's upstream cost multiplier,
 // never the customer/group selling multiplier. Missing usage/pricing remains
 // unknown; a partially metered attempt must not discard other known costs.
-func (c *pelicanTestUsageCollector) cost(billing *BillingService, account *Account) (*float64, bool) {
+func (c *pelicanTestUsageCollector) cost(ctx context.Context, billing *BillingService, account *Account) (*float64, bool) {
 	var total float64
 	priced, incomplete := false, len(c.requests) == 0
+	c.details = nil
+	pricingAt := c.pricingAt
+	if pricingAt.IsZero() {
+		pricingAt = time.Now()
+	}
+	var groupID *int64
+	if c.group != nil {
+		groupID = &c.group.ID
+	}
 	for _, u := range c.requests {
+		detail := PelicanTestCostDetail{Model: u.model, Protocol: u.protocol, Tokens: u.tokens,
+			ServiceTier: u.serviceTier, ReasoningEffort: c.effort, PricingAt: pricingAt,
+			RateSource: "account_rate_multiplier", Incomplete: true}
+		if account != nil {
+			detail.AccountID = account.ID
+		}
+		if account == nil || account.RateMultiplier == nil {
+			detail.RateSource = "default_1"
+		}
+		rate := account.BillingRateMultiplier()
+		if math.IsNaN(rate) || math.IsInf(rate, 0) {
+			c.details = append(c.details, detail)
+			incomplete = true
+			continue
+		}
+		detail.RateMultiplier = &rate
 		if !u.seen || billing == nil {
+			c.details = append(c.details, detail)
 			incomplete = true
 			continue
 		}
-		cost, err := billing.CalculateCostWithServiceTier(u.model, u.tokens, 1, u.serviceTier)
+		resolver := NewModelPricingResolver(c.channels, billing)
+		resolved := resolver.Resolve(ctx, PricingInput{Model: u.model, GroupID: groupID, Group: c.group})
+		cost, err := billing.CalculateCostUnified(CostInput{
+			Ctx: ctx, Model: u.model, GroupID: groupID, Group: c.group, Tokens: u.tokens,
+			RequestCount: 1, RateMultiplier: 1, ServiceTier: u.serviceTier, ReasoningEffort: c.effort,
+			PricingAt: pricingAt, Resolver: resolver, Resolved: resolved,
+			LongContextBillingEnabled: openAILongContextBillingGate(account),
+		})
 		if err != nil || cost == nil {
+			c.details = append(c.details, detail)
 			incomplete = true
 			continue
 		}
-		amount := cost.TotalCost * account.CostMultiplier()
+		baseCost := cost.TotalCost
+		var channel *Channel
+		if c.channels != nil && groupID != nil {
+			var channelErr error
+			channel, channelErr = c.channels.GetChannelForGroup(ctx, *groupID)
+			if channelErr != nil {
+				c.details = append(c.details, detail)
+				incomplete = true
+				continue
+			}
+		}
+		longContext := accountStatsLongContextPricingEnabled(openAILongContextBillingGate(account))
+		if groupID != nil {
+			if stats := resolveAccountStatsCost(ctx, c.channels, billing, detail.AccountID, *groupID,
+				u.model, u.tokens, 1, cost.TotalCost, u.serviceTier, pricingAt, longContext, c.effort); stats != nil {
+				baseCost = *stats
+			}
+		}
+		// Snapshot numeric pricing before any future catalog or operator edits.
+		pricingSnapshot := struct {
+			Resolved            *ResolvedPricing          `json:"resolved"`
+			ChannelPricing      *ChannelModelPricing      `json:"channel_pricing,omitempty"`
+			AccountCatalog      *ResolvedPricing          `json:"account_catalog"`
+			AccountRules        []AccountStatsPricingRule `json:"account_rules,omitempty"`
+			ApplyChannelPricing bool                      `json:"apply_channel_pricing"`
+			LongContext         bool                      `json:"account_long_context"`
+		}{Resolved: resolved, ChannelPricing: resolved.channelPricing, LongContext: longContext,
+			AccountCatalog: NewModelPricingResolver(nil, billing).Resolve(ctx, PricingInput{Model: u.model})}
+		if channel != nil {
+			pricingSnapshot.AccountRules = channel.AccountStatsPricingRules
+			pricingSnapshot.ApplyChannelPricing = channel.ApplyPricingToAccountStats
+		}
+		snapshot, snapshotErr := json.Marshal(pricingSnapshot)
+		amount := baseCost * rate
 		if math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 {
+			c.details = append(c.details, detail)
 			incomplete = true
 			continue
 		}
+		detail.BaseCost, detail.AccountBaseCost, detail.CostUSD = cost, &baseCost, &amount
+		detail.Incomplete = !u.complete || !u.inputSeen || !u.outputSeen || snapshotErr != nil
+		if snapshotErr == nil {
+			detail.PricingSnapshot = snapshot
+			detail.PricingVersion = fmt.Sprintf("sha256:%x", sha256.Sum256(snapshot))
+		}
+		c.details = append(c.details, detail)
 		total += amount
 		priced = true
-		incomplete = incomplete || !u.complete || !u.inputSeen || !u.outputSeen
+		incomplete = incomplete || detail.Incomplete
 	}
 	if !priced {
 		return nil, true

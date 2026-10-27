@@ -148,6 +148,10 @@ func (r *pelicanGroupTestRepository) CreateResult(ctx context.Context, result *s
 		return nil, err
 	}
 	saved := *result
+	costDetails, err := json.Marshal(result.CostDetails)
+	if err != nil {
+		return nil, err
+	}
 	var accountID any
 	if result.AccountID > 0 {
 		accountID = result.AccountID
@@ -156,8 +160,8 @@ func (r *pelicanGroupTestRepository) CreateResult(ctx context.Context, result *s
 	// generations. The group comes from the persisted plan, not caller input.
 	if err := r.db.QueryRowContext(ctx, `WITH saved AS (
  INSERT INTO pelican_group_test_results
- (plan_id, account_id, account_name, attempts, status, response_text, error_message, latency_ms, pelican_config, started_at, finished_at, cost_usd, cost_incomplete, quality_verdict, quality_reason, quality_model_id)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $15, $16, $17)
+ (plan_id, account_id, account_name, attempts, status, response_text, error_message, latency_ms, pelican_config, started_at, finished_at, cost_usd, cost_incomplete, quality_verdict, quality_reason, quality_model_id, cost_details)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $15, $16, $17, $18)
  RETURNING id, created_at, plan_id, cost_usd, cost_incomplete
 ), costs AS (
  INSERT INTO pelican_group_test_daily_costs (group_id, cost_date, cost_usd, unpriced_count)
@@ -171,7 +175,7 @@ func (r *pelicanGroupTestRepository) CreateResult(ctx context.Context, result *s
 		result.PlanID, accountID, result.AccountName, attempts, result.Status, result.ResponseText, result.ErrorMessage,
 		result.LatencyMs, marshalPelicanConfig(result.PelicanConfig), result.StartedAt, result.FinishedAt,
 		result.CostUSD, result.CostIncomplete, result.FinishedAt.In(timezone.Location()).Format(time.DateOnly),
-		result.QualityVerdict, result.QualityReason, result.QualityModelID).Scan(&saved.ID, &saved.CreatedAt); err != nil {
+		result.QualityVerdict, result.QualityReason, result.QualityModelID, costDetails).Scan(&saved.ID, &saved.CreatedAt); err != nil {
 		return nil, err
 	}
 	return &saved, nil
@@ -202,7 +206,7 @@ func (r *pelicanGroupTestRepository) PruneExpiredResults(ctx context.Context, be
 }
 
 const pelicanGroupTestResultSelect = `SELECT r.id, r.plan_id, p.group_id, g.name, COALESCE(r.account_id, 0), r.account_name, r.attempts,
- r.status, r.error_message, r.latency_ms, r.pelican_config, r.started_at, r.finished_at, r.created_at, r.cost_usd, r.cost_incomplete, r.quality_verdict, r.quality_reason, r.quality_model_id`
+ r.status, r.error_message, r.latency_ms, r.pelican_config, r.started_at, r.finished_at, r.created_at, r.cost_usd, r.cost_incomplete, r.quality_verdict, r.quality_reason, r.quality_model_id, r.cost_details`
 
 const pelicanGroupTestResultFrom = `
  FROM pelican_group_test_results r
@@ -289,9 +293,9 @@ func scanPelicanGroupTestPlan(row scannable) (*service.PelicanGroupTestPlan, err
 
 func scanPelicanGroupTestResult(row scannable, withContent ...bool) (*service.PelicanGroupTestResult, error) {
 	result := &service.PelicanGroupTestResult{}
-	var attempts, config []byte
+	var attempts, config, costDetails []byte
 	dest := []any{&result.ID, &result.PlanID, &result.GroupID, &result.GroupName, &result.AccountID, &result.AccountName, &attempts,
-		&result.Status, &result.ErrorMessage, &result.LatencyMs, &config, &result.StartedAt, &result.FinishedAt, &result.CreatedAt, &result.CostUSD, &result.CostIncomplete, &result.QualityVerdict, &result.QualityReason, &result.QualityModelID}
+		&result.Status, &result.ErrorMessage, &result.LatencyMs, &config, &result.StartedAt, &result.FinishedAt, &result.CreatedAt, &result.CostUSD, &result.CostIncomplete, &result.QualityVerdict, &result.QualityReason, &result.QualityModelID, &costDetails}
 	if len(withContent) > 0 && withContent[0] {
 		dest = append(dest, &result.ResponseText)
 	}
@@ -300,6 +304,11 @@ func scanPelicanGroupTestResult(row scannable, withContent ...bool) (*service.Pe
 	}
 	if err := unmarshalAttempts(attempts, &result.Attempts); err != nil {
 		return nil, err
+	}
+	if len(costDetails) > 0 {
+		if err := json.Unmarshal(costDetails, &result.CostDetails); err != nil {
+			return nil, err
+		}
 	}
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &result.PelicanConfig); err != nil {

@@ -663,8 +663,9 @@ type ForwardResult struct {
 type GatewayFailureStage string
 
 const (
-	GatewayFailureStageInference   GatewayFailureStage = "inference"
-	GatewayFailureStageAccountAuth GatewayFailureStage = "account_auth"
+	GatewayFailureStageInference            GatewayFailureStage = "inference"
+	GatewayFailureStageAccountAuth          GatewayFailureStage = "account_auth"
+	GatewayFailureStageRequestCompatibility GatewayFailureStage = "request_compatibility"
 )
 
 // GatewayFailureScope identifies whether selecting another account can help.
@@ -730,7 +731,7 @@ func (e *UpstreamFailoverError) IsCredentialFailure() bool {
 // credential failures from being misattributed to the selected account. Legacy
 // and inference failures retain their existing scheduler-health behavior.
 func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
-	if e == nil {
+	if e == nil || e.Stage == GatewayFailureStageRequestCompatibility {
 		return false
 	}
 	if e.Scope == GatewayFailureScopeRequest && (e.Reason == "fastest_failover_retry_limit" || e.Reason == "fastest_failover_budget_exhausted" || e.Reason == "fastest_failover_shared_failure_limit" || e.Reason == "grok_unknown_forbidden") {

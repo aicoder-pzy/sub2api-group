@@ -195,7 +195,7 @@
                   <small v-if="result.status !== 'success'" class="error-text" :title="result.error_message">{{ result.error_message }}</small>
                 </td>
                 <td class="whitespace-nowrap tabular-nums">{{ pelicanDurationLabel(t, result.latency_ms) }}</td>
-                <td class="whitespace-nowrap tabular-nums" :title="t('pelicanTests.cost.hint')" :data-testid="`pelican-result-cost-${result.id}`">{{ costLabel(result.cost_usd, result.cost_incomplete) }}</td>
+                <td class="whitespace-nowrap tabular-nums" :title="costHint(result)" :data-testid="`pelican-result-cost-${result.id}`">{{ costLabel(result.cost_usd, result.cost_incomplete) }}</td>
                 <td class="whitespace-nowrap text-right">
                   <button v-if="result.status === 'success'" class="link-button" :data-testid="`pelican-result-view-${result.id}`" @click="openPreview(result)">
                     {{ t('pelicanTests.history.view') }}
@@ -466,6 +466,16 @@ function costLabel(value: number | null | undefined, incomplete = false) {
   if (value == null) return t('pelicanTests.cost.unknown')
   const amount = value > 0 && value < 0.000001 ? '<$0.000001' : `$${value.toFixed(6)}`
   return incomplete ? t('pelicanTests.cost.partial', { amount }) : amount
+}
+
+function costHint(result: PelicanGroupTestResult) {
+  const details = result.cost_details
+  if (!details?.length) return t('pelicanTests.cost.hint') + '\n' + t('pelicanTests.cost.noDetails')
+  return t('pelicanTests.cost.hint') + '\n' + details.map(detail => t('pelicanTests.cost.detail', {
+    account: detail.account_id, model: detail.model,
+    rate: detail.rate_multiplier == null ? t('pelicanTests.cost.unknown') : detail.rate_multiplier,
+    amount: costLabel(detail.cost_usd, detail.incomplete),
+  })).join('\n')
 }
 
 function attemptLabel(attempt: PelicanGroupTestAttempt) {

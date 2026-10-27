@@ -89,6 +89,7 @@ type PelicanGroupTestResult struct {
 	LatencyMs      int64                     `json:"latency_ms"`
 	CostUSD        *float64                  `json:"cost_usd"`
 	CostIncomplete bool                      `json:"cost_incomplete"`
+	CostDetails    []PelicanTestCostDetail   `json:"cost_details,omitempty"`
 	PelicanConfig  *PelicanTestConfig        `json:"pelican_config,omitempty"`
 	StartedAt      time.Time                 `json:"started_at"`
 	FinishedAt     time.Time                 `json:"finished_at"`
@@ -159,6 +160,7 @@ type PelicanGroupTestService struct {
 	assessOutput func(context.Context, string) (string, *PelicanAssessment)
 	showcase     *PelicanShowcaseService
 	billing      *BillingService
+	channels     *ChannelService
 	settings     *SettingService
 	now          func() time.Time
 	// runs tracks background runs so tests can wait for them.
@@ -179,14 +181,17 @@ func NewPelicanGroupTestService(
 ) *PelicanGroupTestService {
 	var assessment *PelicanAssessmentService
 	var settings *SettingService
+	var channels *ChannelService
 	if accountTest != nil {
 		assessment = accountTest.pelicanAssessment
 		settings = accountTest.settingService
 	}
 	if gateway != nil {
 		settings = gateway.settingService
+		channels = gateway.channelService
 	} else if openai != nil {
 		settings = openai.settingService
+		channels = openai.channelService
 	}
 	return &PelicanGroupTestService{
 		repo:         repo,
@@ -196,6 +201,7 @@ func NewPelicanGroupTestService(
 		assessOutput: assessment.AssessOutputWithQuality,
 		showcase:     showcase,
 		billing:      billing,
+		channels:     channels,
 		settings:     settings,
 		now:          time.Now,
 	}
@@ -457,6 +463,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 	work, handling := ctx.Value(pelicanDegradationRunKey{}).(PelicanDegradationWork)
 	started := s.now()
 	var costUSD float64
+	var costDetails []PelicanTestCostDetail
 	priced, attempted, incomplete := false, false, false
 	defer func() {
 		if result != nil {
@@ -466,6 +473,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 				result.CostUSD = nil
 			}
 			result.CostIncomplete = incomplete || (attempted && !priced)
+			result.CostDetails = costDetails
 		}
 	}()
 	defer func() {
@@ -526,11 +534,18 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			return s.newResult(plan, started, s.now(), "quality_check_generation_failed")
 		}
 		attempted = true
-		usage := &pelicanTestUsageCollector{model: route.account.GetMappedModel(route.model)}
+		usage := &pelicanTestUsageCollector{model: route.account.GetMappedModel(route.model),
+			group: group, channels: s.channels, pricingAt: s.now()}
+		if generationConfig != nil {
+			usage.effort = generationConfig.ReasoningEffort
+		}
 		func() {
 			defer route.release()
 			defer func() {
-				cost, partial := usage.cost(s.billing, route.account)
+				costCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer cancel()
+				cost, partial := usage.cost(costCtx, s.billing, route.account)
+				costDetails = append(costDetails, usage.details...)
 				incomplete = incomplete || partial
 				if cost != nil {
 					costUSD += *cost

@@ -43,6 +43,14 @@ export interface PelicanGroupTestResult {
   /** USD upstream cost; null means usage or pricing was unavailable. */
   cost_usd: number | null
   cost_incomplete: boolean
+  cost_details?: {
+    account_id: number
+    model: string
+    rate_multiplier: number | null
+    rate_source: string
+    cost_usd: number | null
+    incomplete: boolean
+  }[]
   pelican_config?: PelicanGroupTestConfig
   started_at: string
   finished_at: string

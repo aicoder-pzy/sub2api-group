@@ -115,6 +115,17 @@ describe('PelicanTestsView', () => {
     expect(wrapper.get('[data-testid="pelican-result-cost-88"]').text()).toBe('$0.000000')
     expect(wrapper.get('[data-testid="pelican-result-cost-87"]').text()).toBe('<$0.000001')
     expect(wrapper.get('[data-testid="pelican-result-cost-86"]').text()).toContain('pelicanTests.cost.partial')
+    expect(wrapper.get('[data-testid="pelican-result-cost-90"]').attributes('title')).toContain('pelicanTests.cost.noDetails')
+  })
+
+  it('shows the saved channel cost multiplier without recalculating historical amounts', async () => {
+    api.listResults.mockResolvedValue({ items: [result({ cost_usd: 0.02, cost_details: [{ account_id: 147, model: 'gpt-6.1-sol', rate_multiplier: 0.2, rate_source: 'account_rate_multiplier', cost_usd: 0.02, incomplete: false }] })], total: 1 })
+    wrapper = mountView()
+    await flushPromises()
+    const cell = wrapper.get('[data-testid="pelican-result-cost-90"]')
+    expect(cell.text()).toBe('$0.020000')
+    expect(cell.attributes('title')).toContain('"rate":0.2')
+    expect(cell.attributes('title')).toContain('gpt-6.1-sol')
   })
 
   it('lists the group tests with the account the scheduler picked', async () => {

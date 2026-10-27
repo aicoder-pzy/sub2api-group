@@ -342,6 +342,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
 	s.maybeHandleOpenAITeamLinkedError(ctx, account, statusCode, responseBody)
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
+	if account.Platform == PlatformOpenAI && !customErrorCodesEnabled &&
+		isOpenAIRequestScopedCapacityResponse(statusCode, headers, responseBody) &&
+		!tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, requestedModel)) {
+		return false
+	}
 
 	// 池模式默认不标记本地账号状态；但管理员显式配置的临时不可调度规则优先。
 	// 401 只在非凭据级且命中显式模型级规则时由规则处理，其余保留池模式现有的认证处理。
@@ -2582,6 +2587,12 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
 	}
+	// A relay's temporary lack of pool members is not a permanent model loss.
+	// Smart scheduling retains a short model-only guard against immediate loops;
+	// legacy pool defaults and explicit operator policies keep their own semantics.
+	if account.IsPoolMode() && !account.IsCustomErrorCodesEnabled() && !smartChannelEnabled(ctx) {
+		return false
+	}
 	if !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
@@ -2596,6 +2607,9 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 		cooldown, reason = upstreamCodexPlanGatedModelCooldown, upstreamCodexPlanGatedModelReason
 	default:
 		return false
+	}
+	if smartChannelEnabled(ctx) && account.Type == AccountTypeAPIKey && account.IsOpenAICompatible() && !account.IsCustomErrorCodesEnabled() {
+		cooldown = 30 * time.Second
 	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
 	if modelKey == "" {

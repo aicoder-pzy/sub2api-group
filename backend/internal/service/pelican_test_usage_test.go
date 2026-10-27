@@ -4,11 +4,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
@@ -81,7 +84,7 @@ func TestPelicanTestUsageStreams(t *testing.T) {
 			}
 			require.Len(t, collector.requests, 1)
 			require.Equal(t, tc.want, collector.requests[0].tokens)
-			cost, partial := collector.cost(newTestBillingService(), &Account{Extra: map[string]any{AccountCostMultiplierExtraKey: 0.25}})
+			cost, partial := collector.cost(context.Background(), newTestBillingService(), &Account{RateMultiplier: testCostRate(0.25)})
 			require.NotNil(t, cost)
 			require.Positive(t, *cost)
 			require.Equal(t, tc.partial, partial)
@@ -104,7 +107,7 @@ func TestPelicanTestUsageUnknownAndZero(t *testing.T) {
 			collector := &pelicanTestUsageCollector{model: tc.model}
 			u := startPelicanTestUsage(context.WithValue(context.Background(), pelicanTestUsageKey{}, collector), "openai")
 			u.read(tc.raw)
-			cost, partial := collector.cost(newTestBillingService(), &Account{})
+			cost, partial := collector.cost(context.Background(), newTestBillingService(), &Account{})
 			if tc.unknown {
 				require.Nil(t, cost)
 				require.True(t, partial)
@@ -121,8 +124,8 @@ func TestPelicanGroupCostIncludesFailedAttempts(t *testing.T) {
 	plan := groupTestPlan(1)
 	plan.ModelID = "public-alias"
 	a, b := account(11, "a"), account(12, "b")
-	a.Extra = map[string]any{AccountCostMultiplierExtraKey: 0.25}
-	b.Extra = map[string]any{AccountCostMultiplierExtraKey: 0.5}
+	a.RateMultiplier = testCostRate(0.25)
+	b.RateMultiplier = testCostRate(0.5)
 	router := &groupTestRouterFake{steps: []routeStep{{account: a}, {account: b}}}
 	svc, _ := newGroupTestService(newGroupTestRepoFake(), router, func(ctx context.Context, id int64, _ string, _ *PelicanTestConfig) (*ScheduledTestResult, error) {
 		u := startPelicanTestUsage(ctx, "anthropic")
@@ -156,7 +159,7 @@ func TestPelicanGroupCostThroughBackgroundAccountTest(t *testing.T) {
 	a := &Account{ID: 11, Name: "test account", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive,
 		Credentials: map[string]any{"api_key": "mock-key", "base_url": "http://chat.example/v1",
 			"model_mapping": map[string]any{"public-alias": "claude-sonnet-4"}},
-		Extra: map[string]any{AccountCostMultiplierExtraKey: 0.25, openai_compat.ExtraKeyResponsesSupported: false},
+		RateMultiplier: testCostRate(0.25), Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: false},
 	}
 	accountSvc, upstream := adaptiveCNAccountTestService(a, &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(
 		"data: {\"model\":\"claude-sonnet-4\",\"choices\":[{\"delta\":{\"content\":\"<svg></svg>\"},\"finish_reason\":\"stop\"}]}\n\n" +
@@ -181,8 +184,47 @@ func TestPelicanTestUsageBufferedStreams(t *testing.T) {
 	ctx := context.WithValue(context.Background(), pelicanTestUsageKey{}, collector)
 	recordPelicanTestSSE(ctx, "openai", "claude-sonnet-4", []byte("data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1000,\"output_tokens\":500}}}\n\n"))
 	recordPelicanTestSSE(ctx, "gemini", "claude-sonnet-4", []byte("data:{\"response\":{\"candidates\":[{\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1000,\"candidatesTokenCount\":500}}}\n\n"))
-	cost, partial := collector.cost(newTestBillingService(), &Account{Extra: map[string]any{AccountCostMultiplierExtraKey: 1.0}})
+	cost, partial := collector.cost(context.Background(), newTestBillingService(), &Account{RateMultiplier: testCostRate(1.0)})
 	require.NotNil(t, cost)
 	require.InDelta(t, 0.021, *cost, 1e-12)
 	require.False(t, partial)
+}
+
+func testCostRate(value float64) *float64 { return &value }
+
+func TestPelicanCostUsesAccountStatsPricingAndFreezesEvidence(t *testing.T) {
+	for _, rate := range []float64{0, 0.2, 1} {
+		t.Run(fmt.Sprint(rate), func(t *testing.T) {
+			group := &Group{ID: 4, RateMultiplier: 99}
+			channel := &Channel{ID: 1, AccountStatsPricingRules: []AccountStatsPricingRule{{
+				AccountIDs: []int64{11}, Pricing: []ChannelModelPricing{{
+					Models: []string{"claude-sonnet-4"}, Platform: PlatformAnthropic,
+					InputPrice: testCostRate(6e-6), OutputPrice: testCostRate(30e-6),
+				}},
+			}}}
+			channels := newTestChannelServiceForStats(t, channel, group.ID, PlatformAnthropic)
+			collector := &pelicanTestUsageCollector{group: group, channels: channels, model: "claude-sonnet-4", effort: "medium", pricingAt: time.Now()}
+			ctx := context.WithValue(context.Background(), pelicanTestUsageKey{}, collector)
+			u := startPelicanTestUsage(ctx, "anthropic")
+			u.read(`{"type":"message_start","message":{"usage":{"input_tokens":1000,"output_tokens":500}}}`)
+			u.read(`{"type":"message_stop"}`)
+			a := &Account{ID: 11, Platform: PlatformAnthropic, RateMultiplier: testCostRate(rate), Extra: map[string]any{"cost_multiplier": 0.1}}
+			cost, partial := collector.cost(ctx, newTestBillingService(), a)
+			require.False(t, partial)
+			require.InDelta(t, (0.006+0.015)*rate, *cost, 1e-12)
+			require.Len(t, collector.details, 1)
+			detail := collector.details[0]
+			require.Equal(t, "account_rate_multiplier", detail.RateSource)
+			require.Equal(t, rate, *detail.RateMultiplier)
+			require.Equal(t, 500, detail.Tokens.OutputTokens)
+			require.NotEmpty(t, detail.PricingVersion)
+			before, err := json.Marshal(detail)
+			require.NoError(t, err)
+			a.RateMultiplier = testCostRate(10)
+			channel.AccountStatsPricingRules[0].Pricing[0].InputPrice = testCostRate(60)
+			after, err := json.Marshal(detail)
+			require.NoError(t, err)
+			require.JSONEq(t, string(before), string(after))
+		})
+	}
 }

@@ -283,7 +283,9 @@ func TestPelicanGroupTestRepo_CostsSurviveRetentionAndPlanDeletion(t *testing.T)
 	finished := today.Add(30 * time.Minute).UTC()
 	save := func(planID int64, cost *float64, at time.Time, partial bool) *service.PelicanGroupTestResult {
 		t.Helper()
-		saved, err := repo.CreateResult(ctx, &service.PelicanGroupTestResult{PlanID: planID, GroupID: groups[1].ID, Status: "failed", StartedAt: at.Add(-time.Minute), FinishedAt: at, CostUSD: cost, CostIncomplete: partial})
+		saved, err := repo.CreateResult(ctx, &service.PelicanGroupTestResult{PlanID: planID, GroupID: groups[1].ID, Status: "failed", StartedAt: at.Add(-time.Minute), FinishedAt: at, CostUSD: cost, CostIncomplete: partial,
+			CostDetails: []service.PelicanTestCostDetail{{AccountID: 147, Model: "gpt-6.1-sol", RateSource: "account_rate_multiplier", Tokens: service.UsageTokens{OutputTokens: 123}, CostUSD: cost}},
+		})
 		require.NoError(t, err)
 		return saved
 	}
@@ -297,10 +299,14 @@ func TestPelicanGroupTestRepo_CostsSurviveRetentionAndPlanDeletion(t *testing.T)
 	require.NoError(t, err)
 	require.NotNil(t, detail.CostUSD)
 	require.InDelta(t, firstCost, *detail.CostUSD, 1e-10)
+	require.Len(t, detail.CostDetails, 1)
+	require.EqualValues(t, 147, detail.CostDetails[0].AccountID)
+	require.Equal(t, 123, detail.CostDetails[0].Tokens.OutputTokens)
 	page, _, err := repo.ListResults(ctx, b.ID, 0, 20)
 	require.NoError(t, err)
 	require.Len(t, page, 1)
 	require.InDelta(t, secondCost, *page[0].CostUSD, 1e-10)
+	require.Len(t, page[0].CostDetails, 1)
 	require.True(t, page[0].CostIncomplete)
 	last, err := repo.GetPlan(ctx, b.ID)
 	require.NoError(t, err)
