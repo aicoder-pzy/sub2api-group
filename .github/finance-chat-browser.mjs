@@ -85,9 +85,16 @@ try {
   assert.equal(await page.getByTestId('chat-input').inputValue(), '刷新后继续核对')
   assert.match(await page.locator('.chat-markdown').textContent(), /0012/)
   assert.equal(requests.length, 1, 'Reload and exports must not call a model')
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.screenshot({ path: path.join(output, 'mobile-result.png') })
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+  const mobile = await context.newPage()
+  await mobile.setViewportSize({ width: 390, height: 844 })
+  mobile.on('pageerror', error => errors.push(error.message))
+  await mobile.goto('http://127.0.0.1:4173/chat')
+  await mobile.getByTestId('chat-input').waitFor()
+  await mobile.screenshot({ path: path.join(output, 'mobile-result.png') })
+  const dimensions = await mobile.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth,
+    overflowing: Array.from(document.querySelectorAll('main *')).filter(element => element.getBoundingClientRect().right > innerWidth + 1)
+      .slice(0, 10).map(element => ({ tag: element.tagName, classes: element.className })) }))
+  assert.equal(dimensions.width <= dimensions.viewport, true, JSON.stringify(dimensions))
   assert.deepEqual(errors, [])
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, mock_model_requests: requests.length,
     real_model_requests: 0, csv_worker: true, xlsx_worker: true, xlsx_download: true, html_report: true,

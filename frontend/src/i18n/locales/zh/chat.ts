@@ -19,8 +19,8 @@ export default {
     quickTasks: '常用任务：', replaceDraft: '用任务模板替换当前输入内容？已添加的文件会保留。',
     attach: '添加表格 / 文本', readingFiles: '正在读取…', preview: '查看资料预览', sourceFile: '本次提交的资料',
     sheetSize: '{rows} 行 × {columns} 列', previewPartial: '预览仅展示前 3000 个字符；发送时包含本文件全部已导入内容。',
-    removeFile: '移除文件 {name}', fileHint: '可拖入 Excel、CSV、TSV 或文本；每个文件 ≤ 5 MB，每次最多 4 个。文件在浏览器解析，发送后资料会提交给所选模型，并保存在本机对话中。',
-    reviewHint: '金额、匹配结果和财务结论请复核；助手提供分析与公式建议，不直接执行表格计算。',
+    removeFile: '移除文件 {name}', fileHint: 'Excel / CSV / TSV / 文本，≤ 5 MB/个，最多 4 个；浏览器解析，发送后交给所选模型并存入本机对话。',
+    reviewHint: '金额、匹配和结论请复核；助手不直接执行表格计算。',
     copyTable: '复制首个表格到 Excel', downloadExcel: '下载全部表格（Excel）', downloadReport: '下载报告（网页）',
     reportDownloaded: '报告已下载，用浏览器打开后可打印或另存为 PDF。', exportError: '文件导出失败，请重试或复制回答。',
     tasks: {

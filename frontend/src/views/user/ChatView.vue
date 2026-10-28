@@ -25,11 +25,11 @@
             <button class="btn btn-secondary shrink-0" :disabled="busy" @click="newChat">+ {{ t('chat.newChat') }}</button>
           </div>
           <div v-if="current" class="flex flex-wrap items-center gap-3">
-            <div class="min-w-0 flex-1">
+            <div class="min-w-0 flex-1 basis-full sm:basis-0">
               <input v-model="current.title" class="w-full truncate bg-transparent text-lg font-semibold text-gray-900 outline-none focus:underline dark:text-white" :placeholder="t('chat.workspaceTitle')" :aria-label="t('chat.rename')" maxlength="80" :disabled="busy" @change="persist" />
-              <p class="mt-1 text-xs text-gray-500">{{ t('chat.workspaceHint') }}</p>
+              <p class="mt-1 hidden text-xs text-gray-500 sm:block">{{ t('chat.workspaceHint') }}</p>
             </div>
-            <label class="chat-field w-full sm:w-60"><span>{{ t('chat.key') }}</span>
+            <label class="chat-field min-w-0 flex-1 sm:w-60 sm:flex-none"><span>{{ t('chat.key') }}</span>
               <select v-model="current.keyId" class="input" data-testid="chat-key" :disabled="busy || keysLoading" @change="current.model = ''; current.effort = ''">
                 <option :value="null">{{ keysLoading ? t('chat.loading') : t('chat.selectKey') }}</option>
                 <option v-for="key in keys" :key="key.id" :value="key.id">{{ key.group?.name || '#' + key.group_id }} · {{ key.name }}</option>
@@ -57,7 +57,7 @@
           <p v-if="keysError || modelsError" role="alert" class="mt-3 text-sm text-amber-600">{{ t(keysError ? 'chat.keysError' : 'chat.modelsError') }}</p>
         </header>
 
-        <div ref="messagePane" class="min-h-0 flex-1 overflow-y-auto scroll-smooth" role="log" :aria-label="t('chat.title')" :aria-busy="busy" @scroll="onScroll">
+        <div ref="messagePane" class="min-h-0 flex-1 overflow-y-auto" role="log" :aria-label="t('chat.title')" :aria-busy="busy" @scroll="onScroll">
           <div v-if="!current?.messages.length" class="flex h-full min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
             <div class="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-2xl text-primary-600 dark:bg-primary-900/30">✦</div>
             <h1 class="text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">{{ t('chat.emptyTitle') }}</h1>
