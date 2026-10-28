@@ -35,7 +35,6 @@ async function readable(theme, name, locator, pseudo = null) {
   contrastResults.push({ theme, name, ...colors })
   await writeFile(path.join(output, 'contrast.json'), JSON.stringify(contrastResults, null, 2))
   if (colors.ratio < 4.5) await locator.page().screenshot({ path: path.join(output, `phone-${theme}-contrast-failure.png`) })
-  assert.ok(colors.ratio >= 4.5, `${theme} ${name}: ${JSON.stringify(colors)}`)
 }
 async function phoneLayout(page, minimum) {
   // Device metrics may update before resize events and Vue's next render have run.
@@ -391,6 +390,7 @@ try {
     await phone.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
   }
   assert.equal(requests.length, 5, 'Theme verification must not call a model')
+  assert.deepEqual(contrastResults.filter(result => result.ratio < 4.5), [], 'All mobile text must meet 4.5:1 contrast')
   await phoneContext.close()
   assert.deepEqual(errors, [])
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, mock_model_requests: requests.length,

@@ -588,7 +588,7 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
   .chat-mobile-button { @apply inline-flex shrink-0 items-center justify-center rounded-lg disabled:opacity-40; width: 44px; height: 44px; touch-action: manipulation; }
   .chat-sync-bar { flex-shrink: 0; min-height: 22px; padding-top: 0; padding-bottom: 4px; background: #ededed; color: #526071; font-size: 12px; }
   .chat-sync-bar > span { min-width: 0; overflow-wrap: anywhere; }
-  .chat-sync-bar > button { flex-shrink: 0; min-height: 24px; color: #087c52; }
+  .chat-sync-bar > button { flex-shrink: 0; min-height: 24px; color: #076b46; }
   .chat-messages { background: #ededed; overscroll-behavior-y: contain; overflow-x: hidden; }
   .chat-empty { min-height: 0; padding: 24px; }
   .chat-empty h1 { font-size: 20px; }
@@ -610,7 +610,7 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
   .chat-composer textarea::placeholder { color: #64748b; opacity: 1; }
   .chat-send-row { flex-shrink: 0; padding: 0; }
   .chat-send-row .btn { min-height: 44px; padding: 8px 12px; border-radius: 5px; white-space: nowrap; }
-  .chat-send-row .btn-primary { background: #087c52; color: white; }
+  .chat-send-row .btn-primary { background: #076b46; color: white; }
   .chat-send-row .btn-primary:disabled { background: #dce4df; color: #42534a; opacity: 1; }
   .chat-plus { width: 36px; }
   .chat-draft-attachments { max-height: min(140px, 22dvh); overflow-y: auto; overscroll-behavior: contain; padding: 4px 4px 8px; }
@@ -625,8 +625,8 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
   .chat-tray-action > span { @apply flex h-14 w-14 items-center justify-center rounded-xl bg-white text-2xl dark:bg-dark-800; }
   .chat-mobile-sheet .chat-field, .chat-mobile-sheet .text-gray-500, .chat-mobile-tray p { color: #526071; }
   .chat-mobile-sheet .input::placeholder { color: #64748b; opacity: 1; }
-  .chat-mobile-sheet .btn-primary { background: #087c52; color: white; }
-  .chat-mobile-sheet a, .chat-markdown :deep(a) { color: #087c52; }
+  .chat-mobile-sheet .btn-primary { background: #076b46; color: white; }
+  .chat-mobile-sheet a, .chat-markdown :deep(a) { color: #076b46; }
   .chat-source .text-gray-500, .chat-footer > .text-gray-500 { color: #526071; }
   .chat-shell .text-amber-600 { color: #92400e; }
   .chat-mobile-sheet .text-red-600 { color: #b91c1c; }
