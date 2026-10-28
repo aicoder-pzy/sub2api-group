@@ -21,7 +21,7 @@ export function parseChatFile(name: string, buffer: ArrayBuffer): ChatAttachment
   // Read only a bounded number of rows; !fullref is checked before accepting the file.
   // Formulae/macros are never executed. Keep formatted text (dates, account IDs, leading zeroes).
   const book = XLSX.read(text || buffer, { type: text ? 'string' : 'array', raw: true,
-    sheetRows: MAX_ROWS + 1, cellText: true, cellFormula: true, bookVBA: false })
+    sheetRows: MAX_ROWS + 1, sheetStubs: true, cellText: true, cellFormula: true, bookVBA: false })
   const sheets: ChatAttachment['sheets'] = []
   const sections: string[] = []
   let cells = 0, characters = 0
