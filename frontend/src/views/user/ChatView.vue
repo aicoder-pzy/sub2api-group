@@ -139,7 +139,7 @@
             </div>
             <div class="chat-input-row">
             <button type="button" class="chat-mobile-button chat-plus sm:hidden" :aria-label="t('chat.mobile.add')" :aria-expanded="mobileTray" aria-controls="chat-mobile-tray" data-testid="chat-mobile-plus" @click="toggleMobileTray"><Icon :name="mobileTray ? 'x' : 'plus'" size="lg" /></button>
-            <textarea ref="composer" v-model="draft" :placeholder="t('chat.placeholder')" :aria-label="t('chat.placeholder')" class="max-h-48 min-h-20 w-full resize-y bg-transparent px-4 pt-4 text-sm leading-6 text-gray-900 outline-none dark:text-gray-100" rows="1" maxlength="100000" data-testid="chat-input" @keydown="onKeydown" @focus="mobileTray = false"></textarea>
+            <textarea ref="composer" v-model="draft" :placeholder="t(mobileScreen ? 'chat.mobile.placeholder' : 'chat.placeholder')" :aria-label="t('chat.placeholder')" class="max-h-48 min-h-20 w-full resize-y bg-transparent px-4 pt-4 text-sm leading-6 text-gray-900 outline-none dark:text-gray-100" rows="1" maxlength="100000" data-testid="chat-input" @keydown="onKeydown" @focus="mobileTray = false"></textarea>
             <div class="chat-send-row flex items-center justify-between gap-2 px-3 pb-3 pt-1">
               <div class="hidden flex-wrap items-center gap-3 sm:flex">
                 <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading || !historyReady" data-testid="chat-attach" @click="fileInput?.click()">{{ filesLoading ? t('chat.readingFiles') : t('chat.attach') }}</button>
@@ -156,8 +156,8 @@
             </div>
             <div v-if="mobileTray" id="chat-mobile-tray" class="chat-mobile-tray sm:hidden">
               <div class="grid grid-cols-3 gap-3">
-                <button type="button" class="chat-tray-action" :disabled="busy || filesLoading || !historyReady" data-testid="chat-mobile-camera" @click="cameraInput?.click()"><span aria-hidden="true">📷</span>{{ t('chat.camera') }}</button>
-                <button type="button" class="chat-tray-action" :disabled="busy || filesLoading || !historyReady" data-testid="chat-mobile-photo" @click="imageInput?.click()"><span aria-hidden="true">▧</span>{{ t('chat.photo') }}</button>
+                <button type="button" class="chat-tray-action" :disabled="busy || filesLoading || !historyReady" data-testid="chat-mobile-camera" @click="cameraInput?.click()"><span aria-hidden="true"><Icon name="camera" size="lg" /></span>{{ t('chat.camera') }}</button>
+                <button type="button" class="chat-tray-action" :disabled="busy || filesLoading || !historyReady" data-testid="chat-mobile-photo" @click="imageInput?.click()"><span aria-hidden="true"><Icon name="photo" size="lg" /></span>{{ t('chat.photo') }}</button>
                 <button type="button" class="chat-tray-action" :disabled="busy || filesLoading || !historyReady" data-testid="chat-mobile-attach" @click="fileInput?.click()"><span aria-hidden="true"><Icon name="document" size="lg" /></span>{{ t('chat.attach') }}</button>
               </div>
               <div class="mt-4 grid grid-cols-2 gap-2"><button v-for="task in tasks" :key="task" type="button" class="rounded-lg bg-white px-2 py-3 text-xs dark:bg-dark-800" :disabled="busy" @click="useTask(task)">{{ t('chat.tasks.' + task + '.title') }}</button></div>
@@ -244,6 +244,7 @@ const syncStatus = ref<ChatSyncStatus>('syncing'), syncConflict = ref(false)
 const shareDialog = ref<HTMLDialogElement>(), shareQR = ref(''), shareURL = ref('')
 const historyDialog = ref<HTMLDialogElement>(), settingsDialog = ref<HTMLDialogElement>(), mobileTray = ref(false)
 const mobileViewport = ref<Record<string, string>>({})
+const mobileScreen = ref(window.innerWidth < 640)
 let chatSync: ChatSync | undefined
 const messagePane = ref<HTMLElement>(), followOutput = ref(true)
 const current = computed(() => conversations.value.find(c => c.id === selectedId.value))
@@ -417,15 +418,16 @@ function resizeComposer() {
   const input = composer.value
   if (!input) return
   input.style.height = ''
-  if (window.innerWidth < 640) {
+  if (window.innerWidth < 640 && draft.value) {
     input.style.height = 'auto'
     input.style.height = Math.min(input.scrollHeight, 104) + 'px'
   }
 }
 function updateMobileViewport() {
+  mobileScreen.value = window.innerWidth < 640
   const viewport = window.visualViewport
   if (viewport && viewport.scale === 1) mobileViewport.value = { '--chat-mobile-height': viewport.height + 'px', '--chat-mobile-top': viewport.offsetTop + 'px' }
-  resizeComposer()
+  void nextTick(resizeComposer)
   if (window.innerWidth >= 640) { historyDialog.value?.close?.(); settingsDialog.value?.close?.(); mobileTray.value = false }
   scrollToEnd()
 }

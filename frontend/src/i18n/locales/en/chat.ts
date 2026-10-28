@@ -1,6 +1,6 @@
 export default {
   chat: {
-    mobile: { menu: 'Conversation settings', close: 'Close', back: 'Back to dashboard', add: 'Add photos, files or tasks', photoHint: 'Photos sync to your computer. Tap Send to submit them to the model.' },
+    mobile: { menu: 'Conversation settings', close: 'Close', back: 'Back to dashboard', add: 'Add photos, files or tasks', placeholder: 'Message, or tap + to attach', photoHint: 'Photos sync to your computer. Tap Send to submit them to the model.' },
     title: 'Chat', description: 'Choose a group and model to start a conversation.', newChat: 'New chat',
     conversations: 'Conversations', untitled: 'New chat', deleteChat: 'Delete conversation', deleteConfirm: 'Delete this conversation? This cannot be undone.',
     key: 'Service group', selectKey: 'Choose an available group', model: 'Model', selectModel: 'Choose or enter a model',

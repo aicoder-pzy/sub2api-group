@@ -18,6 +18,7 @@ async function phoneLayout(page, minimum) {
       message_pane_height: log.clientHeight, send_top: rect.top, send_bottom: rect.bottom,
       visible_bottom: (viewport?.offsetTop || 0) + (viewport?.height || innerHeight) }
   })
+  if (dimensions.width > dimensions.viewport || dimensions.message_pane_height < minimum || dimensions.send_bottom > dimensions.visible_bottom + 1) await page.screenshot({ path: path.join(output, 'phone-layout-failure.png') })
   assert.ok(dimensions.width <= dimensions.viewport, JSON.stringify(dimensions))
   assert.ok(dimensions.message_pane_height >= minimum, JSON.stringify(dimensions))
   assert.ok(dimensions.send_top >= 0 && dimensions.send_bottom <= dimensions.visible_bottom + 1, JSON.stringify(dimensions))
