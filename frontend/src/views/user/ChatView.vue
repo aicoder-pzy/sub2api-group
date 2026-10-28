@@ -347,7 +347,7 @@ async function addFiles(files: File[]) {
     }
     if (controller.signal.aborted || !alive || auth.user?.id !== userId || current.value?.id !== chat.id) return
     if ([...draftFiles.value, ...parsed].reduce((size, file) => size + file.content.length, draft.value.length) > CHAT_MAX_INPUT) throw new Error('content')
-    draftFiles.value = [...draftFiles.value, ...parsed]; draftImages.value = [...draftImages.value, ...images]; persist()
+    draftFiles.value = [...draftFiles.value, ...parsed]; draftImages.value = [...draftImages.value, ...images]; await persist()
   } catch (cause) {
     if (!controller.signal.aborted && alive && auth.user?.id === userId && current.value?.id === chat.id) {
       const code = cause instanceof Error ? cause.message : 'parse'

@@ -87,7 +87,7 @@ try {
   await page.getByTestId('chat-input').fill('刷新后继续核对')
   await page.reload()
   await page.getByTestId('chat-input').waitFor()
-  assert.equal(await page.getByTestId('chat-input').inputValue(), '刷新后继续核对')
+  await page.waitForFunction(() => document.querySelector('[data-testid="chat-input"]')?.value === '刷新后继续核对')
   assert.match(await page.locator('.chat-markdown').textContent(), /0012/)
   assert.equal(requests.length, 1, 'Reload and exports must not call a model')
   // Generate an oversized-edge screenshot in Chromium; exercise the actual browser image decoder/canvas.
@@ -156,6 +156,8 @@ try {
   mobile.on('pageerror', error => errors.push(error.message))
   await mobile.goto('http://127.0.0.1:4173/chat')
   await mobile.getByTestId('chat-input').waitFor()
+  await mobile.getByTestId('chat-photo').waitFor({ state: 'visible' })
+  await mobile.waitForFunction(() => !document.querySelector('[data-testid="chat-photo"]').disabled)
   await mobile.locator('.chat-toolbar').getByRole('button', { name: /新对话/ }).click()
   assert.equal(await mobile.getByTestId('chat-camera-input').getAttribute('capture'), 'environment')
   assert.equal(await mobile.getByTestId('chat-image-input').getAttribute('capture'), null)

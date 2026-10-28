@@ -168,6 +168,10 @@ async function chatHistory(userId: number, value?: string): Promise<string | nul
 
 /** Persist only the explicit data schema, never API credentials. */
 export async function saveChats(userId: number, conversations: ChatConversation[]): Promise<boolean> {
+  const draftKey = 'sub2api-chat-drafts:v1:' + userId
+  const drafts = JSON.stringify(conversations.map(c => ({ id: c.id, draft: c.draft || '' })))
+  // pagehide cannot await IndexedDB. Keep the small text draft synchronously until its write commits.
+  try { localStorage.setItem(draftKey, drafts) } catch { /* The full IndexedDB save can still succeed. */ }
   try {
     await chatHistory(userId, JSON.stringify(conversations.map(c => ({
       id: c.id, title: c.title, keyId: c.keyId, model: c.model, effort: c.effort, updatedAt: c.updatedAt,
@@ -177,6 +181,7 @@ export async function saveChats(userId: number, conversations: ChatConversation[
       messages: c.messages.map(m => ({ id: m.id, role: m.role, content: m.content, reasoning: m.reasoning,
         status: m.status === 'streaming' ? 'stopped' : m.status, attachments: m.attachments?.map(fileSchema), images: m.images?.map(imageSchema) }))
     }))))
+    try { if (localStorage.getItem(draftKey) === drafts) localStorage.removeItem(draftKey) } catch { /* Storage can be restricted. */ }
     return true
   } catch { return false }
 }
@@ -203,7 +208,7 @@ export async function loadChats(userId: number): Promise<ChatConversation[]> {
   try {
     const value: unknown = JSON.parse(saved || '[]')
     if (!Array.isArray(value)) return []
-    return value.filter((c): c is ChatConversation => {
+    const chats = value.filter((c): c is ChatConversation => {
       const item = object(c)
       return typeof item.id === 'string' && typeof item.title === 'string' && typeof item.model === 'string' &&
         typeof item.effort === 'string' && typeof item.updatedAt === 'string' &&
@@ -220,5 +225,13 @@ export async function loadChats(userId: number): Promise<ChatConversation[]> {
       draftImages: c.draftImages?.map(imageSchema) || [],
       messages: c.messages.map(m => ({ id: m.id, role: m.role, content: m.content, reasoning: m.reasoning,
         attachments: m.attachments?.map(fileSchema), images: m.images?.map(imageSchema), status: m.status === 'streaming' ? 'stopped' : m.status })) }))
+    try {
+      const drafts: unknown = JSON.parse(localStorage.getItem('sub2api-chat-drafts:v1:' + userId) || '[]')
+      if (Array.isArray(drafts)) for (const raw of drafts) {
+        const draft = object(raw), chat = chats.find(c => c.id === draft.id)
+        if (chat && typeof draft.draft === 'string' && draft.draft.length <= 100000) chat.draft = draft.draft
+      }
+    } catch { /* A missing draft checkpoint never hides committed history. */ }
+    return chats
   } catch { return [] }
 }

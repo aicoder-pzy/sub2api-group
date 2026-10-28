@@ -104,6 +104,12 @@ describe('web chat gateway', () => {
 })
 
 describe('browser history', () => {
+  it('restores a synchronous draft checkpoint left by an interrupted IndexedDB write', async () => {
+    await saveChats(1, [conversation()])
+    localStorage.setItem('sub2api-chat-drafts:v1:1', JSON.stringify([{ id: 'thread-1', draft: 'Last text before refresh' }]))
+    expect((await loadChats(1))[0].draft).toBe('Last text before refresh')
+    expect(await loadChats(2)).toEqual([])
+  })
   it('restores per-conversation drafts and attachments using only the explicit safe schema', async () => {
     const chat = conversation(); chat.financeMode = true; chat.maxOutputTokens = 8192
     chat.draft = 'Please reconcile'; chat.draftFiles = [Object.assign({ name: 'data.csv', content: '0012,-120.50', sheets: [] }, { key: 'DO_NOT_KEEP' })]
