@@ -583,31 +583,35 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
 .chat-markdown :deep(table) { @apply my-3 block max-w-full overflow-x-auto border-collapse; }
 .chat-markdown :deep(th), .chat-markdown :deep(td) { @apply border border-gray-200 px-3 py-2 text-left dark:border-dark-600; }
 @media (max-width: 639px) {
-  .chat-shell { position: fixed; z-index: 20; inset: 0; top: var(--chat-mobile-top, 0px); height: var(--chat-mobile-height, 100dvh); min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+  .chat-shell { @apply text-gray-900 dark:text-gray-100; position: fixed; z-index: 20; inset: 0; top: var(--chat-mobile-top, 0px); height: var(--chat-mobile-height, 100dvh); min-height: 0; border: 0; border-radius: 0; box-shadow: none; color-scheme: light; }
   .chat-mobile-header { @apply items-center gap-1 px-2 text-gray-900 dark:text-gray-100; display: flex; flex-shrink: 0; padding-top: env(safe-area-inset-top); background: #ededed; }
   .chat-mobile-button { @apply inline-flex shrink-0 items-center justify-center rounded-lg disabled:opacity-40; width: 44px; height: 44px; touch-action: manipulation; }
-  .chat-sync-bar { flex-shrink: 0; min-height: 22px; padding-top: 0; padding-bottom: 4px; background: #ededed; font-size: 10px; }
+  .chat-sync-bar { flex-shrink: 0; min-height: 22px; padding-top: 0; padding-bottom: 4px; background: #ededed; color: #526071; font-size: 12px; }
   .chat-sync-bar > span { min-width: 0; overflow-wrap: anywhere; }
-  .chat-sync-bar > button { flex-shrink: 0; min-height: 24px; }
+  .chat-sync-bar > button { flex-shrink: 0; min-height: 24px; color: #087c52; }
   .chat-messages { background: #ededed; overscroll-behavior-y: contain; overflow-x: hidden; }
   .chat-empty { min-height: 0; padding: 24px; }
   .chat-empty h1 { font-size: 20px; }
+  .chat-empty p { color: #526071; }
   .chat-message-list { padding: 16px 12px 24px; }
   .chat-message-list > article { max-width: 92%; width: fit-content; min-width: 0; overflow-wrap: anywhere; }
-  .chat-sender { margin-bottom: 5px; }
+  .chat-sender { margin-bottom: 5px; color: #526071; }
   .chat-user-bubble { border-radius: 6px; background: #95ec69; padding: 10px 12px; font-size: 16px; line-height: 1.6; color: #172016; }
   .chat-assistant { border-radius: 6px; background: white; padding: 10px 12px; }
   .chat-assistant .chat-markdown { font-size: 15px; line-height: 1.7; }
-  .chat-assistant button { min-height: 36px; }
+  .chat-assistant button { min-height: 36px; color: #526071; }
+  .chat-assistant .text-gray-500, .chat-markdown :deep(blockquote) { color: #526071; }
   .chat-footer { max-width: none; padding: 6px 8px max(6px, env(safe-area-inset-bottom)); border-top: 1px solid #ddd; background: #f7f7f7; }
   .chat-footer > [role="alert"] { max-height: 64px; overflow-y: auto; margin-bottom: 4px; font-size: 12px; }
   .chat-composer { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
   .chat-composer:focus-within { box-shadow: none; }
   .chat-input-row { display: flex; align-items: flex-end; gap: 6px; }
   .chat-composer textarea { min-width: 0; flex: 1; height: 40px; min-height: 40px; max-height: 104px; resize: none; overflow-y: auto; border-radius: 5px; background: white; padding: 8px 10px; font-size: 16px; line-height: 24px; }
+  .chat-composer textarea::placeholder { color: #64748b; opacity: 1; }
   .chat-send-row { flex-shrink: 0; padding: 0; }
   .chat-send-row .btn { min-height: 44px; padding: 8px 12px; border-radius: 5px; white-space: nowrap; }
-  .chat-send-row .btn-primary { background: #07c160; color: white; }
+  .chat-send-row .btn-primary { background: #087c52; color: white; }
+  .chat-send-row .btn-primary:disabled { background: #dce4df; color: #42534a; opacity: 1; }
   .chat-plus { width: 36px; }
   .chat-draft-attachments { max-height: min(140px, 22dvh); overflow-y: auto; overscroll-behavior: contain; padding: 4px 4px 8px; }
   .chat-draft-images { flex-wrap: nowrap; gap: 10px; overflow-x: auto; padding: 8px 4px 2px; }
@@ -619,9 +623,29 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
   .chat-mobile-tray { max-height: min(300px, 40dvh); overflow-y: auto; padding: 16px 8px 8px; overscroll-behavior: contain; }
   .chat-tray-action { @apply flex min-w-0 flex-col items-center gap-2 text-xs text-gray-600 disabled:opacity-40 dark:text-gray-300; }
   .chat-tray-action > span { @apply flex h-14 w-14 items-center justify-center rounded-xl bg-white text-2xl dark:bg-dark-800; }
-  :global(.dark) .chat-mobile-header, :global(.dark) .chat-sync-bar, :global(.dark) .chat-messages { background: #111; }
-  :global(.dark) .chat-assistant, :global(.dark) .chat-composer textarea { background: #262626; }
-  :global(.dark) .chat-footer { background: #191919; border-color: #333; }
+  .chat-mobile-sheet .chat-field, .chat-mobile-sheet .text-gray-500, .chat-mobile-tray p { color: #526071; }
+  .chat-mobile-sheet .input::placeholder { color: #64748b; opacity: 1; }
+  .chat-mobile-sheet .btn-primary { background: #087c52; color: white; }
+  .chat-mobile-sheet a, .chat-markdown :deep(a) { color: #087c52; }
+  .chat-source .text-gray-500, .chat-footer > .text-gray-500 { color: #526071; }
+  .chat-shell .text-amber-600 { color: #92400e; }
+  .chat-mobile-sheet .text-red-600 { color: #b91c1c; }
+  /* Keep the complete ancestor selector inside :global so Vue preserves its target. */
+  :global(.dark .chat-shell) { color-scheme: dark; }
+  :global(.dark .chat-shell .chat-mobile-header), :global(.dark .chat-shell .chat-sync-bar), :global(.dark .chat-shell .chat-messages) { background: #111; }
+  :global(.dark .chat-shell .chat-assistant), :global(.dark .chat-shell .chat-composer textarea) { background: #262626; color: #f3f4f6; }
+  :global(.dark .chat-shell .chat-user-bubble) { background: #95ec69; color: #172016; }
+  :global(.dark .chat-shell .chat-footer) { background: #191919; border-color: #444; }
+  :global(.dark .chat-shell .chat-sender), :global(.dark .chat-shell .chat-sync-bar), :global(.dark .chat-shell .chat-empty p),
+  :global(.dark .chat-shell .chat-assistant button), :global(.dark .chat-shell .chat-assistant .text-gray-500), :global(.dark .chat-shell .chat-markdown blockquote),
+  :global(.dark .chat-shell .chat-mobile-sheet .chat-field), :global(.dark .chat-shell .chat-mobile-sheet .text-gray-500), :global(.dark .chat-shell .chat-mobile-tray p),
+  :global(.dark .chat-shell .chat-source .text-gray-500), :global(.dark .chat-shell .chat-footer > .text-gray-500) { color: #b8c2cc; }
+  :global(.dark .chat-shell .chat-sync-bar > button), :global(.dark .chat-shell .chat-mobile-sheet a), :global(.dark .chat-shell .chat-markdown a) { color: #68dfa9; }
+  :global(.dark .chat-shell .text-amber-600) { color: #fcd34d; }
+  :global(.dark .chat-shell .chat-mobile-sheet .text-red-600) { color: #fca5a5; }
+  :global(.dark .chat-shell .chat-composer textarea::placeholder) { color: #b8c2cc; opacity: 1; }
+  :global(.dark .chat-shell .chat-mobile-sheet .input::placeholder) { color: #b8c2cc; opacity: 1; }
+  :global(.dark .chat-shell .chat-send-row .btn-primary:disabled) { background: #303c35; color: #d9e5de; opacity: 1; }
 }
 .chat-mobile-sheet { @apply bg-white text-gray-900 dark:bg-dark-900 dark:text-gray-100; position: fixed; inset: auto 0 0; width: 100%; max-width: 480px; max-height: 85dvh; margin: 0 auto; padding: 12px 20px max(20px, env(safe-area-inset-bottom)); border: 0; border-radius: 18px 18px 0 0; overflow-y: auto; overscroll-behavior: contain; }
 .chat-mobile-sheet .input { min-height: 44px; font-size: 16px; }

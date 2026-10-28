@@ -10,6 +10,32 @@ const XLSX = createRequire(path.resolve('frontend/package.json'))('xlsx')
 const output = path.resolve('finance-browser-results')
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
+const contrastResults = []
+async function readable(theme, name, locator, pseudo = null) {
+  await locator.waitFor({ state: 'visible' })
+  const colors = await locator.evaluate((element, pseudo) => {
+    const rgba = value => {
+      const parts = value.match(/[\d.]+/g).map(Number)
+      return [...parts.slice(0, 3), parts[3] ?? 1]
+    }
+    const over = (front, back) => [...front.slice(0, 3).map((value, i) => value * front[3] + back[i] * (1 - front[3])), 1]
+    const ancestors = []
+    for (let node = element; node; node = node.parentElement) ancestors.unshift(node)
+    let background = [255, 255, 255, 1]
+    for (const node of ancestors) background = over(rgba(getComputedStyle(node).backgroundColor), background)
+    const style = getComputedStyle(element, pseudo), foreground = rgba(style.color)
+    foreground[3] *= Number(style.opacity)
+    const luminance = rgb => rgb.slice(0, 3).map(value => {
+      const c = value / 255
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    }).reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0)
+    const a = luminance(over(foreground, background)), b = luminance(background)
+    return { foreground: style.color, background: background.slice(0, 3), ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) }
+  }, pseudo)
+  contrastResults.push({ theme, name, ...colors })
+  await writeFile(path.join(output, 'contrast.json'), JSON.stringify(contrastResults, null, 2))
+  assert.ok(colors.ratio >= 4.5, `${theme} ${name}: ${JSON.stringify(colors)}`)
+}
 async function phoneLayout(page, minimum) {
   // Device metrics may update before resize events and Vue's next render have run.
   await page.waitForFunction(() => {
@@ -270,6 +296,7 @@ try {
   const sharedId = new URL(sharedURL).searchParams.get('conversation'), record = cloud.get(sharedId)
   record.conversation.messages.push(...Array.from({ length: 30 }, (_, index) => ({ id: 'history-' + index,
     role: index % 2 ? 'assistant' : 'user', content: '票据核对记录 ' + index + '\n请保留单号与金额用于复核。', status: 'complete', reasoning: '', attachments: [], images: [] })))
+  Object.assign(record.conversation.messages.at(-1), { content: '票据核对记录 29\n\n| 单号 | 金额 |\n| --- | --- |\n| 0012 | -120.50 |\n\n> 请复核原始凭证\n\n[凭证说明](https://example.invalid)与 `0012`。', reasoning: '依据原始凭证核对金额。' })
   record.revision++
   await phone.getByTestId('chat-sync').click()
   await phone.getByText('票据核对记录 29', { exact: false }).waitFor()
@@ -307,6 +334,59 @@ try {
   await phoneLayout(phone, 550)
   await phone.screenshot({ path: path.join(output, 'phone-four-photo-draft.png') })
   assert.equal(requests.length, 5)
+  for (let index = 0; index < 4; index++) await phone.getByRole('button', { name: '移除文件 receipt-' + index + '.jpg', exact: true }).click()
+  // Verify saved light preference and automatic OS dark preference through the real app boot.
+  for (const theme of ['light', 'dark']) {
+    await phone.emulateMedia({ colorScheme: theme })
+    await phone.evaluate(theme => theme === 'light' ? localStorage.setItem('theme', theme) : localStorage.removeItem('theme'), theme)
+    await phone.reload()
+    await phone.locator('.chat-markdown table').last().waitFor()
+    assert.equal(await phone.locator('html').evaluate(html => html.classList.contains('dark')), theme === 'dark')
+    await phoneLayout(phone, 650)
+    await phone.locator('.chat-assistant details summary').last().click()
+    for (const [name, selector] of [
+      ['header', '.chat-mobile-header h1'], ['sync status', '.chat-sync-bar > span'], ['sync refresh', '.chat-sync-bar > button'],
+      ['user message', '.chat-user-bubble'], ['assistant body', '.chat-markdown'], ['assistant table', '.chat-markdown td'],
+      ['assistant sender', '.chat-assistant .chat-sender'], ['user sender', '.chat-user .chat-sender'],
+      ['reasoning label', '.chat-assistant details summary'], ['reasoning body', '.chat-assistant details p'],
+      ['blockquote', '.chat-markdown blockquote'], ['link', '.chat-markdown a'], ['inline code', '.chat-markdown code'],
+      ['assistant action', '[data-testid="chat-copy-table"]'], ['input text', '[data-testid="chat-input"]']
+    ]) await readable(theme, name, phone.locator(selector).last())
+    await readable(theme, 'input placeholder', phone.getByTestId('chat-input'), '::placeholder')
+    assert.equal(await phone.getByTestId('chat-send').isDisabled(), true)
+    await readable(theme, 'disabled send', phone.getByTestId('chat-send'))
+    await phone.getByTestId('chat-input').fill('核对单号 0012 和金额 -120.50')
+    assert.equal(await phone.getByTestId('chat-send').isDisabled(), false)
+    await readable(theme, 'enabled send', phone.getByTestId('chat-send'))
+    await phone.locator('.chat-messages').evaluate(log => { log.scrollTop = log.scrollHeight })
+    await phone.screenshot({ path: path.join(output, `phone-${theme}-conversation.png`) })
+    await phone.getByTestId('chat-mobile-plus').click()
+    await readable(theme, 'camera label', phone.getByTestId('chat-mobile-camera'))
+    await readable(theme, 'tray hint', phone.locator('.chat-mobile-tray p'))
+    await readable(theme, 'finance task', phone.locator('.chat-mobile-tray .grid').nth(1).locator('button').first())
+    await phone.screenshot({ path: path.join(output, `phone-${theme}-tray.png`) })
+    await phone.getByTestId('chat-mobile-menu').click()
+    const settings = phone.getByTestId('chat-mobile-settings-dialog')
+    for (const [name, selector] of [['settings heading', 'h2'], ['settings label', '.chat-field > span'], ['settings hint', 'p'],
+      ['settings input', '.input'], ['settings action', '.btn-secondary'], ['delete action', '.text-red-600']]) {
+      await readable(theme, name, settings.locator(selector).first())
+    }
+    await readable(theme, 'model placeholder', phone.getByTestId('chat-mobile-model'), '::placeholder')
+    await phone.screenshot({ path: path.join(output, `phone-${theme}-settings.png`) })
+    await settings.locator('.chat-mobile-button').click()
+    await phone.getByTestId('chat-mobile-history').click()
+    const history = phone.getByTestId('chat-mobile-history-dialog')
+    await readable(theme, 'new conversation', history.locator('.btn-primary'))
+    await readable(theme, 'history item', history.locator('.chat-history-item').first())
+    await readable(theme, 'history search', history.locator('input'), '::placeholder')
+    await readable(theme, 'dashboard link', history.locator('a'))
+    await phone.screenshot({ path: path.join(output, `phone-${theme}-history.png`) })
+    await history.locator('.chat-mobile-button').click()
+    await phone.getByTestId('chat-input').fill('')
+    await phone.getByTestId('chat-sync').click()
+    await phone.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
+  }
+  assert.equal(requests.length, 5, 'Theme verification must not call a model')
   await phoneContext.close()
   assert.deepEqual(errors, [])
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, mock_model_requests: requests.length,
@@ -317,5 +397,6 @@ try {
     mixed_batch_atomic: true, image_drop: true, camera_orientation: true, camera_exif_removed: true,
     mobile_message_pane_height: dimensions.message_pane_height, mobile_history_menu: true, mobile_settings_sheet: true,
     mobile_plus_tray: true, mobile_keyboard_viewport: true, mobile_small_screen: true, mobile_internal_scroll: true,
-    mobile_four_photo_draft: true, mobile_enter_newline: true, native_camera_hardware_tested: false }, null, 2))
+    mobile_four_photo_draft: true, mobile_enter_newline: true, mobile_light_and_dark: true, mobile_minimum_text_contrast: Math.min(...contrastResults.map(result => result.ratio)),
+    mobile_contrast_checks: contrastResults.length, automatic_dark_theme: true, native_camera_hardware_tested: false }, null, 2))
 } finally { await browser.close() }
