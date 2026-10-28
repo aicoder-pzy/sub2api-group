@@ -10,6 +10,20 @@ const XLSX = createRequire(path.resolve('frontend/package.json'))('xlsx')
 const output = path.resolve('finance-browser-results')
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
+async function phoneLayout(page, minimum) {
+  const dimensions = await page.evaluate(() => {
+    const log = document.querySelector('[role="log"]'), send = document.querySelector('[data-testid="chat-send"]')
+    const rect = send.getBoundingClientRect(), viewport = window.visualViewport
+    return { viewport: innerWidth, width: document.documentElement.scrollWidth, page_scroll: window.scrollY,
+      message_pane_height: log.clientHeight, send_top: rect.top, send_bottom: rect.bottom,
+      visible_bottom: (viewport?.offsetTop || 0) + (viewport?.height || innerHeight) }
+  })
+  assert.ok(dimensions.width <= dimensions.viewport, JSON.stringify(dimensions))
+  assert.ok(dimensions.message_pane_height >= minimum, JSON.stringify(dimensions))
+  assert.ok(dimensions.send_top >= 0 && dimensions.send_bottom <= dimensions.visible_bottom + 1, JSON.stringify(dimensions))
+  assert.equal(dimensions.page_scroll, 0, JSON.stringify(dimensions))
+  return dimensions
+}
 try {
   const context = await browser.newContext({ viewport: { width: 1366, height: 900 }, locale: 'zh-CN' })
   const user = { id: 1, role: 'user', email: 'finance@example.invalid', username: 'Finance', balance: 100, status: 'active', concurrency: 5 }
@@ -169,21 +183,37 @@ try {
   mobile.on('pageerror', error => errors.push(error.message))
   await mobile.goto('http://127.0.0.1:4173/chat')
   await mobile.getByTestId('chat-input').waitFor()
-  await mobile.getByTestId('chat-photo').waitFor({ state: 'visible' })
   await mobile.waitForFunction(() => !document.querySelector('[data-testid="chat-photo"]').disabled)
-  await mobile.locator('.chat-toolbar').getByRole('button', { name: /新对话/ }).click()
+  await mobile.getByTestId('chat-mobile-history').click()
+  await mobile.getByTestId('chat-mobile-history-dialog').getByRole('button', { name: /新对话/ }).click()
+  await phoneLayout(mobile, 650)
+  await mobile.getByTestId('chat-mobile-menu').click()
+  await mobile.getByTestId('chat-mobile-model').waitFor({ state: 'visible' })
+  assert.equal(await mobile.getByTestId('chat-mobile-model').inputValue(), 'gpt-6.1-sol')
+  await mobile.screenshot({ path: path.join(output, 'mobile-settings.png') })
+  await mobile.getByTestId('chat-mobile-settings-dialog').getByRole('button', { name: '关闭', exact: true }).click()
+  await mobile.getByTestId('chat-mobile-plus').click()
+  await mobile.getByTestId('chat-mobile-photo').waitFor({ state: 'visible' })
+  await mobile.screenshot({ path: path.join(output, 'mobile-plus-tray.png') })
+  await phoneLayout(mobile, 400)
   assert.equal(await mobile.getByTestId('chat-camera-input').getAttribute('capture'), 'environment')
   assert.equal(await mobile.getByTestId('chat-image-input').getAttribute('capture'), null)
   const cameraJPEG = Buffer.from(screenshotSources.jpeg.split(',')[1], 'base64')
   const orientationEXIF = Buffer.from('ffe1002245786966000049492a0008000000010012010300010000000600000000000000', 'hex')
   const cameraWithEXIF = Buffer.concat([cameraJPEG.subarray(0, 2), orientationEXIF, cameraJPEG.subarray(2)])
-  await mobile.getByTestId('chat-camera-input').setInputFiles({ name: 'camera.jpg', mimeType: 'image/jpeg', buffer: cameraWithEXIF })
+  const cameraChooser = mobile.waitForEvent('filechooser')
+  await mobile.getByTestId('chat-mobile-camera').click()
+  await (await cameraChooser).setFiles({ name: 'camera.jpg', mimeType: 'image/jpeg', buffer: cameraWithEXIF })
   await mobile.getByTestId('chat-image-preview').waitFor()
   assert.match(await mobile.getByTestId('chat-image-preview').textContent(), /960 × 2560/)
   const normalizedCamera = await mobile.getByTestId('chat-image-preview').locator('img').getAttribute('src')
   assert.equal(Buffer.from(normalizedCamera.split(',')[1], 'base64').includes(Buffer.from('Exif')), false)
-  await mobile.getByTestId('chat-image-input').setInputFiles({ name: 'gallery.png', mimeType: 'image/png', buffer: Buffer.from(screenshotData.split(',')[1], 'base64') })
+  await mobile.getByTestId('chat-mobile-plus').click()
+  const galleryChooser = mobile.waitForEvent('filechooser')
+  await mobile.getByTestId('chat-mobile-photo').click()
+  await (await galleryChooser).setFiles({ name: 'gallery.png', mimeType: 'image/png', buffer: Buffer.from(screenshotData.split(',')[1], 'base64') })
   await mobile.getByTestId('chat-image-preview').nth(1).waitFor()
+  await phoneLayout(mobile, 550)
   assert.equal(requests.length, 3)
   await mobile.getByTestId('chat-send').click()
   await mobile.getByTestId('chat-download-excel').waitFor()
@@ -192,12 +222,7 @@ try {
   await mobile.reload()
   await mobile.locator('article img').nth(1).waitFor()
   await mobile.screenshot({ path: path.join(output, 'mobile-result.png') })
-  const dimensions = await mobile.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth,
-    message_pane_height: document.querySelector('[role="log"]').clientHeight,
-    overflowing: Array.from(document.querySelectorAll('main *')).filter(element => element.getBoundingClientRect().right > innerWidth + 1)
-      .slice(0, 10).map(element => ({ tag: element.tagName, classes: element.className })) }))
-  assert.equal(dimensions.width <= dimensions.viewport, true, JSON.stringify(dimensions))
-  assert.ok(dimensions.message_pane_height >= 180, JSON.stringify(dimensions))
+  const dimensions = await phoneLayout(mobile, 650)
   // Independent browser storage, like a phone and a computer. Only the mock server is shared.
   // Finish the earlier same-browser camera scenario before testing a separate device.
   await mobile.close()
@@ -234,6 +259,48 @@ try {
   await phone.getByTestId('chat-download-excel').waitFor({ timeout: 15000 })
   assert.equal(await phone.getByTestId('chat-image-preview').count(), 0, 'Sent photo must not remain in the phone draft')
   assert.equal(requests.length, 5)
+  await phone.screenshot({ path: path.join(output, 'phone-shared-reply.png') })
+  // Long history must scroll inside the message pane, with the input always reachable.
+  const sharedId = new URL(sharedURL).searchParams.get('conversation'), record = cloud.get(sharedId)
+  record.conversation.messages.push(...Array.from({ length: 30 }, (_, index) => ({ id: 'history-' + index,
+    role: index % 2 ? 'assistant' : 'user', content: '票据核对记录 ' + index + '\n请保留单号与金额用于复核。', status: 'complete', reasoning: '', attachments: [], images: [] })))
+  record.revision++
+  await phone.getByTestId('chat-sync').click()
+  await phone.getByText('票据核对记录 29', { exact: false }).waitFor()
+  await phone.locator('[role="log"]').evaluate(log => { log.scrollTop = 0 })
+  await phone.locator('[role="log"]').hover()
+  await phone.mouse.wheel(0, 300)
+  await phone.waitForFunction(() => document.querySelector('[role="log"]').scrollTop > 0)
+  await phoneLayout(phone, 650)
+  await phone.getByTestId('chat-input').fill('手机回车只换行')
+  await phone.getByTestId('chat-input').press('End')
+  await phone.getByTestId('chat-input').press('Enter')
+  assert.equal(await phone.getByTestId('chat-input').inputValue(), '手机回车只换行\n')
+  assert.equal(requests.length, 5)
+  await phone.getByTestId('chat-input').fill('')
+  await phone.setViewportSize({ width: 320, height: 568 })
+  await phoneLayout(phone, 400)
+  await phone.screenshot({ path: path.join(output, 'phone-small-320.png') })
+  await phone.setViewportSize({ width: 390, height: 844 })
+  // Keyboard-like visual viewport reduction, without changing the layout viewport (Safari behavior).
+  await phone.evaluate(() => {
+    Object.defineProperty(visualViewport, 'height', { configurable: true, value: 400 })
+    Object.defineProperty(visualViewport, 'offsetTop', { configurable: true, value: 24 })
+    visualViewport.dispatchEvent(new Event('resize'))
+  })
+  await phone.getByTestId('chat-input').fill('长草稿\n'.repeat(30))
+  await phoneLayout(phone, 180)
+  await phone.screenshot({ path: path.join(output, 'phone-keyboard-viewport.png') })
+  await phone.evaluate(() => {
+    delete visualViewport.height; delete visualViewport.offsetTop
+    visualViewport.dispatchEvent(new Event('resize'))
+  })
+  await phone.getByTestId('chat-input').fill('')
+  await phone.getByTestId('chat-image-input').setInputFiles(Array.from({ length: 4 }, (_, index) => ({ name: 'receipt-' + index + '.jpg', mimeType: 'image/jpeg', buffer: cameraJPEG })))
+  await phone.getByTestId('chat-image-preview').nth(3).waitFor()
+  await phoneLayout(phone, 550)
+  await phone.screenshot({ path: path.join(output, 'phone-four-photo-draft.png') })
+  assert.equal(requests.length, 5)
   await phoneContext.close()
   assert.deepEqual(errors, [])
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, mock_model_requests: requests.length,
@@ -242,5 +309,7 @@ try {
     screenshot_paste: true, image_only_send: true, image_resize: true, image_followup: true, image_draft_restored: true,
     image_history_restored: true, legacy_history_migrated: true, camera_input: true, gallery_input: true,
     mixed_batch_atomic: true, image_drop: true, camera_orientation: true, camera_exif_removed: true,
-    mobile_message_pane_height: dimensions.message_pane_height, native_camera_hardware_tested: false }, null, 2))
+    mobile_message_pane_height: dimensions.message_pane_height, mobile_history_menu: true, mobile_settings_sheet: true,
+    mobile_plus_tray: true, mobile_keyboard_viewport: true, mobile_small_screen: true, mobile_internal_scroll: true,
+    mobile_four_photo_draft: true, mobile_enter_newline: true, native_camera_hardware_tested: false }, null, 2))
 } finally { await browser.close() }

@@ -1,5 +1,6 @@
 export default {
   chat: {
+    mobile: { menu: '会话设置', close: '关闭', back: '返回工作台', add: '添加照片、文件或任务', photoHint: '拍照后会同步到电脑；点“发送”才提交给模型。' },
     title: '在线聊天', description: '选择分组与模型，开始对话。', newChat: '新对话',
     conversations: '历史对话', untitled: '新对话', deleteChat: '删除当前对话', deleteConfirm: '删除这段对话？删除后无法恢复。',
     key: '使用服务分组', selectKey: '选择一个可用分组', model: '模型', selectModel: '选择或输入模型名称',

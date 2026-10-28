@@ -1,6 +1,6 @@
 <template>
-  <AppLayout>
-    <div class="chat-shell">
+  <AppLayout mobile-chat>
+    <div class="chat-shell" :style="mobileViewport">
       <aside class="chat-history hidden lg:flex">
         <div class="flex items-center gap-2 px-2 py-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
           <Icon name="chat" size="md" class="text-primary-500" aria-hidden="true" />
@@ -19,7 +19,12 @@
       </aside>
 
       <section class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header class="chat-toolbar">
+        <header class="chat-mobile-header sm:hidden">
+          <button type="button" class="chat-mobile-button" :aria-label="t('chat.conversations')" data-testid="chat-mobile-history" @click="openMobileDialog(historyDialog)"><Icon name="chevronLeft" size="lg" /></button>
+          <h1 class="min-w-0 flex-1 truncate text-center text-base font-semibold">{{ current?.title || t('chat.untitled') }}</h1>
+          <button type="button" class="chat-mobile-button" :aria-label="t('chat.mobile.menu')" data-testid="chat-mobile-menu" @click="openMobileDialog(settingsDialog)"><Icon name="more" size="lg" /></button>
+        </header>
+        <header class="chat-toolbar hidden sm:block">
           <div class="mb-4 flex items-center justify-between gap-2 lg:hidden">
             <select v-model="selectedId" class="input min-w-0 flex-1" :aria-label="t('chat.conversations')" :disabled="busy"><option v-for="chat in sortedChats" :key="chat.id" :value="chat.id">{{ chat.title || t('chat.untitled') }}</option></select>
             <button class="btn btn-secondary shrink-0" :disabled="busy || !historyReady" @click="newChat">+ {{ t('chat.newChat') }}</button>
@@ -54,31 +59,31 @@
             <button class="chat-icon-button" :disabled="busy || keysLoading" :title="t('chat.reload')" :aria-label="t('chat.reload')" @click="loadKeys">↻</button>
             </div>
           </details>
-          <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500" role="status" data-testid="chat-sync-status">
+        </header>
+          <div class="chat-sync-bar flex items-center justify-center gap-2 px-4 py-1 text-xs text-gray-500 sm:justify-start" role="status" data-testid="chat-sync-status">
             <span>{{ t('chat.sync.' + syncStatus) }}</span><button type="button" class="text-primary-600" :disabled="syncStatus === 'syncing' || busy || filesLoading" data-testid="chat-sync" @click="chatSync?.sync()">{{ t('chat.sync.refresh') }}</button>
           </div>
-          <p v-if="syncConflict" class="mt-2 text-xs text-amber-600" role="alert">{{ t('chat.sync.conflict') }}</p>
-          <p v-if="!keysLoading && !keys.length && !keysError" class="mt-3 text-sm text-gray-500">{{ t('chat.noKeys') }} <RouterLink to="/keys" class="text-primary-600 underline">{{ t('chat.manageKeys') }}</RouterLink></p>
-          <p v-if="keysError || modelsError" role="alert" class="mt-3 text-sm text-amber-600">{{ t(keysError ? 'chat.keysError' : 'chat.modelsError') }}</p>
-        </header>
+          <p v-if="syncConflict" class="px-4 py-1 text-xs text-amber-600" role="alert">{{ t('chat.sync.conflict') }}</p>
+          <p v-if="!keysLoading && !keys.length && !keysError" class="px-4 py-1 text-sm text-gray-500">{{ t('chat.noKeys') }} <RouterLink to="/keys" class="text-primary-600 underline">{{ t('chat.manageKeys') }}</RouterLink></p>
+          <p v-if="keysError || modelsError" role="alert" class="px-4 py-1 text-sm text-amber-600">{{ t(keysError ? 'chat.keysError' : 'chat.modelsError') }}</p>
 
-        <div ref="messagePane" class="min-h-0 flex-1 overflow-y-auto" role="log" :aria-label="t('chat.title')" :aria-busy="busy" @scroll="onScroll">
-          <div v-if="!current?.messages.length" class="flex h-full min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
+        <div ref="messagePane" class="chat-messages min-h-0 flex-1 overflow-y-auto" role="log" :aria-label="t('chat.title')" :aria-busy="busy" @scroll="onScroll">
+          <div v-if="!current?.messages.length" class="chat-empty flex h-full flex-col items-center justify-center px-6 py-12 text-center">
             <div class="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-2xl text-primary-600 dark:bg-primary-900/30">✦</div>
             <h1 class="text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">{{ t('chat.emptyTitle') }}</h1>
             <p class="mt-3 text-sm text-gray-500">{{ t('chat.emptyHint') }}</p>
-            <div class="mt-7 grid w-full max-w-2xl gap-3 text-left sm:grid-cols-2">
+            <div class="mt-7 hidden w-full max-w-2xl gap-3 text-left sm:grid sm:grid-cols-2">
               <button v-for="task in tasks" :key="task" class="chat-task" :disabled="busy" :data-testid="'chat-task-' + task" @click="useTask(task)">
                 <span class="block text-sm font-semibold text-gray-800 dark:text-gray-100">{{ t('chat.tasks.' + task + '.title') }}</span>
                 <span class="mt-1 block text-xs leading-5 text-gray-500">{{ t('chat.tasks.' + task + '.hint') }}</span>
               </button>
             </div>
           </div>
-          <div v-else class="mx-auto max-w-4xl space-y-7 px-4 py-8 md:px-8">
-            <article v-for="message in current.messages" :key="message.id" :class="message.role === 'user' ? 'ml-auto max-w-[90%]' : 'mr-auto w-full'">
-              <div class="mb-2 text-xs font-medium text-gray-400" :class="{ 'text-right': message.role === 'user' }">{{ t(message.role === 'user' ? 'chat.you' : 'chat.assistant') }}</div>
+          <div v-else class="chat-message-list mx-auto max-w-4xl space-y-7 px-4 py-8 md:px-8">
+            <article v-for="message in current.messages" :key="message.id" :class="message.role === 'user' ? 'chat-user ml-auto max-w-[90%]' : 'chat-assistant mr-auto w-full'">
+              <div class="chat-sender mb-2 text-xs font-medium text-gray-400" :class="{ 'text-right': message.role === 'user' }">{{ t(message.role === 'user' ? 'chat.you' : 'chat.assistant') }}</div>
               <template v-if="message.role === 'user'">
-                <p v-if="message.content" class="ml-auto w-fit whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-primary-50 px-5 py-3 text-sm leading-7 text-gray-800 dark:bg-primary-900/25 dark:text-gray-100">{{ message.content }}</p>
+                <p v-if="message.content" class="chat-user-bubble ml-auto w-fit whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-primary-50 px-5 py-3 text-sm leading-7 text-gray-800 dark:bg-primary-900/25 dark:text-gray-100">{{ message.content }}</p>
                 <div v-if="message.images?.length" class="mt-2 flex flex-wrap justify-end gap-2">
                   <button v-for="(image, index) in message.images" :key="index" type="button" class="chat-image" :aria-label="t('chat.viewImage', { name: image.name })" @click="showImage(image)"><img :src="image.dataUrl" :alt="image.name" class="h-24 w-28 rounded-lg object-contain" loading="lazy" /><span class="block max-w-28 truncate text-xs">{{ image.name }}</span></button>
                 </div>
@@ -104,17 +109,18 @@
           </div>
         </div>
 
-        <div class="mx-auto w-full max-w-4xl px-4 pb-4 pt-2 md:px-8">
+        <div class="chat-footer mx-auto w-full max-w-4xl shrink-0 px-4 pb-4 pt-2 md:px-8">
           <p v-if="error" role="alert" class="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{{ error }}</p>
           <p v-if="storageError" role="status" class="mb-2 text-xs text-amber-600">{{ t('chat.storageError') }}</p>
           <p v-if="historyError" role="alert" class="mb-2 text-xs text-red-600">{{ t('chat.historyError') }}</p>
-          <button v-if="current?.messages.at(-1)?.role === 'assistant' && !busy" class="mb-3 text-xs font-medium text-gray-500 hover:text-primary-600" :disabled="!canSend" data-testid="chat-retry" @click="send(true)">↻ {{ t('chat.retry') }}</button>
-          <details class="mb-2 text-xs text-gray-500">
+          <button v-if="current?.messages.at(-1)?.role === 'assistant' && !busy" class="mb-3 hidden text-xs font-medium text-gray-500 hover:text-primary-600 sm:block" :disabled="!canSend" data-testid="chat-retry" @click="send(true)">↻ {{ t('chat.retry') }}</button>
+          <details class="mb-2 hidden text-xs text-gray-500 sm:block">
             <summary class="cursor-pointer">{{ t('chat.quickTasks') }}</summary>
             <div class="mt-2 flex flex-wrap items-center gap-2"><button v-for="task in tasks" :key="task" class="rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-dark-800" :disabled="busy" @click="useTask(task)">{{ t('chat.tasks.' + task + '.title') }}</button></div>
           </details>
           <form class="chat-composer" :class="{ 'ring-2 ring-primary-400': dragging }" @submit.prevent="send(false)" @paste="pasteImages" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dropFiles">
-            <div v-if="draftImages.length" class="flex flex-wrap gap-3 px-4 pt-3">
+            <div v-if="draftImages.length || draftFiles.length" class="chat-draft-attachments">
+            <div v-if="draftImages.length" class="chat-draft-images flex flex-wrap gap-3 px-4 pt-3">
               <div v-for="(image, index) in draftImages" :key="index" class="chat-image relative">
                 <button type="button" :aria-label="t('chat.viewImage', { name: image.name })" data-testid="chat-image-preview" @click="showImage(image)"><img :src="image.dataUrl" :alt="image.name" class="h-24 w-28 rounded-lg object-contain" /><span class="block max-w-28 truncate text-xs">{{ image.name }}</span><span class="text-[10px] text-gray-400">{{ image.width }} × {{ image.height }}</span></button>
                 <button type="button" class="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-white text-gray-600 shadow dark:bg-dark-700 dark:text-gray-200" :disabled="busy || filesLoading" :aria-label="t('chat.removeFile', { name: image.name })" @click="draftImages = draftImages.filter((_, i) => i !== index)">×</button>
@@ -130,9 +136,12 @@
                 </details><button type="button" :disabled="busy || filesLoading" :aria-label="t('chat.removeFile', { name: file.name })" class="px-1 text-gray-400" @click="draftFiles = draftFiles.filter((_, i) => i !== index)">×</button></div>
               </div>
             </div>
-            <textarea ref="composer" v-model="draft" :placeholder="t('chat.placeholder')" :aria-label="t('chat.placeholder')" class="max-h-48 min-h-20 w-full resize-y bg-transparent px-4 pt-4 text-sm leading-6 text-gray-900 outline-none dark:text-gray-100" rows="3" maxlength="100000" data-testid="chat-input" @keydown="onKeydown"></textarea>
-            <div class="flex items-center justify-between gap-2 px-3 pb-3 pt-1">
-              <div class="flex flex-wrap items-center gap-3">
+            </div>
+            <div class="chat-input-row">
+            <button type="button" class="chat-mobile-button chat-plus sm:hidden" :aria-label="t('chat.mobile.add')" :aria-expanded="mobileTray" aria-controls="chat-mobile-tray" data-testid="chat-mobile-plus" @click="toggleMobileTray"><Icon :name="mobileTray ? 'x' : 'plus'" size="lg" /></button>
+            <textarea ref="composer" v-model="draft" :placeholder="t('chat.placeholder')" :aria-label="t('chat.placeholder')" class="max-h-48 min-h-20 w-full resize-y bg-transparent px-4 pt-4 text-sm leading-6 text-gray-900 outline-none dark:text-gray-100" rows="1" maxlength="100000" data-testid="chat-input" @keydown="onKeydown" @focus="mobileTray = false"></textarea>
+            <div class="chat-send-row flex items-center justify-between gap-2 px-3 pb-3 pt-1">
+              <div class="hidden flex-wrap items-center gap-3 sm:flex">
                 <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading || !historyReady" data-testid="chat-attach" @click="fileInput?.click()">{{ filesLoading ? t('chat.readingFiles') : t('chat.attach') }}</button>
                 <input ref="fileInput" type="file" class="sr-only" accept=".xlsx,.xls,.csv,.tsv,.txt,.md,.png,.jpg,.jpeg,.webp" multiple :aria-label="t('chat.attach')" :disabled="busy || filesLoading || !historyReady" data-testid="chat-file-input" @change="chooseFiles" />
                 <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading || !historyReady" data-testid="chat-photo" @click="imageInput?.click()">{{ t('chat.photo') }}</button>
@@ -144,16 +153,56 @@
               <button v-if="busy" type="button" class="btn btn-secondary text-sm" data-testid="chat-stop" @click="stop">■ {{ t('chat.stop') }}</button>
               <button v-else type="submit" class="btn btn-primary text-sm" :disabled="!canSend || !(draft.trim() || draftImages.length || draftFiles.length)" data-testid="chat-send">{{ t('chat.send') }} ↑</button>
             </div>
+            </div>
+            <div v-if="mobileTray" id="chat-mobile-tray" class="chat-mobile-tray sm:hidden">
+              <div class="grid grid-cols-3 gap-3">
+                <button type="button" class="chat-tray-action" :disabled="busy || filesLoading || !historyReady" data-testid="chat-mobile-camera" @click="cameraInput?.click()"><span aria-hidden="true">📷</span>{{ t('chat.camera') }}</button>
+                <button type="button" class="chat-tray-action" :disabled="busy || filesLoading || !historyReady" data-testid="chat-mobile-photo" @click="imageInput?.click()"><span aria-hidden="true">▧</span>{{ t('chat.photo') }}</button>
+                <button type="button" class="chat-tray-action" :disabled="busy || filesLoading || !historyReady" data-testid="chat-mobile-attach" @click="fileInput?.click()"><span aria-hidden="true"><Icon name="document" size="lg" /></span>{{ t('chat.attach') }}</button>
+              </div>
+              <div class="mt-4 grid grid-cols-2 gap-2"><button v-for="task in tasks" :key="task" type="button" class="rounded-lg bg-white px-2 py-3 text-xs dark:bg-dark-800" :disabled="busy" @click="useTask(task)">{{ t('chat.tasks.' + task + '.title') }}</button></div>
+              <p class="mt-3 text-xs text-gray-500">{{ t('chat.mobile.photoHint') }}</p>
+            </div>
           </form>
-          <details class="mt-2 text-[11px] leading-5 text-gray-400">
+          <p v-if="filesLoading" class="pt-1 text-xs text-gray-500 sm:hidden" role="status">{{ t('chat.readingFiles') }}</p>
+          <details class="mt-2 hidden text-[11px] leading-5 text-gray-400 sm:block">
             <summary class="cursor-pointer">{{ t('chat.attachmentHelp') }}</summary>
             <p class="mt-1">{{ t('chat.fileHint') }}</p>
             <p class="mt-1">{{ t('chat.imageHint') }}</p>
           </details>
-          <p v-if="current?.financeMode" class="mt-1 text-[11px] leading-5 text-gray-400">{{ t('chat.reviewHint') }}</p>
-          <p class="mt-2 text-center text-[11px] leading-5 text-gray-400">{{ t('chat.chargingHint') }}</p>
+          <p v-if="current?.financeMode" class="mt-1 hidden text-[11px] leading-5 text-gray-400 sm:block">{{ t('chat.reviewHint') }}</p>
+          <p class="mt-2 hidden text-center text-[11px] leading-5 text-gray-400 sm:block">{{ t('chat.chargingHint') }}</p>
         </div>
       </section>
+      <dialog ref="historyDialog" class="chat-mobile-sheet" :aria-label="t('chat.conversations')" data-testid="chat-mobile-history-dialog" @click.self="historyDialog?.close()">
+        <div class="mb-4 flex items-center justify-between"><h2 class="font-semibold">{{ t('chat.conversations') }}</h2><button type="button" class="chat-mobile-button" :aria-label="t('chat.mobile.close')" @click="historyDialog?.close()"><Icon name="x" /></button></div>
+        <button type="button" class="btn btn-primary w-full" :disabled="busy || !historyReady" @click="newChat(); historyDialog?.close()">+ {{ t('chat.newChat') }}</button>
+        <input v-model="historySearch" type="search" class="input my-3" :placeholder="t('chat.searchHistory')" :aria-label="t('chat.searchHistory')" />
+        <nav class="space-y-1" :aria-label="t('chat.conversations')"><button v-for="chat in visibleChats" :key="chat.id" type="button" class="chat-history-item" :class="{ 'chat-history-active': selectedId === chat.id }" :disabled="busy" :aria-current="selectedId === chat.id ? 'page' : undefined" @click="selectedId = chat.id; historyDialog?.close()">{{ chat.title || t('chat.untitled') }}</button></nav>
+        <RouterLink to="/dashboard" class="mt-5 block py-3 text-center text-sm text-primary-600">{{ t('chat.mobile.back') }}</RouterLink>
+      </dialog>
+      <dialog ref="settingsDialog" class="chat-mobile-sheet" :aria-label="t('chat.mobile.menu')" data-testid="chat-mobile-settings-dialog" @click.self="settingsDialog?.close()">
+        <div class="mb-4 flex items-center justify-between"><h2 class="font-semibold">{{ t('chat.mobile.menu') }}</h2><button type="button" class="chat-mobile-button" :aria-label="t('chat.mobile.close')" @click="settingsDialog?.close()"><Icon name="x" /></button></div>
+        <div v-if="current" class="space-y-4">
+          <label class="chat-field"><span>{{ t('chat.rename') }}</span><input v-model="current.title" class="input" maxlength="80" :disabled="busy" @change="persist" /></label>
+          <label class="chat-field"><span>{{ t('chat.key') }}</span><select v-model="current.keyId" class="input" :disabled="busy || keysLoading" data-testid="chat-mobile-key" @change="current.model = ''; current.effort = ''"><option :value="null">{{ t('chat.selectKey') }}</option><option v-for="key in keys" :key="key.id" :value="key.id">{{ key.group?.name || '#' + key.group_id }} · {{ key.name }}</option></select></label>
+          <label class="chat-field"><span>{{ t('chat.model') }}</span><input v-model.trim="current.model" class="input" list="chat-models" :placeholder="t('chat.selectModel')" :disabled="busy || !current.keyId" maxlength="200" data-testid="chat-mobile-model" /></label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="chat-field"><span>{{ t('chat.effort') }}</span><select v-model="current.effort" class="input" :disabled="busy"><option value="">{{ t('chat.default') }}</option><option v-for="effort in ['low', 'medium', 'high', 'xhigh']" :key="effort" :value="effort">{{ t('chat.efforts.' + effort) }}</option></select></label>
+            <label class="chat-field"><span>{{ t('chat.outputLength') }}</span><select v-model="current.maxOutputTokens" class="input" :disabled="busy"><option :value="4096">{{ t('chat.outputShort') }}</option><option :value="8192">{{ t('chat.outputStandard') }}</option><option :value="16384">{{ t('chat.outputLong') }}</option></select></label>
+          </div>
+          <label class="flex items-center gap-2 text-sm"><input v-model="current.financeMode" type="checkbox" :disabled="busy" />{{ t('chat.financeMode') }}</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" class="btn btn-secondary text-xs" :disabled="busy || keysLoading" @click="loadKeys">{{ t('chat.reload') }}</button>
+            <button type="button" class="btn btn-secondary text-xs" :disabled="!current.messages.length || busy" @click="exportConversation">{{ t('chat.exportChat') }}</button>
+            <button type="button" class="btn btn-secondary text-xs" :disabled="busy || !historyReady" @click="settingsDialog?.close(); shareChat()">{{ t('chat.copyLink') }}</button>
+            <button v-if="current.messages.at(-1)?.role === 'assistant'" type="button" class="btn btn-secondary text-xs" :disabled="!canSend" @click="settingsDialog?.close(); send(true)">{{ t('chat.retry') }}</button>
+          </div>
+          <p class="text-xs leading-5 text-gray-500">{{ t('chat.fileHint') }} {{ t('chat.imageHint') }}</p>
+          <p class="text-xs text-gray-500">{{ t('chat.reviewHint') }} {{ t('chat.chargingHint') }}</p>
+          <button type="button" class="w-full py-3 text-sm text-red-600" :disabled="busy" @click="settingsDialog?.close(); deleteChat()">{{ t('chat.deleteChat') }}</button>
+        </div>
+      </dialog>
       <dialog ref="shareDialog" class="max-w-[90vw] rounded-xl bg-white p-5 text-center dark:bg-dark-900 dark:text-gray-100" :aria-label="t('chat.continuePhone')" @click.self="shareDialog?.close()">
         <h2 class="font-semibold">{{ t('chat.continuePhone') }}</h2>
         <p class="mt-2 max-w-72 text-sm text-gray-500">{{ t('chat.phoneHint') }}</p>
@@ -169,7 +218,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import QRCode from 'qrcode'
 import { ChatSync, type ChatSyncStatus } from '@/api/chatSync'
@@ -193,6 +242,8 @@ const keysLoading = ref(false), modelsLoading = ref(false), keysError = ref(fals
 const historyReady = ref(false), historyError = ref(false)
 const syncStatus = ref<ChatSyncStatus>('syncing'), syncConflict = ref(false)
 const shareDialog = ref<HTMLDialogElement>(), shareQR = ref(''), shareURL = ref('')
+const historyDialog = ref<HTMLDialogElement>(), settingsDialog = ref<HTMLDialogElement>(), mobileTray = ref(false)
+const mobileViewport = ref<Record<string, string>>({})
 let chatSync: ChatSync | undefined
 const messagePane = ref<HTMLElement>(), followOutput = ref(true)
 const current = computed(() => conversations.value.find(c => c.id === selectedId.value))
@@ -279,16 +330,18 @@ async function loadModels() {
 }
 watch(() => [current.value?.id, current.value?.keyId], () => { error.value = ''; void loadModels() })
 watch(selectedId, value => {
+  mobileTray.value = false
   filesController?.abort(); filesLoading.value = false; followOutput.value = true; scrollToEnd()
   if (value) { const url = new URL(window.location.href); url.searchParams.set('conversation', value); window.history.replaceState(window.history.state, '', url) }
 })
 watch(() => [current.value?.model, current.value?.effort, current.value?.financeMode, current.value?.maxOutputTokens], persist)
-watch(() => [draft.value, draftFiles.value, draftImages.value], () => { clearTimeout(draftTimer); draftTimer = setTimeout(persist, 400) }, { deep: true })
+watch(() => [draft.value, draftFiles.value, draftImages.value], () => { clearTimeout(draftTimer); draftTimer = setTimeout(persist, 400); void nextTick(resizeComposer) }, { deep: true })
 watch(() => auth.user?.id, async userId => {
   chatSync?.dispose(); chatSync = undefined
   runController?.abort(); modelsController?.abort(); filesController?.abort(); generation++
   runController = undefined; busy.value = false; filesLoading.value = false; keys.value = []; models.value = []; error.value = ''; historySearch.value = ''
   clearTimeout(draftTimer); imageDialog.value?.close?.(); shareDialog.value?.close?.(); previewImage.value = undefined
+  historyDialog.value?.close?.(); settingsDialog.value?.close?.(); mobileTray.value = false
   syncStatus.value = 'syncing'; syncConflict.value = false
   conversations.value = []; selectedId.value = ''; historyReady.value = false; historyError.value = false; storageError.value = false
   if (!userId) return
@@ -316,6 +369,7 @@ async function send(retry = false) {
   if (!retry && draft.value.length + draftFiles.value.reduce((size, file) => size + file.content.length, 0) > CHAT_MAX_INPUT) {
     error.value = t('chat.files.content'); return
   }
+  mobileTray.value = false
   const chat = current.value, userId = auth.user.id, keyId = chat.keyId!, selection = keys.value.find(k => k.id === keyId)!
   const controller = new AbortController(); runController = controller
   busy.value = true; error.value = ''; followOutput.value = true
@@ -355,9 +409,32 @@ async function send(retry = false) {
 }
 function stop() { runController?.abort() }
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+  if (window.innerWidth >= 640 && event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
     event.preventDefault(); void send(false)
   }
+}
+function resizeComposer() {
+  const input = composer.value
+  if (!input) return
+  input.style.height = ''
+  if (window.innerWidth < 640) {
+    input.style.height = 'auto'
+    input.style.height = Math.min(input.scrollHeight, 104) + 'px'
+  }
+}
+function updateMobileViewport() {
+  const viewport = window.visualViewport
+  if (viewport && viewport.scale === 1) mobileViewport.value = { '--chat-mobile-height': viewport.height + 'px', '--chat-mobile-top': viewport.offsetTop + 'px' }
+  resizeComposer()
+  if (window.innerWidth >= 640) { historyDialog.value?.close?.(); settingsDialog.value?.close?.(); mobileTray.value = false }
+  scrollToEnd()
+}
+function toggleMobileTray() {
+  composer.value?.blur()
+  mobileTray.value = !mobileTray.value
+}
+function openMobileDialog(dialog?: HTMLDialogElement) {
+  composer.value?.blur(); mobileTray.value = false; dialog?.showModal()
 }
 function onScroll() {
   const pane = messagePane.value
@@ -370,6 +447,7 @@ function useTask(task: typeof tasks[number]) {
   if (!current.value || busy.value) return
   if (draft.value.trim() && !window.confirm(t('chat.replaceDraft'))) return
   current.value.financeMode = true
+  mobileTray.value = false
   draft.value = t('chat.tasks.' + task + '.prompt')
   void nextTick(() => composer.value?.focus())
 }
@@ -397,6 +475,7 @@ async function addFiles(files: File[]) {
 }
 function chooseFiles(event: Event) {
   const input = event.target as HTMLInputElement
+  mobileTray.value = false
   void addFiles(Array.from(input.files || [])); input.value = ''
 }
 function dropFiles(event: DragEvent) { dragging.value = false; void addFiles(Array.from(event.dataTransfer?.files || [])) }
@@ -449,6 +528,12 @@ function syncVisible() {
   })
 }
 const syncTimer = setInterval(syncVisible, 5000)
+onMounted(() => {
+  updateMobileViewport()
+  window.addEventListener('resize', updateMobileViewport)
+  window.visualViewport?.addEventListener('resize', updateMobileViewport)
+  window.visualViewport?.addEventListener('scroll', updateMobileViewport)
+})
 window.addEventListener('focus', syncVisible)
 window.addEventListener('online', syncVisible)
 document.addEventListener('visibilitychange', syncVisible)
@@ -461,6 +546,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('focus', syncVisible); window.removeEventListener('online', syncVisible)
   document.removeEventListener('visibilitychange', syncVisible)
   window.removeEventListener('pagehide', persist)
+  window.removeEventListener('resize', updateMobileViewport)
+  window.visualViewport?.removeEventListener('resize', updateMobileViewport)
+  window.visualViewport?.removeEventListener('scroll', updateMobileViewport)
 })
 </script>
 
@@ -493,7 +581,46 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
 .chat-markdown :deep(table) { @apply my-3 block max-w-full overflow-x-auto border-collapse; }
 .chat-markdown :deep(th), .chat-markdown :deep(td) { @apply border border-gray-200 px-3 py-2 text-left dark:border-dark-600; }
 @media (max-width: 639px) {
-  .chat-shell { height: calc(100dvh - 7rem); min-height: 560px; }
-  .chat-composer textarea { height: 4rem; min-height: 4rem; }
+  .chat-shell { position: fixed; z-index: 20; inset: 0; top: var(--chat-mobile-top, 0px); height: var(--chat-mobile-height, 100dvh); min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+  .chat-mobile-header { @apply items-center gap-1 px-2 text-gray-900 dark:text-gray-100; display: flex; flex-shrink: 0; padding-top: env(safe-area-inset-top); background: #ededed; }
+  .chat-mobile-button { @apply inline-flex shrink-0 items-center justify-center rounded-lg disabled:opacity-40; width: 44px; height: 44px; touch-action: manipulation; }
+  .chat-sync-bar { flex-shrink: 0; min-height: 22px; padding-top: 0; padding-bottom: 4px; background: #ededed; font-size: 10px; }
+  .chat-sync-bar > span { min-width: 0; overflow-wrap: anywhere; }
+  .chat-sync-bar > button { flex-shrink: 0; min-height: 24px; }
+  .chat-messages { background: #ededed; overscroll-behavior-y: contain; overflow-x: hidden; }
+  .chat-empty { min-height: 0; padding: 24px; }
+  .chat-empty h1 { font-size: 20px; }
+  .chat-message-list { padding: 16px 12px 24px; }
+  .chat-message-list > article { max-width: 92%; width: fit-content; min-width: 0; overflow-wrap: anywhere; }
+  .chat-sender { margin-bottom: 5px; }
+  .chat-user-bubble { border-radius: 6px; background: #95ec69; padding: 10px 12px; font-size: 16px; line-height: 1.6; color: #172016; }
+  .chat-assistant { border-radius: 6px; background: white; padding: 10px 12px; }
+  .chat-assistant .chat-markdown { font-size: 15px; line-height: 1.7; }
+  .chat-assistant button { min-height: 36px; }
+  .chat-footer { max-width: none; padding: 6px 8px max(6px, env(safe-area-inset-bottom)); border-top: 1px solid #ddd; background: #f7f7f7; }
+  .chat-footer > [role="alert"] { max-height: 64px; overflow-y: auto; margin-bottom: 4px; font-size: 12px; }
+  .chat-composer { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+  .chat-composer:focus-within { box-shadow: none; }
+  .chat-input-row { display: flex; align-items: flex-end; gap: 6px; }
+  .chat-composer textarea { min-width: 0; flex: 1; height: 40px; min-height: 40px; max-height: 104px; resize: none; overflow-y: auto; border-radius: 5px; background: white; padding: 8px 10px; font-size: 16px; line-height: 24px; }
+  .chat-send-row { flex-shrink: 0; padding: 0; }
+  .chat-send-row .btn { min-height: 44px; padding: 8px 12px; border-radius: 5px; white-space: nowrap; }
+  .chat-send-row .btn-primary { background: #07c160; color: white; }
+  .chat-plus { width: 36px; }
+  .chat-draft-attachments { max-height: min(140px, 22dvh); overflow-y: auto; overscroll-behavior: contain; padding: 4px 4px 8px; }
+  .chat-draft-images { flex-wrap: nowrap; gap: 10px; overflow-x: auto; padding: 8px 4px 2px; }
+  .chat-draft-images .chat-image { flex-shrink: 0; padding: 4px; }
+  .chat-draft-images img { width: 64px; height: 56px; }
+  .chat-draft-images span { max-width: 64px; font-size: 10px; }
+  .chat-draft-images .text-\[10px\] { display: none; }
+  .chat-draft-attachments .chat-source { padding: 6px; }
+  .chat-mobile-tray { max-height: min(300px, 40dvh); overflow-y: auto; padding: 16px 8px 8px; overscroll-behavior: contain; }
+  .chat-tray-action { @apply flex min-w-0 flex-col items-center gap-2 text-xs text-gray-600 disabled:opacity-40 dark:text-gray-300; }
+  .chat-tray-action > span { @apply flex h-14 w-14 items-center justify-center rounded-xl bg-white text-2xl dark:bg-dark-800; }
+  :global(.dark) .chat-mobile-header, :global(.dark) .chat-sync-bar, :global(.dark) .chat-messages { background: #111; }
+  :global(.dark) .chat-assistant, :global(.dark) .chat-composer textarea { background: #262626; }
+  :global(.dark) .chat-footer { background: #191919; border-color: #333; }
 }
+.chat-mobile-sheet { @apply bg-white text-gray-900 dark:bg-dark-900 dark:text-gray-100; position: fixed; inset: auto 0 0; width: 100%; max-width: 480px; max-height: 85dvh; margin: 0 auto; padding: 12px 20px max(20px, env(safe-area-inset-bottom)); border: 0; border-radius: 18px 18px 0 0; overflow-y: auto; overscroll-behavior: contain; }
+.chat-mobile-sheet .input { min-height: 44px; font-size: 16px; }
 </style>

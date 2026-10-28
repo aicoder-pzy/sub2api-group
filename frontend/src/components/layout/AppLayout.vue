@@ -1,10 +1,10 @@
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-dark-950">
+  <div class="min-h-screen bg-gray-50 dark:bg-dark-950" :class="{ 'mobile-chat-layout': mobileChat }">
     <!-- Background Decoration -->
     <div class="pointer-events-none fixed inset-0 bg-mesh-gradient"></div>
 
     <!-- Sidebar -->
-    <AppSidebar />
+    <div class="contents" :class="{ 'mobile-chat-navigation': mobileChat }"><AppSidebar /></div>
 
     <!-- Main Content Area -->
     <div
@@ -12,10 +12,10 @@
       :class="[sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-64']"
     >
       <!-- Header -->
-      <AppHeader />
+      <AppHeader :class="{ 'mobile-chat-navigation': mobileChat }" />
 
       <!-- Main Content -->
-      <main class="p-4 md:p-6 lg:p-8">
+      <main class="p-4 md:p-6 lg:p-8" :class="{ 'mobile-chat-main': mobileChat }">
         <slot />
       </main>
     </div>
@@ -31,6 +31,8 @@ import { useOnboardingTour } from '@/composables/useOnboardingTour'
 import { useOnboardingStore } from '@/stores/onboarding'
 import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
+
+defineProps<{ mobileChat?: boolean }>()
 
 const appStore = useAppStore()
 const authStore = useAuthStore()
@@ -50,3 +52,11 @@ onMounted(() => {
 
 defineExpose({ replayTour })
 </script>
+
+<style scoped>
+@media (max-width: 639px) {
+  .mobile-chat-navigation { display: none; }
+  .mobile-chat-layout, .mobile-chat-layout > .relative { min-height: 0; }
+  .mobile-chat-main { padding: 0; }
+}
+</style>
