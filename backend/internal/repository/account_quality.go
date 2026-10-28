@@ -16,7 +16,7 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
  WHERE model=$2 AND (group_id=$1 OR group_id IS NULL) AND sampled_at>=NOW()-INTERVAL '7 days'`, []any{groupID, model}, &revision); err != nil {
 		return nil, err
 	}
-	key := fmt.Sprintf("quality:%d:%s:%s:%d", groupID, model, effort, revision)
+	key := fmt.Sprintf("quality:%s:%d", observationKey(ctx, groupID, model, effort), revision)
 	if value, ok := r.schedulingQuality.Get(key); ok {
 		if samples, ok := value.(map[int64]service.GroupModelAccountQuality); ok {
 			return samples, nil
@@ -43,9 +43,9 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
 		d.IntelligenceVerdict, d.IntelligenceReason, d.IntelligenceAt = "", "", nil
 		result[id] = d
 	}
-	rows, err := r.sql.QueryContext(ctx, `WITH chosen AS (
+	query, args := scopedSchedulingQuery(ctx, `WITH chosen AS (
  SELECT COALESCE(NULLIF($3,''),(SELECT COALESCE(reasoning_effort,'') FROM usage_logs
- WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=$2
+ WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=/*business_model*/$2 /*ingress:*/
  AND created_at>=NOW()-INTERVAL '24 hours' GROUP BY reasoning_effort ORDER BY COUNT(*) DESC,reasoning_effort LIMIT 1),'') AS effort
 ), evidence AS (
  SELECT s.*,ROW_NUMBER() OVER (PARTITION BY account_id,kind ORDER BY sampled_at DESC,id DESC) AS position
@@ -69,7 +69,7 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
  SELECT u.account_id,COUNT(*) AS samples,
  percentile_cont(0.5) WITHIN GROUP(ORDER BY u.first_token_ms) AS p50,
  percentile_cont(0.95) WITHIN GROUP(ORDER BY u.first_token_ms) AS p95
- FROM usage_logs u,chosen c WHERE u.group_id=$1 AND COALESCE(NULLIF(BTRIM(u.requested_model),''),u.model)=$2
+ FROM usage_logs u,chosen c WHERE u.group_id=$1 AND COALESCE(NULLIF(BTRIM(u.requested_model),''),u.model)=/*business_model*/$2 /*ingress:u*/
  AND u.created_at>=NOW()-INTERVAL '24 hours' AND u.stream AND u.first_token_ms>0
  AND u.duration_ms>=u.first_token_ms AND u.output_tokens>0
  AND (COALESCE(u.reasoning_effort,'')=c.effort OR c.effort='')
@@ -78,7 +78,7 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
  WHERE e.group_id=u.group_id AND e.api_key_id=u.api_key_id
  AND ((NULLIF(e.request_id,'') IS NOT NULL AND e.request_id=u.request_id)
  OR (NULLIF(e.client_request_id,'') IS NOT NULL AND u.request_id='client:'||e.client_request_id))
- AND COALESCE(NULLIF(BTRIM(e.requested_model),''),e.model)=$2 AND e.created_at>=NOW()-INTERVAL '24 hours'
+ AND COALESCE(NULLIF(BTRIM(e.requested_model),''),e.model)=/*business_model*/$2 /*ingress:e*/ AND e.created_at>=NOW()-INTERVAL '24 hours'
  AND COALESCE(NULLIF((event->>'account_id')::bigint,0),e.account_id)=u.account_id AND e.error_phase IN ('upstream','account_auth')
  AND COALESCE(e.is_count_tokens,false)=false AND COALESCE(e.error_owner,'') NOT IN ('client','user')
  AND COALESCE(event->>'scope','') NOT IN ('request','provider','proxy'))
@@ -87,7 +87,8 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
  SELECT COALESCE(h.account_id,s.account_id),COALESCE(h.normal,0),COALESCE(h.degraded,0),COALESCE(h.unknown,0),COALESCE(h.failed,0),
  COALESCE(h.answer_normal,0),COALESCE(h.answer_degraded,0),COALESCE(h.streak,0),COALESCE(h.latest_verdict,''),COALESCE(h.latest_reason,''),COALESCE(h.test_latency,0),h.latest_at,h.last_test_at,
  COALESCE(s.samples,0),COALESCE(s.p50,0),COALESCE(s.p95,0),c.effort,COALESCE(h.test_effort,'')
- FROM history h FULL OUTER JOIN speed s USING(account_id) CROSS JOIN chosen c`, groupID, model, effort)
+ FROM history h FULL OUTER JOIN speed s USING(account_id) CROSS JOIN chosen c`, []any{groupID, model, effort}, model)
+	rows, err := r.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

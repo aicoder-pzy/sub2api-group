@@ -845,6 +845,7 @@ const adminNavItems = computed((): NavItem[] => {
     },
     { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
     { path: '/admin/channel-statistics', label: t('channelStatistics.title'), icon: ChartIcon },
+    { path: '/admin/channel-operations', label: t('channelOps.title'), icon: ChartIcon },
     { path: '/admin/ip-risk', label: t('admin.settings.ipRisk.title'), icon: ShieldIcon },
     { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true }
   ]

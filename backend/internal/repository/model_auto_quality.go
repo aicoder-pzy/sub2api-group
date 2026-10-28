@@ -12,14 +12,15 @@ func (r *usageLogRepository) GetModelAutoAccountQuality(ctx context.Context, gro
 	if err != nil {
 		return nil, err
 	}
-	key := fmt.Sprintf("model-auto-speed:%d:%s:%s", groupID, model, effort)
+	key := fmt.Sprintf("model-auto-speed:%s", observationKey(ctx, groupID, model, effort))
 	speeds, ok := r.schedulingQuality.Get(key)
 	var evidence map[int64]*service.ModelAutoAccountEvidence
 	if ok {
 		evidence, _ = speeds.(map[int64]*service.ModelAutoAccountEvidence)
 	}
 	if evidence == nil {
-		rows, err := r.sql.QueryContext(ctx, modelAutoSpeedSQL, groupID, model, effort)
+		query, args := scopedSchedulingQuery(ctx, modelAutoSpeedSQL, []any{groupID, model, effort}, model)
+		rows, err := r.sql.QueryContext(ctx, query, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -56,7 +57,7 @@ func (r *usageLogRepository) GetModelAutoAccountQuality(ctx context.Context, gro
 // cannot make a cheaper workload look like a cheaper provider.
 const modelAutoSpeedSQL = `WITH chosen AS (
  SELECT COALESCE(NULLIF($3,''),(SELECT COALESCE(reasoning_effort,'') FROM usage_logs
- WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=$2
+ WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=/*business_model*/$2 /*ingress:*/
  AND created_at>=NOW()-INTERVAL '24 hours' GROUP BY reasoning_effort ORDER BY COUNT(*) DESC,reasoning_effort LIMIT 1),'') AS effort
 ), requests AS (
  SELECT u.*,c.effort,CASE WHEN input_tokens+cache_creation_tokens+cache_read_tokens<8192 THEN 0
@@ -65,7 +66,7 @@ const modelAutoSpeedSQL = `WITH chosen AS (
  WHEN input_tokens+cache_creation_tokens+cache_read_tokens<204800 THEN 3
  WHEN input_tokens+cache_creation_tokens+cache_read_tokens<262144 THEN 4 ELSE 5 END AS bucket
  FROM usage_logs u CROSS JOIN chosen c WHERE u.group_id=$1
- AND COALESCE(NULLIF(BTRIM(u.requested_model),''),u.model)=$2
+ AND COALESCE(NULLIF(BTRIM(u.requested_model),''),u.model)=/*business_model*/$2 /*ingress:u*/
  AND u.created_at>=NOW()-INTERVAL '24 hours' AND u.stream AND u.first_token_ms>0
  AND u.duration_ms>=u.first_token_ms AND u.output_tokens>0 AND COALESCE(u.reasoning_effort,'')=c.effort
  AND NOT EXISTS(SELECT 1 FROM ops_error_logs e
@@ -73,7 +74,7 @@ const modelAutoSpeedSQL = `WITH chosen AS (
  WHERE e.group_id=u.group_id AND e.api_key_id=u.api_key_id
  AND ((NULLIF(e.request_id,'') IS NOT NULL AND e.request_id=u.request_id)
  OR (NULLIF(e.client_request_id,'') IS NOT NULL AND u.request_id='client:'||e.client_request_id))
- AND COALESCE(NULLIF(BTRIM(e.requested_model),''),e.model)=$2 AND e.created_at>=NOW()-INTERVAL '24 hours'
+ AND COALESCE(NULLIF(BTRIM(e.requested_model),''),e.model)=/*business_model*/$2 /*ingress:e*/ AND e.created_at>=NOW()-INTERVAL '24 hours'
  AND COALESCE(NULLIF((event->>'account_id')::bigint,0),e.account_id)=u.account_id AND e.error_phase IN ('upstream','account_auth')
  AND COALESCE(e.is_count_tokens,false)=false AND COALESCE(e.error_owner,'') NOT IN ('client','user')
  AND COALESCE(event->>'scope','') NOT IN ('request','provider','proxy'))

@@ -14,6 +14,11 @@
         <select v-model="effort" class="input mt-2 w-full"><option value="">{{ t('admin.accounts.schedulingStatus.autoEffort') }}</option><option v-for="value in efforts" :key="value" :value="value">{{ value }}</option></select>
       </label>
       <p v-if="!readOnly" class="text-xs text-gray-500">{{ t('admin.accounts.refreshScheduling.policy') }}</p>
+      <label v-if="readOnly && group.account_scheduling_mode === 'smart_channel'" class="block text-sm">
+        {{ t('admin.accounts.schedulingStatus.endpoint') }}
+        <select v-model="endpoint" class="input mt-2 w-full"><option value="">{{ t('admin.accounts.schedulingStatus.allEndpoints') }}</option><option v-for="path in endpoints" :key="path" :value="path">{{ path }}</option></select>
+      </label>
+      <p v-if="snapshot?.observation" class="break-all text-xs text-gray-500">{{ t('admin.accounts.schedulingStatus.observationScope', { public: snapshot.observation.public_model, routing: snapshot.observation.routing_model, endpoint: snapshot.observation.endpoint || t('admin.accounts.schedulingStatus.allEndpoints') }) }}</p>
       <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
       <p v-if="running" role="status" class="text-sm">{{ t('admin.accounts.refreshScheduling.progress', { done: results.length, total, name: currentName }) }}</p>
       <p v-if="winner" role="status" class="rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/20">{{ t('admin.accounts.refreshScheduling.complete', { name: winner.name, id: winner.account_id, model: winner.model }) }}</p>
@@ -108,6 +113,8 @@ const emit = defineEmits<{ close: []; updated: [] }>()
 const { t } = useI18n()
 const model = ref('')
 const effort = ref('')
+const endpoint = ref('')
+const endpoints = ['/v1/responses', '/v1/responses/compact', '/v1/chat/completions', '/v1/messages', '/v1beta/models']
 const efforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 const contextBuckets = ['<8K', '8K–32K', '32K–128K', '128K–200K', '200K–256K', '≥256K']
 const rate = (successes: number, failures: number) => successes + failures > 0 ? `${(100 * successes / (successes + failures)).toFixed(1)}% (${successes + failures})` : '—'
@@ -122,7 +129,7 @@ const winner = ref<ProbeEvent | null>(null)
 const snapshot = ref<GroupSchedulingStatus | null>(null)
 const loadingStatus = ref(false)
 let closed = false
-watch([model, effort], () => { snapshot.value = null })
+watch([model, effort, endpoint], () => { snapshot.value = null })
 let controller: AbortController | undefined
 onMounted(async () => {
   try {
@@ -138,11 +145,12 @@ async function loadStatus() {
   if (loadingStatus.value || !model.value.trim()) return
   const requestedModel = model.value.trim()
   const requestedEffort = effort.value
+  const requestedEndpoint = endpoint.value
   loadingStatus.value = true
   error.value = ''
   try {
-    const data = requestedEffort ? await getGroupSchedulingStatus(props.group.id, requestedModel, requestedEffort) : await getGroupSchedulingStatus(props.group.id, requestedModel)
-    if (!closed && model.value.trim() === requestedModel && effort.value === requestedEffort) snapshot.value = data
+    const data = requestedEndpoint ? await getGroupSchedulingStatus(props.group.id, requestedModel, requestedEffort || undefined, requestedEndpoint) : requestedEffort ? await getGroupSchedulingStatus(props.group.id, requestedModel, requestedEffort) : await getGroupSchedulingStatus(props.group.id, requestedModel)
+    if (!closed && model.value.trim() === requestedModel && effort.value === requestedEffort && endpoint.value === requestedEndpoint) snapshot.value = data
   } catch (cause) {
     if (!closed && model.value.trim() === requestedModel) error.value = extractApiErrorMessage(cause, t('common.unknownError'))
   } finally { loadingStatus.value = false }

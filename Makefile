@@ -92,3 +92,4 @@ test-frontend:
 
 test-frontend-critical:
 	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+	@pnpm --dir frontend exec vitest run src/components/common/__tests__/DateRangePicker.rolling24h.spec.ts src/views/admin/__tests__/ChannelOperationsView.spec.ts

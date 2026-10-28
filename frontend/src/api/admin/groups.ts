@@ -43,6 +43,7 @@ export interface SchedulingCandidateStatus {
 }
 
 export interface GroupSchedulingStatus {
+  observation?: { public_model: string; routing_model: string; endpoint: string }
   declared_channels?: number
   available_channels?: number
   model_auto_review?: { primary_id: number; candidate_id: number; evaluations: number; next_evaluation: number; hold_until: number; ready: boolean; reason: string }
@@ -55,8 +56,8 @@ export interface GroupSchedulingStatus {
   candidates: SchedulingCandidateStatus[]
 }
 
-export async function getGroupSchedulingStatus(groupID: number, model: string, effort?: string): Promise<GroupSchedulingStatus> {
-  const { data } = await apiClient.get<GroupSchedulingStatus>(`/admin/groups/${groupID}/scheduling-status`, { params: { model, ...(effort ? { effort } : {}) } })
+export async function getGroupSchedulingStatus(groupID: number, model: string, effort?: string, endpoint?: string): Promise<GroupSchedulingStatus> {
+  const { data } = await apiClient.get<GroupSchedulingStatus>(`/admin/groups/${groupID}/scheduling-status`, { params: { model, ...(effort ? { effort } : {}), ...(endpoint ? { endpoint } : {}) } })
   return data
 }
 import type {

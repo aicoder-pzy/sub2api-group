@@ -17,6 +17,9 @@ const (
 	// RequestedPublicModel 是客户端原始请求中的公开模型名。
 	RequestedPublicModel Key = "ctx_requested_public_model"
 
+	// InboundEndpoint is the normalized client-facing path, not a capability hint.
+	InboundEndpoint Key = "ctx_inbound_endpoint"
+
 	// CompositeRouteSource 标识 composite 解析结果来自显式路由还是内置模型探测。
 	CompositeRouteSource Key = "ctx_composite_route_source"
 

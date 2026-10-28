@@ -1,3 +1,4 @@
+import channelOps from './channelOps'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -13,6 +14,7 @@ import chat from './chat'
 import modelTrace from './modelTrace'
 
 export default {
+  channelOps,
   ...landing,
   ...common,
   ...dashboard,

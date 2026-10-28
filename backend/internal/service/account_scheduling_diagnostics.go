@@ -39,6 +39,7 @@ type SchedulingCandidateStatus struct {
 }
 
 type GroupSchedulingStatus struct {
+	Observation          *SchedulingObservationStatus    `json:"observation,omitempty"`
 	DeclaredChannels     int                             `json:"declared_channels"`
 	AvailableChannels    int                             `json:"available_channels"`
 	SchedulingMode       string                          `json:"scheduling_mode"`
@@ -49,6 +50,12 @@ type GroupSchedulingStatus struct {
 	Transition           *GroupModelSchedulingTransition `json:"transition"`
 	Candidates           []SchedulingCandidateStatus     `json:"candidates"`
 	AutoReview           *ModelAutoReview                `json:"model_auto_review,omitempty"`
+}
+
+type SchedulingObservationStatus struct {
+	PublicModel  string `json:"public_model"`
+	RoutingModel string `json:"routing_model"`
+	Endpoint     string `json:"endpoint"`
 }
 
 func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *AccountTestService, groupID int64, model string) (*GroupSchedulingStatus, error) {
@@ -81,6 +88,9 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 	quality := groupModelAccountQuality(ctx, s.usageLogRepo, &groupID, upstreamModel)
 	activeID := groupModelSchedulingActiveAccount(ctx, s.cache, &groupID, upstreamModel)
 	result := &GroupSchedulingStatus{SchedulingMode: group.AccountSchedulingMode, Model: model, CurrentAccountID: activeID, MinimumSamples: settings.MinimumSamples, Candidates: make([]SchedulingCandidateStatus, 0, len(accounts))}
+	if public, endpoint, smart := SchedulingObservationScope(ctx, upstreamModel); smart {
+		result.Observation = &SchedulingObservationStatus{PublicModel: public, RoutingModel: upstreamModel, Endpoint: endpoint}
+	}
 	if modelAutoEnabled(ctx) {
 		effort := ""
 		if requested := RequestedReasoningEffortFromContext(ctx); requested != nil {

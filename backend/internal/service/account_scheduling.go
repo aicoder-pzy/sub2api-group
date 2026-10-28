@@ -349,6 +349,21 @@ func groupModelAccountQuality(ctx context.Context, repo UsageLogRepository, grou
 		return nil
 	}
 	if qualityPreferredEnabled(ctx) {
+		_, ingress, smart := SchedulingObservationScope(ctx, model)
+		readOnly, _ := ctx.Value(qualitySchedulingReadOnlyKey{}).(bool)
+		if smart && ingress != "" && !readOnly {
+			if reader, ok := repo.(smartChannelObservationRepository); ok {
+				effort := ""
+				if requested := RequestedReasoningEffortFromContext(ctx); requested != nil {
+					effort = *requested
+				}
+				quality, err := reader.GetSmartChannelAccountQuality(ctx, *groupID, model, effort)
+				if err != nil {
+					return nil
+				}
+				return withPelicanDegradationEvidence(ctx, repo, *groupID, model, quality)
+			}
+		}
 		if modelAutoEnabled(ctx) {
 			if qualityRepo, ok := repo.(modelAutoQualityRepository); ok {
 				effort := ""

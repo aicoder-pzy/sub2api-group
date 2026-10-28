@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -288,7 +290,11 @@ func InboundEndpointMiddleware() gin.HandlerFunc {
 		if path == "" {
 			path = c.FullPath()
 		}
-		c.Set(ctxKeyInboundEndpoint, NormalizeInboundEndpoint(path))
+		endpoint := NormalizeInboundEndpoint(path)
+		c.Set(ctxKeyInboundEndpoint, endpoint)
+		if c.Request != nil {
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.InboundEndpoint, endpoint))
+		}
 		c.Next()
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -89,6 +90,15 @@ func (h *AccountHandler) GroupSchedulingStatus(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
+	if endpoint := strings.TrimSpace(c.Query("endpoint")); endpoint != "" {
+		switch endpoint {
+		case "/v1/responses", "/v1/responses/compact", "/v1/chat/completions", "/v1/messages", "/v1beta/models":
+			ctx = context.WithValue(ctx, ctxkey.InboundEndpoint, endpoint)
+		default:
+			response.BadRequest(c, "Invalid endpoint")
+			return
+		}
+	}
 	if effort := strings.TrimSpace(c.Query("effort")); effort != "" {
 		switch effort {
 		case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra":

@@ -150,6 +150,8 @@ type usageLogRepository struct {
 	bestEffortBatchCh   chan usageLogBestEffortRequest
 	bestEffortRecent    *gocache.Cache
 	schedulingQuality   *gocache.Cache
+	observationOnce     sync.Once
+	observation         schedulingObservationCache
 }
 
 func NewUsageLogRepository(client *dbent.Client, sqlDB *sql.DB) service.UsageLogRepository {
@@ -168,13 +170,13 @@ func newUsageLogRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *usage
 }
 
 func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, groupID int64, model string, since time.Time) (map[int64]service.GroupModelAccountQuality, error) {
-	cacheKey := fmt.Sprintf("%d:%s:%d", groupID, model, since.Truncate(time.Minute).Unix())
+	cacheKey := fmt.Sprintf("%s:%d", observationKey(ctx, groupID, model, ""), since.Truncate(time.Minute).Unix())
 	if cached, ok := r.schedulingQuality.Get(cacheKey); ok {
 		if quality, ok := cached.(map[int64]service.GroupModelAccountQuality); ok {
 			return quality, nil
 		}
 	}
-	rows, err := r.sql.QueryContext(ctx, `
+	query, args := scopedSchedulingQuery(ctx, `
 		WITH failure_requests AS (
 			SELECT
 				COALESCE(NULLIF((event->>'account_id')::bigint, 0), errors.account_id) AS account_id,
@@ -187,7 +189,7 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 				     THEN errors.upstream_errors ELSE '[]'::jsonb END
 			) event ON true
 			WHERE errors.group_id = $1
-			  AND COALESCE(NULLIF(BTRIM(errors.requested_model), ''), errors.model) = $2
+			  AND COALESCE(NULLIF(BTRIM(errors.requested_model), ''), errors.model) = /*business_model*/$2 /*ingress:errors*/
 			  AND errors.created_at >= $3
 			  AND errors.error_phase IN ('upstream', 'account_auth')
 			  AND COALESCE(errors.is_count_tokens, false) = false
@@ -217,7 +219,7 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 			       )) AS latency_ms
 			FROM usage_logs usage
 			WHERE usage.group_id = $1
-			  AND COALESCE(NULLIF(BTRIM(usage.requested_model), ''), usage.model) = $2
+			  AND COALESCE(NULLIF(BTRIM(usage.requested_model), ''), usage.model) = /*business_model*/$2 /*ingress:usage*/
 			  AND usage.created_at >= $3
 			  AND usage.duration_ms > 0
 			  AND (usage.total_cost > 0 OR usage.actual_cost > 0
@@ -263,7 +265,8 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 		       COALESCE(availability.recent_failures, 0), availability.last_success_at, availability.last_failure_at,
 		       COALESCE(intelligence.quality_verdict, ''), COALESCE(intelligence.quality_reason, ''), intelligence.finished_at
 		FROM availability FULL OUTER JOIN intelligence USING (account_id)
-		`, groupID, model, since)
+		`, []any{groupID, model, since}, model)
+	rows, err := r.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

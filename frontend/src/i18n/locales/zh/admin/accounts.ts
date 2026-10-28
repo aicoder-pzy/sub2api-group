@@ -176,6 +176,9 @@ export default {
         interrupted: '测试连接中断，未收到完成确认；请刷新账号列表确认当前调度。'
       },
       schedulingStatus: {
+        endpoint: '业务统计接口',
+        allEndpoints: '全部接口（合并观察）',
+        observationScope: '业务模型：{public} · 受测模型：{routing} · 接口：{endpoint}',
         smartCoverage: '该模型已声明 {declared} 条渠道，当前可用 {available} 条。',
         smartSingleChannel: '可用渠道不足两条，缺少可用备用。',
         model_not_declared: '未声明支持该模型，智能调度已排除',

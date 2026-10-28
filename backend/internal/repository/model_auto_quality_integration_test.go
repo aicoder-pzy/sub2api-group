@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -94,4 +95,25 @@ CREATE TEMP TABLE upstream_quality_samples (id bigint,account_id bigint,group_id
 	require.EqualValues(t, 7, quality[1].Quality.LatencySamples, "quality latency also excludes client-ID retries, empty output and isolates API keys")
 	require.EqualValues(t, 2, quality[2].Quality.LatencySamples)
 	require.EqualValues(t, 10, quality[1].Successes, "reliability also associates client IDs without excluding another API key")
+	_, err = tx.ExecContext(ctx, `ALTER TABLE usage_logs ADD COLUMN inbound_endpoint text DEFAULT '/v1/chat/completions';
+ALTER TABLE ops_error_logs ADD COLUMN inbound_endpoint text DEFAULT '/v1/chat/completions';
+UPDATE usage_logs SET inbound_endpoint='/v1/responses' WHERE id=1;
+INSERT INTO upstream_quality_samples VALUES(1,1,6,'mapped','medium','pelican','normal','fixture',100,NOW());`)
+	require.NoError(t, err)
+	ctx = context.WithValue(ctx, ctxkey.Group, &service.Group{ID: 6, AccountSchedulingMode: service.AccountSchedulingModeSmartChannel})
+	ctx = context.WithValue(ctx, ctxkey.RequestedPublicModel, "m")
+	ctx = context.WithValue(ctx, ctxkey.InboundEndpoint, "/v1/responses")
+	observed, err := repo.GetModelAutoAccountQuality(ctx, 6, "mapped", "medium")
+	require.NoError(t, err)
+	require.EqualValues(t, 1, observed[1].Successes, "business evidence uses the public model and exact ingress")
+	require.EqualValues(t, 1, observed[1].Quality.LatencySamples)
+	require.EqualValues(t, 1, observed[1].Quality.Normal, "quality still uses the routing/test model")
+	require.Len(t, observed[1].Auto.Buckets, 1)
+	require.EqualValues(t, 1, observed[1].Auto.Buckets[0].Samples)
+	require.InDelta(t, 1000, observed[1].Auto.Buckets[0].P95MS, .01)
+	chatCtx := context.WithValue(ctx, ctxkey.InboundEndpoint, "/v1/chat/completions")
+	chat, err := repo.GetModelAutoAccountQuality(chatCtx, 6, "mapped", "medium")
+	require.NoError(t, err)
+	require.Greater(t, chat[1].Successes, observed[1].Successes, "different ingress cannot reuse the responses cache")
+	require.EqualValues(t, 1, chat[1].Quality.Normal)
 }

@@ -663,6 +663,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/channel-operations',
+    name: 'AdminChannelOperations',
+    component: () => import('@/views/admin/ChannelOperationsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Channel Operations', titleKey: 'channelOps.title', descriptionKey: 'channelOps.description' }
+  },
+  {
     path: '/admin/usage',
     name: 'AdminUsage',
     component: () => import('@/views/admin/UsageView.vue'),

@@ -11,6 +11,7 @@
               <DateRangePicker
                 v-model:start-date="startDate"
                 v-model:end-date="endDate"
+                :rolling24-hours="true"
                 @change="onDateRangeChange"
               />
             </div>
@@ -169,6 +170,7 @@
   </AppLayout>
   <UsageExportProgress :show="exportProgress.show" :progress="exportProgress.progress" :current="exportProgress.current" :total="exportProgress.total" :estimated-time="exportProgress.estimatedTime" @cancel="cancelExport" />
   <UsageCleanupDialog
+    v-if="cleanupUsesCalendarDates"
     :show="cleanupDialogVisible"
     :filters="filters"
     :start-date="startDate"
@@ -288,18 +290,22 @@ const getLast24HoursRangeDates = (): { start: string; end: string } => {
   const end = new Date()
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000)
   return {
-    start: formatLD(start),
-    end: formatLD(end)
+    start: start.toISOString(),
+    end: end.toISOString()
   }
 }
 const getGranularityForRange = (start: string, end: string): 'day' | 'hour' => {
-  const startTime = new Date(`${start}T00:00:00`).getTime()
-  const endTime = new Date(`${end}T00:00:00`).getTime()
+  const startTime = new Date(start.includes('T') ? start : `${start}T00:00:00`).getTime()
+  const endTime = new Date(end.includes('T') ? end : `${end}T00:00:00`).getTime()
   const daysDiff = Math.ceil((endTime - startTime) / (1000 * 60 * 60 * 24))
   return daysDiff <= 1 ? 'hour' : 'day'
 }
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start); const endDate = ref(defaultRange.end)
+const datePreset = ref<string | null>('last24Hours')
+const cleanupUsesCalendarDates = computed(() =>
+  /^\d{4}-\d{2}-\d{2}$/.test(startDate.value) && /^\d{4}-\d{2}-\d{2}$/.test(endDate.value)
+)
 const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, native_compaction_v2: null, billing_type: null, start_date: startDate.value, end_date: endDate.value })
 const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
 const sortState = reactive({
@@ -323,6 +329,12 @@ const applyRouteQueryFilters = () => {
   const queryStartDate = getSingleQueryValue(route.query.start_date)
   const queryEndDate = getSingleQueryValue(route.query.end_date)
   const queryUserId = getNumericQueryValue(route.query.user_id)
+
+  if (queryStartDate || queryEndDate) {
+    datePreset.value = null
+    startDate.value = formatLD(new Date(startDate.value))
+    endDate.value = formatLD(new Date(endDate.value))
+  }
 
   if (queryStartDate) {
     startDate.value = queryStartDate
@@ -361,6 +373,7 @@ const loadRouteUserFilterLabel = async () => {
 }
 
 const onDateRangeChange = (range: { startDate: string; endDate: string; preset: string | null }) => {
+  datePreset.value = range.preset
   startDate.value = range.startDate
   endDate.value = range.endDate
   filters.value = {
@@ -370,6 +383,15 @@ const onDateRangeChange = (range: { startDate: string; endDate: string; preset: 
   }
   granularity.value = getGranularityForRange(range.startDate, range.endDate)
   applyFilters()
+}
+
+// One action gets one time snapshot; pagination, sorting and export retain it.
+const refreshRollingRange = () => {
+  if (datePreset.value !== 'last24Hours') return
+  const range = getLast24HoursRangeDates()
+  startDate.value = range.start
+  endDate.value = range.end
+  filters.value = { ...filters.value, start_date: range.start, end_date: range.end }
 }
 
 const buildUsageListParams = (
@@ -520,6 +542,7 @@ const loadChartData = async () => {
   } catch (error) { console.error('Failed to load chart data:', error) } finally { if (seq === chartReqSeq) chartsLoading.value = false }
 }
 const applyFilters = () => {
+  refreshRollingRange()
   pagination.page = 1
   invalidateModelStatsCache()
   loadLogs()
@@ -534,6 +557,7 @@ const applyFilters = () => {
   }
 }
 const refreshData = () => {
+  refreshRollingRange()
   invalidateModelStatsCache()
   loadLogs()
   loadStats(true)
@@ -543,6 +567,7 @@ const refreshData = () => {
   if (rankingMounted.value) rankingRef.value?.reload()
 }
 const resetFilters = () => {
+  datePreset.value = 'last24Hours'
   const range = getLast24HoursRangeDates()
   startDate.value = range.start
   endDate.value = range.end
@@ -563,7 +588,13 @@ const handleIpGeoBatchFailed = () => {
   appStore.showError(t('usage.ipGeo.batchFailed'))
 }
 const cancelExport = () => exportAbortController?.abort()
-const openCleanupDialog = () => { cleanupDialogVisible.value = true }
+const openCleanupDialog = () => {
+  if (!cleanupUsesCalendarDates.value) {
+    appStore.showWarning(t('admin.usage.cleanup.calendarRangeRequired'))
+    return
+  }
+  cleanupDialogVisible.value = true
+}
 const getRequestTypeLabel = (log: AdminUsageLog): string => {
   const requestType = resolveUsageRequestType(log)
   if (requestType === 'cyber') return t('usage.cyber')
@@ -816,8 +847,13 @@ const showErrorModal = ref(false)
 const selectedErrorId = ref<number | null>(null)
 
 // 注意：'YYYY-MM-DDT00:00:00' 无时区后缀，按本地时区解析后再转 UTC——与页面其它日期处理语义一致，刻意如此，勿改成 'T00:00:00Z'
-const toRFC3339 = (d: string | undefined, endOfDay = false): string | undefined =>
-  d ? new Date(d + (endOfDay ? 'T23:59:59.999' : 'T00:00:00')).toISOString() : undefined
+const toRFC3339 = (value: string | undefined, endExclusive = false): string | undefined => {
+  if (!value) return undefined
+  if (value.includes('T')) return value
+  const date = new Date(`${value}T00:00:00`)
+  if (endExclusive) date.setDate(date.getDate() + 1)
+  return date.toISOString()
+}
 
 const loadAdminErrors = async () => {
   errLoading.value = true

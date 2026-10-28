@@ -176,6 +176,9 @@ export default {
         interrupted: 'Connection interrupted without completion confirmation. Refresh the account list to check the current binding.'
       },
       schedulingStatus: {
+        endpoint: 'Business statistics endpoint',
+        allEndpoints: 'All endpoints (combined view)',
+        observationScope: 'Business model: {public} · Tested model: {routing} · Endpoint: {endpoint}',
         smartCoverage: '{declared} channels declare this model; {available} are currently eligible.',
         smartSingleChannel: 'Fewer than two eligible channels: no eligible backup.',
         model_not_declared: 'Model support is undeclared; excluded from smart scheduling',
