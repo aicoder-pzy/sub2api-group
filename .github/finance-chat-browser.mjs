@@ -180,9 +180,11 @@ try {
   await mobile.locator('article img').nth(1).waitFor()
   await mobile.screenshot({ path: path.join(output, 'mobile-result.png') })
   const dimensions = await mobile.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth,
+    message_pane_height: document.querySelector('[role="log"]').clientHeight,
     overflowing: Array.from(document.querySelectorAll('main *')).filter(element => element.getBoundingClientRect().right > innerWidth + 1)
       .slice(0, 10).map(element => ({ tag: element.tagName, classes: element.className })) }))
   assert.equal(dimensions.width <= dimensions.viewport, true, JSON.stringify(dimensions))
+  assert.ok(dimensions.message_pane_height >= 180, JSON.stringify(dimensions))
   assert.deepEqual(errors, [])
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, mock_model_requests: requests.length,
     real_model_requests: 0, csv_worker: true, xlsx_worker: true, xlsx_download: true, html_report: true,
@@ -190,5 +192,5 @@ try {
     screenshot_paste: true, image_only_send: true, image_resize: true, image_followup: true, image_draft_restored: true,
     image_history_restored: true, legacy_history_migrated: true, camera_input: true, gallery_input: true,
     mixed_batch_atomic: true, image_drop: true, camera_orientation: true, camera_exif_removed: true,
-    native_camera_hardware_tested: false }, null, 2))
+    mobile_message_pane_height: dimensions.message_pane_height, native_camera_hardware_tested: false }, null, 2))
 } finally { await browser.close() }

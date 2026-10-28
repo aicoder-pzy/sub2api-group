@@ -139,8 +139,11 @@
               <button v-else type="submit" class="btn btn-primary text-sm" :disabled="!canSend || !(draft.trim() || draftImages.length || draftFiles.length)" data-testid="chat-send">{{ t('chat.send') }} ↑</button>
             </div>
           </form>
-          <p class="mt-2 text-[11px] leading-5 text-gray-400">{{ t('chat.fileHint') }}</p>
-          <p class="mt-1 text-[11px] leading-5 text-gray-400">{{ t('chat.imageHint') }}</p>
+          <details class="mt-2 text-[11px] leading-5 text-gray-400">
+            <summary class="cursor-pointer">{{ t('chat.attachmentHelp') }}</summary>
+            <p class="mt-1">{{ t('chat.fileHint') }}</p>
+            <p class="mt-1">{{ t('chat.imageHint') }}</p>
+          </details>
           <p v-if="current?.financeMode" class="mt-1 text-[11px] leading-5 text-gray-400">{{ t('chat.reviewHint') }}</p>
           <p class="mt-2 text-center text-[11px] leading-5 text-gray-400">{{ t('chat.chargingHint') }} <span class="lg:hidden">{{ t('chat.historyHint') }}</span></p>
         </div>

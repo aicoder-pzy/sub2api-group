@@ -20,6 +20,7 @@ export default {
     quickTasks: 'Tasks:', replaceDraft: 'Replace the current draft with this task template? Attached files will be kept.',
     attach: 'Add files', photo: 'Images / gallery', camera: 'Take photo', readingFiles: 'Reading files…', preview: 'Preview source', sourceFile: 'Submitted source',
     viewImage: 'Enlarge {name}', imagePreview: 'Image preview', closePreview: 'Close preview',
+    attachmentHelp: 'Attachment info · Up to 4 · Images need a vision model',
     sheetSize: '{rows} rows × {columns} columns', previewPartial: 'Showing the first 3,000 characters. All imported content is included when you send.',
     removeFile: 'Remove {name}', fileHint: 'Spreadsheets / text up to 5 MB each; original images up to 20 MB. Up to 4 files and images combined. Sending submits them to the selected model and saves them in local history.',
     imageHint: 'Paste screenshots, upload PNG / JPG / WebP, or take a photo. Images are resized to a maximum edge of 2560 pixels and camera metadata is removed. Choose a model that can read images. Follow-ups include previous images and are billed accordingly.',

@@ -20,6 +20,7 @@ export default {
     quickTasks: '常用任务：', replaceDraft: '用任务模板替换当前输入内容？已添加的文件会保留。',
     attach: '添加文件', photo: '图片 / 相册', camera: '拍照', readingFiles: '正在读取…', preview: '查看资料预览', sourceFile: '本次提交的资料',
     viewImage: '放大查看 {name}', imagePreview: '图片预览', closePreview: '关闭预览',
+    attachmentHelp: '附件说明 · 最多 4 个 · 图片需看图模型',
     sheetSize: '{rows} 行 × {columns} 列', previewPartial: '预览仅展示前 3000 个字符；发送时包含本文件全部已导入内容。',
     removeFile: '移除文件 {name}', fileHint: '表格 / 文本 ≤ 5 MB/个，图片原图 ≤ 20 MB/张；图片和文件合计最多 4 个。发送后交给所选模型，并存入本机对话。',
     imageHint: '支持粘贴截图、PNG / JPG / WebP 和手机拍照；图片缩放至最长边 2560 像素并移除拍摄信息。需选择支持看图的模型；后续追问会携带已发送图片并计费。',
