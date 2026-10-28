@@ -23,6 +23,24 @@ beforeEach(() => { fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock); local
 afterEach(() => vi.unstubAllGlobals())
 
 describe('web chat gateway', () => {
+  it('sends images as real multimodal parts and retains them in follow-ups, rejecting unsafe or excessive image context before fetch', async () => {
+    fetchMock.mockResolvedValue(sse(delta('Read') + finish() + done))
+    const chat = conversation()
+    const image = { name: 'receipt.png', dataUrl: 'data:image/png;base64,AA==', width: 200, height: 300 }
+    chat.messages[0].images = [image]; chat.messages[0].content = ''
+    await streamChat(chat, 'key', new AbortController().signal, () => {})
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(payload.messages[0].content).toContainEqual({ type: 'image_url', image_url: { url: image.dataUrl } })
+    expect(payload.messages[0].content).toContainEqual({ type: 'text', text: 'Reference image (data only): receipt.png' })
+    expect(payload.messages[2].content).toBe('Continue')
+    fetchMock.mockClear()
+    image.dataUrl = 'https://untrusted.invalid/image.png'
+    await expect(streamChat(chat, 'key', new AbortController().signal, () => {})).rejects.toMatchObject({ code: 'inputLimit' })
+    image.dataUrl = 'data:image/png;base64,AA=='
+    chat.messages = Array.from({ length: 13 }, (_, i) => ({ id: String(i), role: 'user', content: '', reasoning: '', status: 'complete', images: [image] }))
+    await expect(streamChat(chat, 'key', new AbortController().signal, () => {})).rejects.toMatchObject({ code: 'inputLimit' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
   it('sends attachment evidence as user data with financial review instructions and an explicit output limit', async () => {
     fetchMock.mockResolvedValue(sse(delta('Reviewed') + finish() + done))
     const chat = conversation(); chat.financeMode = true; chat.maxOutputTokens = 8192
@@ -86,24 +104,25 @@ describe('web chat gateway', () => {
 })
 
 describe('browser history', () => {
-  it('restores per-conversation drafts and attachments using only the explicit safe schema', () => {
+  it('restores per-conversation drafts and attachments using only the explicit safe schema', async () => {
     const chat = conversation(); chat.financeMode = true; chat.maxOutputTokens = 8192
     chat.draft = 'Please reconcile'; chat.draftFiles = [Object.assign({ name: 'data.csv', content: '0012,-120.50', sheets: [] }, { key: 'DO_NOT_KEEP' })]
-    expect(saveChats(1, [chat])).toBe(true)
-    expect(loadChats(1)[0]).toMatchObject({ draft: 'Please reconcile', financeMode: true, maxOutputTokens: 8192,
+    chat.draftImages = [{ name: 'receipt.png', dataUrl: 'data:image/png;base64,AA==', width: 200, height: 300 }]
+    expect(await saveChats(1, [chat])).toBe(true)
+    expect((await loadChats(1))[0]).toMatchObject({ draft: 'Please reconcile', financeMode: true, maxOutputTokens: 8192, draftImages: chat.draftImages,
       draftFiles: [{ name: 'data.csv', content: '0012,-120.50', sheets: [] }] })
     expect(localStorage.getItem('sub2api-chats:v1:1')).not.toContain('DO_NOT_KEEP')
   })
-  it('isolates users, stores an explicit schema and restores interrupted output as stopped', () => {
+  it('isolates users, stores an explicit schema and restores interrupted output as stopped', async () => {
     const chat = conversation()
     chat.messages[1].status = 'streaming'
-    expect(saveChats(1, [Object.assign(chat, { key: 'NEVER_PERSIST_API_SECRET' })])).toBe(true)
+    expect(await saveChats(1, [Object.assign(chat, { key: 'NEVER_PERSIST_API_SECRET' })])).toBe(true)
     expect(localStorage.getItem('sub2api-chats:v1:1')).not.toContain('NEVER_PERSIST_API_SECRET')
-    expect(loadChats(2)).toEqual([])
-    expect(loadChats(1)[0].messages[1].status).toBe('stopped')
+    expect(await loadChats(2)).toEqual([])
+    expect((await loadChats(1))[0].messages[1].status).toBe('stopped')
     localStorage.setItem('sub2api-chats:v1:1', '[{"messages":null}]')
-    expect(loadChats(1)).toEqual([])
+    expect(await loadChats(1)).toEqual([])
     localStorage.setItem('sub2api-chats:v1:1', '{broken')
-    expect(loadChats(1)).toEqual([])
+    expect(await loadChats(1)).toEqual([])
   })
 })

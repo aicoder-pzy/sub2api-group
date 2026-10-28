@@ -6,7 +6,7 @@
           <Icon name="chat" size="md" class="text-primary-500" aria-hidden="true" />
           {{ t('chat.title') }}
         </div>
-        <button class="btn btn-primary w-full" :disabled="busy" @click="newChat">+ {{ t('chat.newChat') }}</button>
+        <button class="btn btn-primary w-full" :disabled="busy || !historyReady" @click="newChat">+ {{ t('chat.newChat') }}</button>
         <input v-model="historySearch" class="input mt-3 text-sm" type="search" :placeholder="t('chat.searchHistory')" :aria-label="t('chat.searchHistory')" />
         <h2 class="mb-2 mt-7 px-2 text-xs font-medium text-gray-400">{{ t('chat.conversations') }}</h2>
         <nav class="min-h-0 flex-1 space-y-1 overflow-y-auto" :aria-label="t('chat.conversations')">
@@ -22,7 +22,7 @@
         <header class="chat-toolbar">
           <div class="mb-4 flex items-center justify-between gap-2 lg:hidden">
             <select v-model="selectedId" class="input min-w-0 flex-1" :aria-label="t('chat.conversations')" :disabled="busy"><option v-for="chat in sortedChats" :key="chat.id" :value="chat.id">{{ chat.title || t('chat.untitled') }}</option></select>
-            <button class="btn btn-secondary shrink-0" :disabled="busy" @click="newChat">+ {{ t('chat.newChat') }}</button>
+            <button class="btn btn-secondary shrink-0" :disabled="busy || !historyReady" @click="newChat">+ {{ t('chat.newChat') }}</button>
           </div>
           <div v-if="current" class="flex flex-wrap items-center gap-3">
             <div class="min-w-0 flex-1 basis-full sm:basis-0">
@@ -73,7 +73,10 @@
             <article v-for="message in current.messages" :key="message.id" :class="message.role === 'user' ? 'ml-auto max-w-[90%]' : 'mr-auto w-full'">
               <div class="mb-2 text-xs font-medium text-gray-400" :class="{ 'text-right': message.role === 'user' }">{{ t(message.role === 'user' ? 'chat.you' : 'chat.assistant') }}</div>
               <template v-if="message.role === 'user'">
-                <p class="ml-auto w-fit whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-primary-50 px-5 py-3 text-sm leading-7 text-gray-800 dark:bg-primary-900/25 dark:text-gray-100">{{ message.content }}</p>
+                <p v-if="message.content" class="ml-auto w-fit whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-primary-50 px-5 py-3 text-sm leading-7 text-gray-800 dark:bg-primary-900/25 dark:text-gray-100">{{ message.content }}</p>
+                <div v-if="message.images?.length" class="mt-2 flex flex-wrap justify-end gap-2">
+                  <button v-for="(image, index) in message.images" :key="index" type="button" class="chat-image" :aria-label="t('chat.viewImage', { name: image.name })" @click="showImage(image)"><img :src="image.dataUrl" :alt="image.name" class="h-24 w-28 rounded-lg object-contain" loading="lazy" /><span class="block max-w-28 truncate text-xs">{{ image.name }}</span></button>
+                </div>
                 <details v-for="(file, index) in message.attachments" :key="index" class="chat-source ml-auto mt-2">
                   <summary class="cursor-pointer break-all text-xs text-gray-500">{{ file.name }} · {{ t('chat.sourceFile') }}</summary>
                   <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs">{{ file.content }}</pre>
@@ -99,11 +102,18 @@
         <div class="mx-auto w-full max-w-4xl px-4 pb-4 pt-2 md:px-8">
           <p v-if="error" role="alert" class="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{{ error }}</p>
           <p v-if="storageError" role="status" class="mb-2 text-xs text-amber-600">{{ t('chat.storageError') }}</p>
+          <p v-if="historyError" role="alert" class="mb-2 text-xs text-red-600">{{ t('chat.historyError') }}</p>
           <button v-if="current?.messages.at(-1)?.role === 'assistant' && !busy" class="mb-3 text-xs font-medium text-gray-500 hover:text-primary-600" :disabled="!canSend" data-testid="chat-retry" @click="send(true)">↻ {{ t('chat.retry') }}</button>
           <div class="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
             <span>{{ t('chat.quickTasks') }}</span><button v-for="task in tasks" :key="task" class="rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-dark-800" :disabled="busy" @click="useTask(task)">{{ t('chat.tasks.' + task + '.title') }}</button>
           </div>
-          <form class="chat-composer" :class="{ 'ring-2 ring-primary-400': dragging }" @submit.prevent="send(false)" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dropFiles">
+          <form class="chat-composer" :class="{ 'ring-2 ring-primary-400': dragging }" @submit.prevent="send(false)" @paste="pasteImages" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dropFiles">
+            <div v-if="draftImages.length" class="flex flex-wrap gap-3 px-4 pt-3">
+              <div v-for="(image, index) in draftImages" :key="index" class="chat-image relative">
+                <button type="button" :aria-label="t('chat.viewImage', { name: image.name })" data-testid="chat-image-preview" @click="showImage(image)"><img :src="image.dataUrl" :alt="image.name" class="h-24 w-28 rounded-lg object-contain" /><span class="block max-w-28 truncate text-xs">{{ image.name }}</span><span class="text-[10px] text-gray-400">{{ image.width }} × {{ image.height }}</span></button>
+                <button type="button" class="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-white text-gray-600 shadow dark:bg-dark-700 dark:text-gray-200" :disabled="busy || filesLoading" :aria-label="t('chat.removeFile', { name: image.name })" @click="draftImages = draftImages.filter((_, i) => i !== index)">×</button>
+              </div>
+            </div>
             <div v-if="draftFiles.length" class="space-y-2 px-4 pt-3">
               <div v-for="(file, index) in draftFiles" :key="index" class="chat-source">
                 <div class="flex items-start gap-2"><details class="min-w-0 flex-1">
@@ -117,19 +127,28 @@
             <textarea ref="composer" v-model="draft" :placeholder="t('chat.placeholder')" :aria-label="t('chat.placeholder')" class="max-h-48 min-h-20 w-full resize-y bg-transparent px-4 pt-4 text-sm leading-6 text-gray-900 outline-none dark:text-gray-100" rows="3" maxlength="100000" data-testid="chat-input" @keydown="onKeydown"></textarea>
             <div class="flex items-center justify-between gap-2 px-3 pb-3 pt-1">
               <div class="flex flex-wrap items-center gap-3">
-                <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading" data-testid="chat-attach" @click="fileInput?.click()">{{ filesLoading ? t('chat.readingFiles') : t('chat.attach') }}</button>
-                <input ref="fileInput" type="file" class="sr-only" accept=".xlsx,.xls,.csv,.tsv,.txt,.md" multiple :aria-label="t('chat.attach')" :disabled="busy || filesLoading" data-testid="chat-file-input" @change="chooseFiles" />
+                <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading || !historyReady" data-testid="chat-attach" @click="fileInput?.click()">{{ filesLoading ? t('chat.readingFiles') : t('chat.attach') }}</button>
+                <input ref="fileInput" type="file" class="sr-only" accept=".xlsx,.xls,.csv,.tsv,.txt,.md,.png,.jpg,.jpeg,.webp" multiple :aria-label="t('chat.attach')" :disabled="busy || filesLoading || !historyReady" data-testid="chat-file-input" @change="chooseFiles" />
+                <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading || !historyReady" data-testid="chat-photo" @click="imageInput?.click()">{{ t('chat.photo') }}</button>
+                <input ref="imageInput" type="file" class="sr-only" accept="image/png,image/jpeg,image/webp" multiple :aria-label="t('chat.photo')" data-testid="chat-image-input" @change="chooseFiles" />
+                <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading || !historyReady" data-testid="chat-camera" @click="cameraInput?.click()">{{ t('chat.camera') }}</button>
+                <input ref="cameraInput" type="file" class="sr-only" accept="image/jpeg,image/png,image/webp" capture="environment" :aria-label="t('chat.camera')" data-testid="chat-camera-input" @change="chooseFiles" />
                 <span class="hidden text-xs text-gray-400 xl:block">{{ t('chat.keyboardHint') }}</span>
               </div>
               <button v-if="busy" type="button" class="btn btn-secondary text-sm" data-testid="chat-stop" @click="stop">■ {{ t('chat.stop') }}</button>
-              <button v-else type="submit" class="btn btn-primary text-sm" :disabled="!canSend || !draft.trim()" data-testid="chat-send">{{ t('chat.send') }} ↑</button>
+              <button v-else type="submit" class="btn btn-primary text-sm" :disabled="!canSend || !(draft.trim() || draftImages.length || draftFiles.length)" data-testid="chat-send">{{ t('chat.send') }} ↑</button>
             </div>
           </form>
           <p class="mt-2 text-[11px] leading-5 text-gray-400">{{ t('chat.fileHint') }}</p>
+          <p class="mt-1 text-[11px] leading-5 text-gray-400">{{ t('chat.imageHint') }}</p>
           <p v-if="current?.financeMode" class="mt-1 text-[11px] leading-5 text-gray-400">{{ t('chat.reviewHint') }}</p>
           <p class="mt-2 text-center text-[11px] leading-5 text-gray-400">{{ t('chat.chargingHint') }} <span class="lg:hidden">{{ t('chat.historyHint') }}</span></p>
         </div>
       </section>
+      <dialog ref="imageDialog" class="max-h-[90dvh] max-w-[95vw] overflow-auto rounded-xl bg-white p-4 dark:bg-dark-900 dark:text-gray-100" :aria-label="t('chat.imagePreview')" @click.self="imageDialog?.close()">
+        <div class="mb-3 flex items-center justify-between gap-4"><p class="min-w-0 break-all text-sm">{{ previewImage?.name }}</p><button type="button" class="btn btn-secondary shrink-0 text-xs" @click="imageDialog?.close()">{{ t('chat.closePreview') }}</button></div>
+        <img v-if="previewImage" :src="previewImage.dataUrl" :alt="previewImage.name" class="max-h-[75dvh] max-w-full object-contain" />
+      </dialog>
     </div>
   </AppLayout>
 </template>
@@ -146,33 +165,39 @@ import { ChatError, listChatModels, loadChats, saveChats, streamChat, type ChatC
 import type { ApiKey } from '@/types'
 import { createRandomId } from '@/utils/id'
 import { useClipboard } from '@/composables/useClipboard'
-import { CHAT_MAX_FILES, CHAT_MAX_INPUT, chatMarkdown, chatTables, chatTranscript, downloadChatFile, readChatFile, tableTSV } from '@/utils/chatWorkspace'
-import type { ChatAttachment } from '@/api/chat'
+import { CHAT_MAX_FILES, CHAT_MAX_INPUT, chatMarkdown, chatTables, chatTranscript, downloadChatFile, isChatImage, readChatFile, readChatImage, tableTSV } from '@/utils/chatWorkspace'
+import type { ChatAttachment, ChatImage } from '@/api/chat'
 
 const { t } = useI18n(), auth = useAuthStore(), app = useAppStore()
 type KeyChoice = Pick<ApiKey, 'id' | 'user_id' | 'name' | 'group_id' | 'group' | 'status' | 'quota' | 'quota_used' | 'expires_at'>
 const conversations = ref<ChatConversation[]>([]), selectedId = ref(''), keys = ref<KeyChoice[]>([])
 const models = ref<string[]>([]), busy = ref(false), error = ref(''), historySearch = ref('')
 const keysLoading = ref(false), modelsLoading = ref(false), keysError = ref(false), modelsError = ref(false), storageError = ref(false)
+const historyReady = ref(false), historyError = ref(false)
 const messagePane = ref<HTMLElement>(), followOutput = ref(true)
 const current = computed(() => conversations.value.find(c => c.id === selectedId.value))
 const draft = computed({ get: () => current.value?.draft || '', set: value => { if (current.value) current.value.draft = value } })
 const draftFiles = computed({ get: () => current.value?.draftFiles || [], set: (value: ChatAttachment[]) => { if (current.value) current.value.draftFiles = value } })
+const draftImages = computed({ get: () => current.value?.draftImages || [], set: (value: ChatImage[]) => { if (current.value) current.value.draftImages = value } })
 const sortedChats = computed(() => [...conversations.value].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
 const visibleChats = computed(() => sortedChats.value.filter(chat => chat.title.toLocaleLowerCase().includes(historySearch.value.toLocaleLowerCase())))
 const composer = ref<HTMLTextAreaElement>(), fileInput = ref<HTMLInputElement>()
+const imageInput = ref<HTMLInputElement>(), cameraInput = ref<HTMLInputElement>(), imageDialog = ref<HTMLDialogElement>(), previewImage = ref<ChatImage>()
 const filesLoading = ref(false), dragging = ref(false), exporting = ref(false)
 const tasks = ['reconcile', 'variance', 'statement', 'report'] as const
 const { copyToClipboard: copy } = useClipboard()
-const canSend = computed(() => !!auth.user && !busy.value && !filesLoading.value && !keysLoading.value && !!current.value?.model.trim() && keys.value.some(k => k.id === current.value?.keyId))
+const canSend = computed(() => historyReady.value && !!auth.user && !busy.value && !filesLoading.value && !keysLoading.value && !!current.value?.model.trim() && keys.value.some(k => k.id === current.value?.keyId))
 let alive = true, generation = 0, modelsController: AbortController | undefined, runController: AbortController | undefined, filesController: AbortController | undefined
 let draftTimer: ReturnType<typeof setTimeout> | undefined
 
-function persist() {
-  if (auth.user && alive) storageError.value = !saveChats(auth.user.id, conversations.value)
+async function persist() {
+  const userId = auth.user?.id
+  if (!userId || !alive || !historyReady.value) return
+  const saved = await saveChats(userId, conversations.value)
+  if (alive && auth.user?.id === userId) storageError.value = !saved
 }
 function newChat() {
-  if (busy.value) return
+  if (busy.value || !historyReady.value) return
   const chat: ChatConversation = { id: createRandomId(), title: '', keyId: current.value?.keyId ?? keys.value[0]?.id ?? null,
     model: current.value?.model ?? '', effort: current.value?.effort ?? '', financeMode: true,
     maxOutputTokens: current.value?.maxOutputTokens ?? 8192, draft: '', draftFiles: [], updatedAt: new Date().toISOString(), messages: [] }
@@ -230,16 +255,24 @@ async function loadModels() {
 watch(() => [current.value?.id, current.value?.keyId], () => { error.value = ''; void loadModels() })
 watch(selectedId, () => { filesController?.abort(); filesLoading.value = false; followOutput.value = true; scrollToEnd() })
 watch(() => [current.value?.model, current.value?.effort, current.value?.financeMode, current.value?.maxOutputTokens], persist)
-watch(() => [draft.value, draftFiles.value], () => { clearTimeout(draftTimer); draftTimer = setTimeout(persist, 400) }, { deep: true })
-watch(() => auth.user?.id, () => {
+watch(() => [draft.value, draftFiles.value, draftImages.value], () => { clearTimeout(draftTimer); draftTimer = setTimeout(persist, 400) }, { deep: true })
+watch(() => auth.user?.id, async userId => {
   runController?.abort(); modelsController?.abort(); filesController?.abort(); generation++
   runController = undefined; busy.value = false; filesLoading.value = false; keys.value = []; models.value = []; error.value = ''; historySearch.value = ''
-  conversations.value = auth.user ? loadChats(auth.user.id) : []; selectedId.value = conversations.value[0]?.id ?? ''
-  if (auth.user) { if (!current.value) newChat(); void loadKeys() }
+  clearTimeout(draftTimer); imageDialog.value?.close(); previewImage.value = undefined
+  conversations.value = []; selectedId.value = ''; historyReady.value = false; historyError.value = false; storageError.value = false
+  if (!userId) return
+  try {
+    const saved = await loadChats(userId)
+    if (!alive || auth.user?.id !== userId) return
+    conversations.value = saved; selectedId.value = saved[0]?.id ?? ''; historyReady.value = true
+    if (!current.value) newChat()
+    void loadKeys()
+  } catch { if (alive && auth.user?.id === userId) historyError.value = true }
 }, { immediate: true, flush: 'sync' })
 
 async function send(retry = false) {
-  if (!canSend.value || !current.value || !auth.user || (!retry && !draft.value.trim())) return
+  if (!canSend.value || !current.value || !auth.user || (!retry && !draft.value.trim() && !draftImages.value.length && !draftFiles.value.length)) return
   if (!retry && draft.value.length + draftFiles.value.reduce((size, file) => size + file.content.length, 0) > CHAT_MAX_INPUT) {
     error.value = t('chat.files.content'); return
   }
@@ -255,9 +288,10 @@ async function send(retry = false) {
       if (chat.messages.at(-1)?.role !== 'assistant') return
       chat.messages.pop()
     } else {
-      const content = draft.value.trim(), attachments = [...draftFiles.value]; draft.value = ''; draftFiles.value = []
-      chat.messages.push({ id: createRandomId(), role: 'user', content, attachments, reasoning: '', status: 'complete' })
-      if (!chat.title) chat.title = content.slice(0, 36)
+      const content = draft.value.trim(), attachments = [...draftFiles.value], images = [...draftImages.value]
+      draft.value = ''; draftFiles.value = []; draftImages.value = []
+      chat.messages.push({ id: createRandomId(), role: 'user', content, attachments, images, reasoning: '', status: 'complete' })
+      if (!chat.title) chat.title = (content || images[0]?.name || attachments[0]?.name || '').slice(0, 36)
     }
     const request = { ...chat, messages: [...chat.messages] }
     chat.messages.push({ id: createRandomId(), role: 'assistant', content: '', reasoning: '', status: 'streaming' })
@@ -272,7 +306,7 @@ async function send(retry = false) {
   } catch (cause) {
     if (assistant) assistant.status = controller.signal.aborted ? 'stopped' : 'failed'
     if (alive && auth.user?.id === userId && !controller.signal.aborted) {
-      error.value = cause instanceof ChatError ? cause.code === 'http' ? t('chat.errors.http', { status: cause.status ?? '—' }) :
+      error.value = cause instanceof ChatError ? cause.code === 'http' ? t(chat.messages.some(m => m.images?.length) && [400, 415, 422].includes(cause.status ?? 0) ? 'chat.errors.imageModel' : 'chat.errors.http', { status: cause.status ?? '—' }) :
         t(cause.code === 'inputLimit' ? 'chat.errors.inputLimit' : cause.code === 'network' ? 'chat.errors.network' : 'chat.errors.stream') : t('chat.errors.network')
     }
   } finally {
@@ -301,20 +335,23 @@ function useTask(task: typeof tasks[number]) {
 }
 async function addFiles(files: File[]) {
   const chat = current.value, userId = auth.user?.id
-  if (!chat || !userId || busy.value || filesLoading.value || !files.length) return
-  if (draftFiles.value.length + files.length > CHAT_MAX_FILES) { error.value = t('chat.files.count'); return }
+  if (!chat || !userId || !historyReady.value || busy.value || filesLoading.value || !files.length) return
+  if (draftFiles.value.length + draftImages.value.length + files.length > CHAT_MAX_FILES) { error.value = t('chat.files.count'); return }
   const controller = new AbortController(); filesController = controller; filesLoading.value = true; error.value = ''
   try {
     // Accept the selected batch atomically so a failed file never silently disappears from the request.
-    const parsed: ChatAttachment[] = []
-    for (const file of files) parsed.push(await readChatFile(file, controller.signal))
+    const parsed: ChatAttachment[] = [], images: ChatImage[] = []
+    for (const file of files) {
+      if (isChatImage(file)) images.push(await readChatImage(file, controller.signal))
+      else parsed.push(await readChatFile(file, controller.signal))
+    }
     if (controller.signal.aborted || !alive || auth.user?.id !== userId || current.value?.id !== chat.id) return
     if ([...draftFiles.value, ...parsed].reduce((size, file) => size + file.content.length, draft.value.length) > CHAT_MAX_INPUT) throw new Error('content')
-    draftFiles.value = [...draftFiles.value, ...parsed]; persist()
+    draftFiles.value = [...draftFiles.value, ...parsed]; draftImages.value = [...draftImages.value, ...images]; persist()
   } catch (cause) {
     if (!controller.signal.aborted && alive && auth.user?.id === userId && current.value?.id === chat.id) {
       const code = cause instanceof Error ? cause.message : 'parse'
-      error.value = t('chat.files.' + (['size', 'unsupported', 'content', 'empty', 'sheets', 'rows', 'columns', 'cells', 'formula', 'timeout'].includes(code) ? code : 'parse'))
+      error.value = t('chat.files.' + (['size', 'unsupported', 'content', 'empty', 'sheets', 'rows', 'columns', 'cells', 'formula', 'timeout', 'imageSize', 'imageFormat'].includes(code) ? code : 'parse'))
     }
   } finally { if (filesController === controller) filesLoading.value = false }
 }
@@ -323,6 +360,13 @@ function chooseFiles(event: Event) {
   void addFiles(Array.from(input.files || [])); input.value = ''
 }
 function dropFiles(event: DragEvent) { dragging.value = false; void addFiles(Array.from(event.dataTransfer?.files || [])) }
+function pasteImages(event: ClipboardEvent) {
+  const files = Array.from(event.clipboardData?.items || []).filter(item => item.kind === 'file').map(item => item.getAsFile()).filter((file): file is File => !!file && isChatImage(file))
+  if (!files.length) return
+  event.preventDefault()
+  void addFiles(files)
+}
+function showImage(image: ChatImage) { previewImage.value = image; imageDialog.value?.showModal() }
 function exportConversation() {
   if (current.value) downloadChatFile(chatTranscript(current.value), (current.value.title || 'Chat') + '.md', 'text/markdown;charset=utf-8')
 }
@@ -370,6 +414,8 @@ onBeforeUnmount(() => {
 .chat-composer { @apply overflow-hidden rounded-2xl border border-gray-200 bg-gray-50/40 shadow-sm transition-shadow focus-within:border-primary-400 focus-within:ring-2 focus-within:ring-primary-100 dark:border-dark-600 dark:bg-dark-950/30 dark:focus-within:ring-primary-900/40; }
 .chat-task { @apply rounded-xl border border-gray-200 bg-gray-50/50 p-4 text-left transition-colors hover:border-primary-300 hover:bg-primary-50/50 dark:border-dark-600 dark:bg-dark-800/40 dark:hover:border-primary-600; }
 .chat-source { @apply rounded-lg border border-gray-200 bg-white/70 p-3 dark:border-dark-600 dark:bg-dark-800/60; }
+.chat-image { @apply min-w-0 rounded-lg border border-gray-200 bg-white p-2 text-left text-gray-600 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200; }
+dialog::backdrop { background: rgb(0 0 0 / 55%); }
 .chat-markdown { @apply break-words text-sm leading-7 text-gray-800 dark:text-gray-100; }
 .chat-markdown :deep(p + p), .chat-markdown :deep(pre), .chat-markdown :deep(ul), .chat-markdown :deep(ol), .chat-markdown :deep(blockquote) { margin-top: 0.8em; margin-bottom: 0.8em; }
 .chat-markdown :deep(pre) { @apply overflow-x-auto rounded-xl bg-gray-900 p-4 text-xs leading-6 text-gray-100; }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as XLSX from 'xlsx'
 import { parseChatFile } from '../chatFileParser'
-import { chatTables, chatTranscript, tableTSV } from '../chatWorkspace'
+import { chatTables, chatTranscript, readChatImage, tableTSV } from '../chatWorkspace'
 
 const bytes = (text: string) => new TextEncoder().encode(text).buffer
 function workbook(sheet: XLSX.WorkSheet): ArrayBuffer {
@@ -11,6 +11,15 @@ function workbook(sheet: XLSX.WorkSheet): ArrayBuffer {
 }
 
 describe('finance source files and exports', () => {
+  it('rejects oversized or unsupported photos before decoding and exports attached images with the transcript', async () => {
+    await expect(readChatImage(new File(['x'], 'camera.heic', { type: 'image/heic' }), new AbortController().signal)).rejects.toThrow('imageFormat')
+    const large = new File(['x'], 'photo.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(large, 'size', { value: 20 * 1024 * 1024 + 1 })
+    await expect(readChatImage(large, new AbortController().signal)).rejects.toThrow('imageSize')
+    expect(chatTranscript({ id: '1', title: '', keyId: 1, model: 'm', effort: '', updatedAt: '', messages: [
+      { id: '1', role: 'user', content: '', reasoning: '', status: 'complete', images: [{ name: 'receipt.png', dataUrl: 'data:image/png;base64,AA==', width: 1, height: 1 }] }
+    ] })).toContain('![Reference image](data:image/png;base64,AA==)')
+  })
   it('preserves CSV identifiers, quoted commas, signs and source rows without number coercion', () => {
     const file = parseChatFile('statement.csv', bytes('\uFEFFAccount,Amount,Note\r\n00123456789012345678,-120.50,"Fee, refund"\r\n'))
     expect(file.sheets).toEqual([{ name: 'Sheet1', rows: 2, columns: 3 }])

@@ -4,10 +4,10 @@ import { reactive } from 'vue'
 import ChatView from '../ChatView.vue'
 import { loadChats, saveChats, type ChatConversation } from '@/api/chat'
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), key: vi.fn(), models: vi.fn(), stream: vi.fn(), readFile: vi.fn(), auth: { user: { id: 1 } } }))
+const mocks = vi.hoisted(() => ({ list: vi.fn(), key: vi.fn(), models: vi.fn(), stream: vi.fn(), readFile: vi.fn(), readImage: vi.fn(), auth: { user: { id: 1 } } }))
 vi.mock('@/api/keys', () => ({ list: mocks.list, getById: mocks.key }))
 vi.mock('@/api/chat', async () => ({ ...await vi.importActual<typeof import('@/api/chat')>('@/api/chat'), listChatModels: mocks.models, streamChat: mocks.stream }))
-vi.mock('@/utils/chatWorkspace', async () => ({ ...await vi.importActual<typeof import('@/utils/chatWorkspace')>('@/utils/chatWorkspace'), readChatFile: mocks.readFile }))
+vi.mock('@/utils/chatWorkspace', async () => ({ ...await vi.importActual<typeof import('@/utils/chatWorkspace')>('@/utils/chatWorkspace'), readChatFile: mocks.readFile, readChatImage: mocks.readImage }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => mocks.auth }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
@@ -25,6 +25,23 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount())
 
 describe('online chat', () => {
+  it('pastes screenshots without sending, preserves text and submits an image-only message once', async () => {
+    wrapper = open(); await flushPromises()
+    const image = { name: 'screenshot.png', dataUrl: 'data:image/png;base64,AA==', width: 100, height: 200 }
+    mocks.readImage.mockResolvedValue(image)
+    await wrapper.get('[data-testid="chat-input"]').setValue('Keep this text')
+    await wrapper.get('[data-testid="chat-input"]').trigger('paste', { clipboardData: { items: [
+      { kind: 'file', getAsFile: () => new File(['image'], 'screenshot.png', { type: 'image/png' }) }
+    ] } }); await flushPromises()
+    expect(wrapper.get('[data-testid="chat-image-preview"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="chat-input"]').element).toHaveProperty('value', 'Keep this text')
+    expect(mocks.stream).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="chat-input"]').setValue('')
+    await wrapper.get('form').trigger('submit'); await flushPromises()
+    expect(mocks.stream).toHaveBeenCalledTimes(1)
+    expect(mocks.stream.mock.calls[0][0].messages[0]).toMatchObject({ content: '', images: [image] })
+    expect((await loadChats(1))[0].messages[0].images).toEqual([image])
+  })
   it('previews a source without invoking a model, submits it once, and restores unsent drafts', async () => {
     wrapper = open(); await flushPromises()
     mocks.readFile.mockResolvedValue({ name: 'ledger.csv', content: 'Row 2: ["0012","-120.50"]', sheets: [{ name: 'Ledger', rows: 2, columns: 2 }] })
@@ -38,7 +55,7 @@ describe('online chat', () => {
     await wrapper.get('form').trigger('submit'); await flushPromises()
     expect(mocks.stream).toHaveBeenCalledTimes(1)
     expect(mocks.stream.mock.calls[0][0].messages[0].attachments[0].content).toContain('0012')
-    expect(loadChats(1)[0].messages[0].attachments?.[0].name).toBe('ledger.csv')
+    expect((await loadChats(1))[0].messages[0].attachments?.[0].name).toBe('ledger.csv')
     await wrapper.get('[data-testid="chat-input"]').setValue('Unsent follow-up')
     wrapper.unmount(); wrapper = open(); await flushPromises()
     expect(wrapper.get('[data-testid="chat-input"]').element).toHaveProperty('value', 'Unsent follow-up')
@@ -60,7 +77,7 @@ describe('online chat', () => {
     await wrapper.get('form').trigger('submit'); await flushPromises()
     expect(mocks.stream).toHaveBeenCalledTimes(1)
     expect(wrapper.find('.chat-markdown strong').text()).toBe('world')
-    expect(JSON.stringify(loadChats(1))).not.toContain('NEVER_STORE_SECRET')
+    expect(JSON.stringify(await loadChats(1))).not.toContain('NEVER_STORE_SECRET')
     await wrapper.get('[data-testid="chat-input"]').setValue('Continue')
     await wrapper.get('form').trigger('submit'); await flushPromises()
     expect(mocks.stream.mock.calls[1][0].messages.map((m: { role: string }) => m.role)).toEqual(['user', 'assistant', 'user'])
@@ -88,13 +105,13 @@ describe('online chat', () => {
     await wrapper.get('form').trigger('submit'); await flushPromises()
     await wrapper.get('[data-testid="chat-stop"]').trigger('click'); await flushPromises()
     expect(activeSignal?.aborted).toBe(true)
-    expect(loadChats(1)[0].messages.at(-1)?.status).toBe('stopped')
+    expect((await loadChats(1))[0].messages.at(-1)?.status).toBe('stopped')
   })
   it('removes unsafe HTML and clears visible history after changing users', async () => {
     const history: ChatConversation = { id: 'old', title: 'User one secret', keyId: 4, model: 'gpt-6.1-sol', effort: '', updatedAt: '', messages: [
       { id: '1', role: 'assistant', status: 'complete', reasoning: '', content: '<img src="https://evil.invalid" onerror="alert(1)"><script>alert(1)</script>[bad](javascript:alert(1))' }
     ] }
-    saveChats(1, [history])
+    await saveChats(1, [history])
     wrapper = open(); await flushPromises()
     expect(wrapper.find('.chat-markdown img').exists()).toBe(false)
     expect(wrapper.find('.chat-markdown script').exists()).toBe(false)
@@ -104,7 +121,7 @@ describe('online chat', () => {
     expect(mocks.stream).not.toHaveBeenCalled()
   })
   it('requires a new selection when a historical key is unavailable instead of silently changing billing groups', async () => {
-    saveChats(1, [{ id: 'old', title: 'Old group', keyId: 999, model: 'old-model', effort: '', updatedAt: '', messages: [
+    await saveChats(1, [{ id: 'old', title: 'Old group', keyId: 999, model: 'old-model', effort: '', updatedAt: '', messages: [
       { id: '1', role: 'user', status: 'complete', reasoning: '', content: 'Old question' }
     ] }])
     wrapper = open(); await flushPromises()

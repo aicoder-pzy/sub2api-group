@@ -19,6 +19,11 @@ try {
     localStorage.setItem('auth_token', 'TEST_PANEL_TOKEN')
     localStorage.setItem('auth_user', JSON.stringify(user))
     localStorage.setItem('sub2api_locale', 'zh')
+    if (!localStorage.getItem('chat-legacy-seeded')) {
+      localStorage.setItem('chat-legacy-seeded', '1')
+      localStorage.setItem('sub2api-chats:v1:1', JSON.stringify([{ id: 'legacy-chat', title: '', keyId: 4,
+        model: 'gpt-6.1-sol', effort: '', financeMode: true, updatedAt: '', messages: [] }]))
+    }
   }, { user })
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url())
@@ -85,11 +90,77 @@ try {
   assert.equal(await page.getByTestId('chat-input').inputValue(), '刷新后继续核对')
   assert.match(await page.locator('.chat-markdown').textContent(), /0012/)
   assert.equal(requests.length, 1, 'Reload and exports must not call a model')
+  // Generate an oversized-edge screenshot in Chromium; exercise the actual browser image decoder/canvas.
+  const screenshotData = await page.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 3200; canvas.height = 1200
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = 'white'; ctx.fillRect(0, 0, 3200, 1200)
+    ctx.fillStyle = '#111'; ctx.font = '90px sans-serif'; ctx.fillText('Receipt 0012   CNY -120.50', 100, 300)
+    return canvas.toDataURL('image/png')
+  })
+  await page.getByTestId('chat-input').fill('')
+  await page.getByTestId('chat-input').evaluate((input, data) => {
+    const bytes = Uint8Array.from(atob(data.split(',')[1]), char => char.charCodeAt(0))
+    const transfer = new DataTransfer(); transfer.items.add(new File([bytes], 'screenshot.png', { type: 'image/png' }))
+    input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
+  }, screenshotData)
+  await page.getByTestId('chat-image-preview').waitFor()
+  await page.getByTestId('chat-image-preview').click()
+  await page.locator('dialog[open]').waitFor()
+  assert.match(await page.locator('dialog img').getAttribute('src'), /^data:image\/png;base64,/)
+  await page.getByRole('button', { name: '关闭预览' }).click()
+  assert.equal(requests.length, 1, 'Pasting/previewing must not call a model')
+  await page.reload()
+  await page.getByTestId('chat-image-preview').waitFor()
+  assert.equal(await page.getByTestId('chat-input').inputValue(), '')
+  assert.match(await page.getByTestId('chat-image-preview').textContent(), /2560 × 960/)
+  await page.screenshot({ path: path.join(output, 'desktop-image-draft.png') })
+  await page.getByTestId('chat-send').click()
+  await page.getByTestId('chat-download-excel').nth(1).waitFor()
+  assert.equal(requests.length, 2)
+  const parts = requests[1].messages.at(-1).content
+  assert.ok(Array.isArray(parts)); assert.ok(parts.some(part => part.type === 'image_url' && part.image_url.url.startsWith('data:image/png;base64,')))
+  await page.getByTestId('chat-input').fill('核对图片中的金额与单号')
+  await page.getByTestId('chat-send').click()
+  await page.getByTestId('chat-download-excel').nth(2).waitFor()
+  assert.equal(requests.length, 3)
+  assert.ok(requests[2].messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image_url')))
+  const stored = await page.evaluate(() => new Promise((resolve, reject) => {
+    const open = indexedDB.open('sub2api-chat-history', 1)
+    open.onerror = () => reject(open.error)
+    open.onsuccess = () => {
+      const db = open.result, request = db.transaction('users').objectStore('users').get(1)
+      request.onsuccess = () => { db.close(); resolve({ value: request.result, legacy: localStorage.getItem('sub2api-chats:v1:1') }) }
+    }
+  }))
+  assert.equal(stored.legacy, null); assert.match(stored.value, /legacy-chat/); assert.match(stored.value, /data:image\/png;base64,/)
+  assert.ok(!stored.value.includes('TEST_KEY') && !stored.value.includes('TEST_PANEL_TOKEN'))
+  // Failed mixed batches never partially attach the readable source.
+  await page.getByTestId('chat-file-input').setInputFiles([
+    { name: 'valid.csv', mimeType: 'text/csv', buffer: Buffer.from('id,amount\n0012,1\n') },
+    { name: 'unsupported.heic', mimeType: 'image/heic', buffer: Buffer.from('invalid') }
+  ])
+  await page.getByRole('alert').filter({ hasText: 'HEIC' }).waitFor()
+  assert.equal(await page.getByTestId('chat-file-preview').count(), 0)
+  assert.equal(requests.length, 3)
   const mobile = await context.newPage()
   await mobile.setViewportSize({ width: 390, height: 844 })
   mobile.on('pageerror', error => errors.push(error.message))
   await mobile.goto('http://127.0.0.1:4173/chat')
   await mobile.getByTestId('chat-input').waitFor()
+  await mobile.locator('.chat-toolbar').getByRole('button', { name: /新对话/ }).click()
+  assert.equal(await mobile.getByTestId('chat-camera-input').getAttribute('capture'), 'environment')
+  assert.equal(await mobile.getByTestId('chat-image-input').getAttribute('capture'), null)
+  await mobile.getByTestId('chat-camera-input').setInputFiles({ name: 'camera.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(screenshotData.split(',')[1], 'base64') })
+  await mobile.getByTestId('chat-image-preview').waitFor()
+  await mobile.getByTestId('chat-image-input').setInputFiles({ name: 'gallery.png', mimeType: 'image/png', buffer: Buffer.from(screenshotData.split(',')[1], 'base64') })
+  await mobile.getByTestId('chat-image-preview').nth(1).waitFor()
+  assert.equal(requests.length, 3)
+  await mobile.getByTestId('chat-send').click()
+  await mobile.getByTestId('chat-download-excel').waitFor()
+  assert.equal(requests.length, 4)
+  assert.equal(requests[3].messages.at(-1).content.filter(part => part.type === 'image_url').length, 2)
+  await mobile.reload()
+  await mobile.locator('article img').nth(1).waitFor()
   await mobile.screenshot({ path: path.join(output, 'mobile-result.png') })
   const dimensions = await mobile.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth,
     overflowing: Array.from(document.querySelectorAll('main *')).filter(element => element.getBoundingClientRect().right > innerWidth + 1)
@@ -98,5 +169,8 @@ try {
   assert.deepEqual(errors, [])
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, mock_model_requests: requests.length,
     real_model_requests: 0, csv_worker: true, xlsx_worker: true, xlsx_download: true, html_report: true,
-    draft_restored: true, mobile_no_horizontal_overflow: true, browser_errors: errors }, null, 2))
+    draft_restored: true, mobile_no_horizontal_overflow: true, browser_errors: errors,
+    screenshot_paste: true, image_only_send: true, image_resize: true, image_followup: true, image_draft_restored: true,
+    image_history_restored: true, legacy_history_migrated: true, camera_input: true, gallery_input: true,
+    mixed_batch_atomic: true, native_camera_hardware_tested: false }, null, 2))
 } finally { await browser.close() }
