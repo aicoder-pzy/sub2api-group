@@ -28,6 +28,11 @@ func RegisterUserRoutes(
 		authenticated.GET("/pelican-showcase", h.PelicanShowcase.List)
 		authenticated.GET("/pelican-showcase/items/:id", h.PelicanShowcase.GetItem)
 		// 用户接口
+		chats := authenticated.Group("/chat/conversations")
+		chats.GET("", h.Chat.List)
+		chats.GET("/:id", h.Chat.Get)
+		chats.PUT("/:id", h.Chat.Put)
+
 		user := authenticated.Group("/user")
 		{
 			user.GET("/profile", h.User.GetProfile)

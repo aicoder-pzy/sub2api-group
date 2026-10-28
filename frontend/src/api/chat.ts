@@ -36,6 +36,8 @@ export interface ChatMessage {
 }
 
 export interface ChatConversation {
+  cloudRevision?: number
+  cloudSynced?: boolean
   id: string
   title: string
   keyId: number | null
@@ -170,20 +172,22 @@ async function chatHistory(userId: number, value?: string): Promise<string | nul
 export async function saveChats(userId: number, conversations: ChatConversation[]): Promise<boolean> {
   const draftKey = 'sub2api-chat-drafts:v1:' + userId
   const drafts = JSON.stringify(conversations.map(c => ({ id: c.id, draft: c.draft || '' })))
-  // pagehide cannot await IndexedDB. Keep the small text draft synchronously until its write commits.
+  // pagehide cannot await IndexedDB. Preserve the small text draft until its write commits.
   try { localStorage.setItem(draftKey, drafts) } catch { /* The full IndexedDB save can still succeed. */ }
   try {
-    await chatHistory(userId, JSON.stringify(conversations.map(c => ({
-      id: c.id, title: c.title, keyId: c.keyId, model: c.model, effort: c.effort, updatedAt: c.updatedAt,
-      financeMode: c.financeMode === true, maxOutputTokens: c.maxOutputTokens,
-      draft: c.draft || '', draftFiles: c.draftFiles?.map(fileSchema),
-      draftImages: c.draftImages?.map(imageSchema),
-      messages: c.messages.map(m => ({ id: m.id, role: m.role, content: m.content, reasoning: m.reasoning,
-        status: m.status === 'streaming' ? 'stopped' : m.status, attachments: m.attachments?.map(fileSchema), images: m.images?.map(imageSchema) }))
-    }))))
+    await chatHistory(userId, JSON.stringify(conversations.map(c => ({ ...chatSchema(c), cloudRevision: c.cloudRevision, cloudSynced: c.cloudSynced }))))
     try { if (localStorage.getItem(draftKey) === drafts) localStorage.removeItem(draftKey) } catch { /* Storage can be restricted. */ }
     return true
   } catch { return false }
+}
+
+/** Explicit shared schema: API keys and local sync metadata never leave the browser. */
+export function chatSchema(c: ChatConversation): ChatConversation {
+  return { id: c.id, title: c.title, keyId: c.keyId, model: c.model, effort: c.effort, updatedAt: c.updatedAt,
+    financeMode: c.financeMode === true, maxOutputTokens: c.maxOutputTokens ?? 4096,
+    draft: c.draft || '', draftFiles: c.draftFiles?.map(fileSchema) || [], draftImages: c.draftImages?.map(imageSchema) || [],
+    messages: c.messages.map(m => ({ id: m.id, role: m.role, content: m.content, reasoning: m.reasoning,
+      status: m.status === 'streaming' ? 'stopped' : m.status, attachments: m.attachments?.map(fileSchema) || [], images: m.images?.map(imageSchema) || [] })) }
 }
 
 const fileSchema = (file: ChatAttachment): ChatAttachment => ({ name: file.name, content: file.content,
@@ -219,7 +223,7 @@ export async function loadChats(userId: number): Promise<ChatConversation[]> {
           return typeof m.id === 'string' && ['user', 'assistant'].includes(String(m.role)) &&
             typeof m.content === 'string' && typeof m.reasoning === 'string' && validStatuses.includes(String(m.status)) && validFiles(m.attachments) && validChatImages(m.images)
         })
-    }).map(c => ({ id: c.id, title: c.title, keyId: c.keyId, model: c.model, effort: c.effort, updatedAt: c.updatedAt,
+    }).map(c => ({ cloudRevision: Number.isSafeInteger(c.cloudRevision) ? c.cloudRevision : undefined, cloudSynced: c.cloudSynced === true, id: c.id, title: c.title, keyId: c.keyId, model: c.model, effort: c.effort, updatedAt: c.updatedAt,
       financeMode: c.financeMode === true, maxOutputTokens: [4096, 8192, 16384].includes(c.maxOutputTokens ?? 0) ? c.maxOutputTokens : 4096,
       draft: c.draft || '', draftFiles: c.draftFiles?.map(fileSchema) || [],
       draftImages: c.draftImages?.map(imageSchema) || [],
@@ -229,7 +233,7 @@ export async function loadChats(userId: number): Promise<ChatConversation[]> {
       const drafts: unknown = JSON.parse(localStorage.getItem('sub2api-chat-drafts:v1:' + userId) || '[]')
       if (Array.isArray(drafts)) for (const raw of drafts) {
         const draft = object(raw), chat = chats.find(c => c.id === draft.id)
-        if (chat && typeof draft.draft === 'string' && draft.draft.length <= 100000) chat.draft = draft.draft
+        if (chat && typeof draft.draft === 'string' && draft.draft.length <= 100000 && chat.draft !== draft.draft) { chat.draft = draft.draft; chat.cloudSynced = false }
       }
     } catch { /* A missing draft checkpoint never hides committed history. */ }
     return chats

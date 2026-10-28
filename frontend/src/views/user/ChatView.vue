@@ -35,6 +35,7 @@
                 <option v-for="key in keys" :key="key.id" :value="key.id">{{ key.group?.name || '#' + key.group_id }} · {{ key.name }}</option>
               </select>
             </label>
+            <button class="btn btn-secondary text-xs" :disabled="busy || !historyReady" data-testid="chat-share" @click="shareChat">{{ t('chat.continuePhone') }}</button>
             <button class="btn btn-secondary text-xs" :disabled="!current.messages.length || busy" data-testid="chat-export" @click="exportConversation">{{ t('chat.exportChat') }}</button>
             <button class="chat-icon-button" :disabled="busy" :title="t('chat.deleteChat')" :aria-label="t('chat.deleteChat')" @click="deleteChat">×</button>
           </div>
@@ -53,6 +54,10 @@
             <button class="chat-icon-button" :disabled="busy || keysLoading" :title="t('chat.reload')" :aria-label="t('chat.reload')" @click="loadKeys">↻</button>
             </div>
           </details>
+          <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500" role="status" data-testid="chat-sync-status">
+            <span>{{ t('chat.sync.' + syncStatus) }}</span><button type="button" class="text-primary-600" :disabled="syncStatus === 'syncing' || busy || filesLoading" data-testid="chat-sync" @click="chatSync?.sync()">{{ t('chat.sync.refresh') }}</button>
+          </div>
+          <p v-if="syncConflict" class="mt-2 text-xs text-amber-600" role="alert">{{ t('chat.sync.conflict') }}</p>
           <p v-if="!keysLoading && !keys.length && !keysError" class="mt-3 text-sm text-gray-500">{{ t('chat.noKeys') }} <RouterLink to="/keys" class="text-primary-600 underline">{{ t('chat.manageKeys') }}</RouterLink></p>
           <p v-if="keysError || modelsError" role="alert" class="mt-3 text-sm text-amber-600">{{ t(keysError ? 'chat.keysError' : 'chat.modelsError') }}</p>
         </header>
@@ -149,6 +154,12 @@
           <p class="mt-2 text-center text-[11px] leading-5 text-gray-400">{{ t('chat.chargingHint') }} <span class="lg:hidden">{{ t('chat.historyHint') }}</span></p>
         </div>
       </section>
+      <dialog ref="shareDialog" class="max-w-[90vw] rounded-xl bg-white p-5 text-center dark:bg-dark-900 dark:text-gray-100" :aria-label="t('chat.continuePhone')" @click.self="shareDialog?.close()">
+        <h2 class="font-semibold">{{ t('chat.continuePhone') }}</h2>
+        <p class="mt-2 max-w-72 text-sm text-gray-500">{{ t('chat.phoneHint') }}</p>
+        <img v-if="shareQR" :src="shareQR" :alt="t('chat.continuePhone')" class="mx-auto my-3 h-52 w-52" data-testid="chat-share-qr" />
+        <div class="flex justify-center gap-3"><button type="button" class="btn btn-primary text-xs" @click="copy(shareURL)">{{ t('chat.copyLink') }}</button><button type="button" class="btn btn-secondary text-xs" @click="shareDialog?.close()">{{ t('chat.closePreview') }}</button></div>
+      </dialog>
       <dialog ref="imageDialog" class="max-h-[90dvh] max-w-[95vw] overflow-auto rounded-xl bg-white p-4 dark:bg-dark-900 dark:text-gray-100" :aria-label="t('chat.imagePreview')" @click.self="imageDialog?.close()">
         <div class="mb-3 flex items-center justify-between gap-4"><p class="min-w-0 break-all text-sm">{{ previewImage?.name }}</p><button type="button" class="btn btn-secondary shrink-0 text-xs" @click="imageDialog?.close()">{{ t('chat.closePreview') }}</button></div>
         <img v-if="previewImage" :src="previewImage.dataUrl" :alt="previewImage.name" class="max-h-[75dvh] max-w-full object-contain" />
@@ -160,6 +171,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import QRCode from 'qrcode'
+import { ChatSync, type ChatSyncStatus } from '@/api/chatSync'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -178,6 +191,9 @@ const conversations = ref<ChatConversation[]>([]), selectedId = ref(''), keys = 
 const models = ref<string[]>([]), busy = ref(false), error = ref(''), historySearch = ref('')
 const keysLoading = ref(false), modelsLoading = ref(false), keysError = ref(false), modelsError = ref(false), storageError = ref(false)
 const historyReady = ref(false), historyError = ref(false)
+const syncStatus = ref<ChatSyncStatus>('syncing'), syncConflict = ref(false)
+const shareDialog = ref<HTMLDialogElement>(), shareQR = ref(''), shareURL = ref('')
+let chatSync: ChatSync | undefined
 const messagePane = ref<HTMLElement>(), followOutput = ref(true)
 const current = computed(() => conversations.value.find(c => c.id === selectedId.value))
 const draft = computed({ get: () => current.value?.draft || '', set: value => { if (current.value) current.value.draft = value } })
@@ -197,7 +213,9 @@ let draftTimer: ReturnType<typeof setTimeout> | undefined
 async function persist() {
   const userId = auth.user?.id
   if (!userId || !alive || !historyReady.value) return
+  chatSync?.changed()
   const saved = await saveChats(userId, conversations.value)
+  chatSync?.schedule()
   if (alive && auth.user?.id === userId) storageError.value = !saved
 }
 function newChat() {
@@ -207,9 +225,12 @@ function newChat() {
     maxOutputTokens: current.value?.maxOutputTokens ?? 8192, draft: '', draftFiles: [], updatedAt: new Date().toISOString(), messages: [] }
   conversations.value.unshift(chat); selectedId.value = chat.id; error.value = ''; persist()
 }
-function deleteChat() {
+async function deleteChat() {
   if (busy.value || !current.value || !window.confirm(t('chat.deleteConfirm'))) return
-  conversations.value = conversations.value.filter(c => c.id !== selectedId.value)
+  const chat = current.value
+  if (!chatSync || !await chatSync.remove(chat)) { error.value = t('chat.sync.deleteFailed'); return }
+  if (!alive || !conversations.value.includes(chat)) return
+  conversations.value = conversations.value.filter(c => c.id !== chat.id)
   selectedId.value = sortedChats.value[0]?.id ?? ''
   if (!current.value) newChat()
   error.value = ''; persist()
@@ -257,19 +278,34 @@ async function loadModels() {
   finally { clearTimeout(timer); if (alive && modelsController === controller) modelsLoading.value = false }
 }
 watch(() => [current.value?.id, current.value?.keyId], () => { error.value = ''; void loadModels() })
-watch(selectedId, () => { filesController?.abort(); filesLoading.value = false; followOutput.value = true; scrollToEnd() })
+watch(selectedId, value => {
+  filesController?.abort(); filesLoading.value = false; followOutput.value = true; scrollToEnd()
+  if (value) { const url = new URL(window.location.href); url.searchParams.set('conversation', value); window.history.replaceState(window.history.state, '', url) }
+})
 watch(() => [current.value?.model, current.value?.effort, current.value?.financeMode, current.value?.maxOutputTokens], persist)
 watch(() => [draft.value, draftFiles.value, draftImages.value], () => { clearTimeout(draftTimer); draftTimer = setTimeout(persist, 400) }, { deep: true })
 watch(() => auth.user?.id, async userId => {
+  chatSync?.dispose(); chatSync = undefined
   runController?.abort(); modelsController?.abort(); filesController?.abort(); generation++
   runController = undefined; busy.value = false; filesLoading.value = false; keys.value = []; models.value = []; error.value = ''; historySearch.value = ''
-  clearTimeout(draftTimer); imageDialog.value?.close?.(); previewImage.value = undefined
+  clearTimeout(draftTimer); imageDialog.value?.close?.(); shareDialog.value?.close?.(); previewImage.value = undefined
+  syncStatus.value = 'syncing'; syncConflict.value = false
   conversations.value = []; selectedId.value = ''; historyReady.value = false; historyError.value = false; storageError.value = false
   if (!userId) return
   try {
     const saved = await loadChats(userId)
     if (!alive || auth.user?.id !== userId) return
-    conversations.value = saved; selectedId.value = saved[0]?.id ?? ''; historyReady.value = true
+    const requestedId = new URLSearchParams(window.location.search).get('conversation')
+    conversations.value = saved
+    chatSync = new ChatSync({ chats: () => conversations.value,
+      changed: () => { void saveChats(userId, conversations.value).then(ok => { if (alive && auth.user?.id === userId) storageError.value = !ok }); scrollToEnd() },
+      status: status => { syncStatus.value = status },
+      conflict: () => { syncConflict.value = true; return t('chat.sync.copySuffix') },
+      paused: () => busy.value || filesLoading.value || !alive || auth.user?.id !== userId })
+    await chatSync.sync()
+    if (!alive || auth.user?.id !== userId) return
+    selectedId.value = conversations.value.some(c => c.id === requestedId) ? requestedId! : sortedChats.value[0]?.id ?? ''
+    historyReady.value = true
     if (!current.value) newChat()
     void loadKeys()
   } catch { if (alive && auth.user?.id === userId) historyError.value = true }
@@ -397,11 +433,33 @@ function downloadReport(content: string) {
   downloadChatFile(document, (current.value?.title || 'Report') + '.html', 'text/html;charset=utf-8')
   app.showSuccess(t('chat.reportDownloaded'))
 }
+async function shareChat() {
+  const chat = current.value
+  if (!chat || !chatSync) return
+  await chatSync.sync()
+  if (!alive || current.value?.id !== chat.id) return
+  if (!chat.cloudSynced) { error.value = t('chat.sync.shareFailed'); return }
+  const url = new URL(window.location.href); url.search = ''; url.hash = ''; url.searchParams.set('conversation', chat.id)
+  shareURL.value = url.toString(); shareQR.value = await QRCode.toDataURL(shareURL.value, { width: 240, margin: 2 })
+  if (alive && current.value?.id === chat.id) shareDialog.value?.showModal()
+}
+function syncVisible() {
+  if (document.visibilityState !== 'hidden') void chatSync?.sync().then(() => {
+    if (!current.value && historyReady.value && !busy.value) { selectedId.value = sortedChats.value[0]?.id ?? ''; if (!current.value) newChat() }
+  })
+}
+const syncTimer = setInterval(syncVisible, 5000)
+window.addEventListener('focus', syncVisible)
+window.addEventListener('online', syncVisible)
+document.addEventListener('visibilitychange', syncVisible)
 window.addEventListener('pagehide', persist)
 onBeforeUnmount(() => {
   const last = current.value?.messages.at(-1)
   if (last?.status === 'streaming') last.status = 'stopped'
   clearTimeout(draftTimer); persist(); alive = false; generation++; runController?.abort(); modelsController?.abort(); filesController?.abort()
+  chatSync?.dispose(); clearInterval(syncTimer)
+  window.removeEventListener('focus', syncVisible); window.removeEventListener('online', syncVisible)
+  document.removeEventListener('visibilitychange', syncVisible)
   window.removeEventListener('pagehide', persist)
 })
 </script>

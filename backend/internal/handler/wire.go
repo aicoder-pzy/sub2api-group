@@ -207,6 +207,7 @@ func ProvideHandlers(
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
 	pelicanShowcaseHandler *PelicanShowcaseHandler,
+	chatHandler *ChatHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
@@ -234,12 +235,14 @@ func ProvideHandlers(
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
 		PelicanShowcase:  pelicanShowcaseHandler,
+		Chat:             chatHandler,
 	}
 }
 
 // ProviderSet is the Wire provider set for all handlers
 var ProviderSet = wire.NewSet(
 	// Top-level handlers
+	NewChatHandler,
 	NewAuthHandler,
 	NewUserHandler,
 	NewAPIKeyHandler,

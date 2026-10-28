@@ -5,6 +5,7 @@ import ChatView from '../ChatView.vue'
 import { loadChats, saveChats, type ChatConversation } from '@/api/chat'
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), key: vi.fn(), models: vi.fn(), stream: vi.fn(), readFile: vi.fn(), readImage: vi.fn(), auth: { user: { id: 1 } } }))
+vi.mock('@/api/chatSync', () => ({ ChatSync: class { changed() {} schedule() {} dispose() {} sync() { return Promise.resolve() } remove() { return Promise.resolve(true) } } }))
 vi.mock('@/api/keys', () => ({ list: mocks.list, getById: mocks.key }))
 vi.mock('@/api/chat', async () => ({ ...await vi.importActual<typeof import('@/api/chat')>('@/api/chat'), listChatModels: mocks.models, streamChat: mocks.stream }))
 vi.mock('@/utils/chatWorkspace', async () => ({ ...await vi.importActual<typeof import('@/utils/chatWorkspace')>('@/utils/chatWorkspace'), readChatFile: mocks.readFile, readChatImage: mocks.readImage }))

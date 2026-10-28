@@ -14,7 +14,7 @@ try {
   const context = await browser.newContext({ viewport: { width: 1366, height: 900 }, locale: 'zh-CN' })
   const user = { id: 1, role: 'user', email: 'finance@example.invalid', username: 'Finance', balance: 100, status: 'active', concurrency: 5 }
   const key = { id: 4, user_id: 1, name: 'Finance', key: 'TEST_KEY', group_id: 24, group: { id: 24, name: '财务办公' }, status: 'active', quota: 0, quota_used: 0 }
-  const requests = [], errors = []
+  const requests = [], errors = [], cloud = new Map()
   await context.addInitScript(({ user }) => {
     localStorage.setItem('auth_token', 'TEST_PANEL_TOKEN')
     localStorage.setItem('auth_user', JSON.stringify(user))
@@ -25,7 +25,7 @@ try {
         model: 'gpt-6.1-sol', effort: '', financeMode: true, updatedAt: '', messages: [] }]))
     }
   }, { user })
-  await context.route('**/*', async route => {
+  const handleRoute = async route => {
     const request = route.request(), url = new URL(request.url())
     if (url.origin !== 'http://127.0.0.1:4173') return route.abort()
     const json = data => route.fulfill({ json: { code: 0, data } })
@@ -40,6 +40,18 @@ try {
         chunk({ choices: [{ index: 0, delta: { content: answer }, finish_reason: null }] }) +
         chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }) + 'data: [DONE]\n\n' })
     }
+    if (url.pathname.startsWith('/api/v1/chat/conversations')) {
+      assert.equal(request.headers().authorization, 'Bearer TEST_PANEL_TOKEN')
+      const id = url.pathname.split('/')[5]
+      if (!id) return json([...cloud.values()].map(({ conversation, ...info }) => info))
+      const existing = cloud.get(id)
+      if (request.method() === 'GET') return existing ? json(existing) : route.fulfill({ status: 404, json: { code: 404 } })
+      const input = request.postDataJSON()
+      assert.ok(!JSON.stringify(input).includes('TEST_KEY'))
+      if (input.revision !== (existing?.revision || 0) || existing?.deleted) return route.fulfill({ status: 409, json: { code: 409 } })
+      const record = { id, revision: (existing?.revision || 0) + 1, deleted: input.deleted === true, conversation: input.conversation }
+      cloud.set(id, record); return json(record)
+    }
     if (url.pathname === '/api/v1/auth/me') return json(user)
     if (url.pathname === '/api/v1/keys') return json({ items: [key], total: 1, pages: 1, page: 1, page_size: 100 })
     if (url.pathname === '/api/v1/keys/4') return json(key)
@@ -47,7 +59,8 @@ try {
     if (url.pathname.includes('/setup/status')) return json({ needs_setup: false })
     if (url.pathname.startsWith('/api/')) return json([])
     return route.continue()
-  })
+  }
+  await context.route('**/*', handleRoute)
   const page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
   await page.goto('http://127.0.0.1:4173/chat')
@@ -185,10 +198,44 @@ try {
       .slice(0, 10).map(element => ({ tag: element.tagName, classes: element.className })) }))
   assert.equal(dimensions.width <= dimensions.viewport, true, JSON.stringify(dimensions))
   assert.ok(dimensions.message_pane_height >= 180, JSON.stringify(dimensions))
+  // Independent browser storage, like a phone and a computer. Only the mock server is shared.
+  await page.getByRole('alert').filter({ hasText: 'HEIC' }).waitFor()
+  await page.getByTestId('chat-sync').click()
+  await page.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
+  await page.getByTestId('chat-share').click()
+  await page.getByTestId('chat-share-qr').waitFor()
+  assert.ok((await page.getByTestId('chat-share-qr').getAttribute('src')).startsWith('data:image/png;base64,'))
+  const sharedURL = page.url()
+  const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'zh-CN' })
+  await phoneContext.addInitScript(user => {
+    localStorage.setItem('auth_token', 'TEST_PANEL_TOKEN'); localStorage.setItem('auth_user', JSON.stringify(user)); localStorage.setItem('sub2api_locale', 'zh')
+  }, user)
+  await phoneContext.route('**/*', handleRoute)
+  const phone = await phoneContext.newPage(); phone.on('pageerror', error => errors.push(error.message))
+  await phone.goto(sharedURL)
+  await phone.getByTestId('chat-input').waitFor()
+  assert.equal(await phone.getByTestId('chat-input').inputValue(), await page.getByTestId('chat-input').inputValue())
+  assert.equal(await phone.locator('article img').count(), await page.locator('article img').count())
+  await page.getByRole('button', { name: '关闭预览', exact: true }).last().click()
+  await page.getByTestId('chat-input').fill('电脑继续核对这张手机票据')
+  await phone.getByTestId('chat-camera-input').setInputFiles({ name: 'phone-shared.jpg', mimeType: 'image/jpeg', buffer: cameraJPEG })
+  await phone.getByTestId('chat-image-preview').waitFor()
+  await phone.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
+  await page.getByTestId('chat-image-preview').waitFor({ timeout: 15000 })
+  assert.equal(await page.getByTestId('chat-input').inputValue(), '电脑继续核对这张手机票据')
+  assert.equal(requests.length, 4, 'Phone photo transfer must not call a model')
+  await page.screenshot({ path: path.join(output, 'desktop-phone-photo.png') })
+  await phone.screenshot({ path: path.join(output, 'phone-shared-conversation.png') })
+  await page.getByTestId('chat-send').click()
+  await page.getByTestId('chat-download-excel').nth(3).waitFor()
+  await phone.getByTestId('chat-download-excel').nth(3).waitFor({ timeout: 15000 })
+  assert.equal(await phone.getByTestId('chat-image-preview').count(), 0, 'Sent photo must not remain in the phone draft')
+  assert.equal(requests.length, 5)
+  await phoneContext.close()
   assert.deepEqual(errors, [])
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, mock_model_requests: requests.length,
     real_model_requests: 0, csv_worker: true, xlsx_worker: true, xlsx_download: true, html_report: true,
-    draft_restored: true, mobile_no_horizontal_overflow: true, browser_errors: errors,
+    two_independent_devices: true, phone_photo_transfer_without_inference: true, shared_reply: true, authenticated_sync: true, draft_restored: true, mobile_no_horizontal_overflow: true, browser_errors: errors,
     screenshot_paste: true, image_only_send: true, image_resize: true, image_followup: true, image_draft_restored: true,
     image_history_restored: true, legacy_history_migrated: true, camera_input: true, gallery_input: true,
     mixed_batch_atomic: true, image_drop: true, camera_orientation: true, camera_exif_removed: true,
