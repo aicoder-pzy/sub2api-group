@@ -52,10 +52,13 @@ export class ChatSync {
   }
   dispose() { this.controller.abort(); clearTimeout(this.timer) }
   changed() {
+    let dirty = false
     for (const chat of this.hooks.chats()) {
       const base = this.bases.get(chat.id)
       if ((base && snapshot(chat) !== snapshot(base)) || (!base && !chat.cloudRevision)) chat.cloudSynced = false
+      if (!chat.cloudSynced) dirty = true
     }
+    if (dirty) this.hooks.status('syncing')
   }
   schedule() {
     clearTimeout(this.timer)

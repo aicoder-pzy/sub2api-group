@@ -12,7 +12,7 @@ export default {
     keyboardHint: 'Enter to send · Shift + Enter for a new line', chargingHint: 'Standard group billing applies. See Usage Records for charges.',
     historyHint: 'Conversations, drafts and photos sync between devices signed into the same account.', storageError: 'Could not save history locally. You can keep chatting; check your browser storage.',
     continuePhone: 'Continue on phone', copyLink: 'Copy conversation link', phoneHint: 'Scan and sign in with the same account. Take a photo and wait for sync; it will appear on your computer before sending. Sync does not use model credits.',
-    sync: { syncing: 'Syncing?', synced: 'Synced ? Continue on phone or computer', offline: 'Sync pending; local content retained. Retry when online.', limit: 'Cloud storage or conversation limit reached (24 MiB per chat; 100 chats / 200 MiB per account). Export and delete older chats.', refresh: 'Sync now',
+    sync: { syncing: 'Syncing…', synced: 'Synced · Continue on phone or computer', offline: 'Sync pending; local content retained. Retry when online.', limit: 'Cloud storage or conversation limit reached (24 MiB per chat; 100 chats / 200 MiB per account). Export and delete older chats.', refresh: 'Sync now',
       conflict: 'Concurrent edits were retained in a conflict copy. Check your conversation history.', copySuffix: ' (conflict copy)',
       deleteFailed: 'Unable to delete: another device may have edited this conversation, or the connection failed. Sync and retry.', shareFailed: 'Wait for this conversation to sync before continuing on your phone. Your content is retained.' },
     historyError: 'Cannot read local history. Saving and sending are paused to protect it. Close older app tabs and reload, or check browser storage permissions.',

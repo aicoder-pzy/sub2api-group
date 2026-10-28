@@ -151,7 +151,7 @@
             <p class="mt-1">{{ t('chat.imageHint') }}</p>
           </details>
           <p v-if="current?.financeMode" class="mt-1 text-[11px] leading-5 text-gray-400">{{ t('chat.reviewHint') }}</p>
-          <p class="mt-2 text-center text-[11px] leading-5 text-gray-400">{{ t('chat.chargingHint') }} <span class="lg:hidden">{{ t('chat.historyHint') }}</span></p>
+          <p class="mt-2 text-center text-[11px] leading-5 text-gray-400">{{ t('chat.chargingHint') }}</p>
         </div>
       </section>
       <dialog ref="shareDialog" class="max-w-[90vw] rounded-xl bg-white p-5 text-center dark:bg-dark-900 dark:text-gray-100" :aria-label="t('chat.continuePhone')" @click.self="shareDialog?.close()">
