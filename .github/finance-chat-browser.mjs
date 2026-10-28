@@ -11,6 +11,11 @@ const output = path.resolve('finance-browser-results')
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 async function phoneLayout(page, minimum) {
+  // Device metrics may update before resize events and Vue's next render have run.
+  await page.waitForFunction(() => {
+    const box = document.querySelector('.chat-shell').getBoundingClientRect(), viewport = visualViewport
+    return Math.abs(box.height - viewport.height) < 1 && Math.abs(box.top - viewport.offsetTop) < 1
+  })
   const dimensions = await page.evaluate(() => {
     const log = document.querySelector('[role="log"]'), send = document.querySelector('[data-testid="chat-send"]')
     const rect = send.getBoundingClientRect(), viewport = window.visualViewport
