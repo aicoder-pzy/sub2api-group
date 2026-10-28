@@ -34,6 +34,7 @@ async function readable(theme, name, locator, pseudo = null) {
   }, pseudo)
   contrastResults.push({ theme, name, ...colors })
   await writeFile(path.join(output, 'contrast.json'), JSON.stringify(contrastResults, null, 2))
+  if (colors.ratio < 4.5) await locator.page().screenshot({ path: path.join(output, `phone-${theme}-contrast-failure.png`) })
   assert.ok(colors.ratio >= 4.5, `${theme} ${name}: ${JSON.stringify(colors)}`)
 }
 async function phoneLayout(page, minimum) {
@@ -335,6 +336,9 @@ try {
   await phone.screenshot({ path: path.join(output, 'phone-four-photo-draft.png') })
   assert.equal(requests.length, 5)
   for (let index = 0; index < 4; index++) await phone.getByRole('button', { name: '移除文件 receipt-' + index + '.jpg', exact: true }).click()
+  await phone.getByTestId('chat-sync').click()
+  await phone.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
+  assert.equal(cloud.get(sharedId).conversation.draftImages.length, 0)
   // Verify saved light preference and automatic OS dark preference through the real app boot.
   for (const theme of ['light', 'dark']) {
     await phone.emulateMedia({ colorScheme: theme })
