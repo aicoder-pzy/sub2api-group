@@ -13,7 +13,8 @@ const browser = await chromium.launch({ headless: true })
 const contrastResults = []
 async function readable(theme, name, locator, pseudo = null) {
   await locator.waitFor({ state: 'visible' })
-  const colors = await locator.evaluate((element, pseudo) => {
+  const colors = await locator.evaluate(async (element, pseudo) => {
+    await Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => {})))
     const rgba = value => {
       const parts = value.match(/[\d.]+/g).map(Number)
       return [...parts.slice(0, 3), parts[3] ?? 1]
