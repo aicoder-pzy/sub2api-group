@@ -105,17 +105,21 @@ describe('online chat', () => {
   it('aborts generating on stop and does not send while IME composition is active', async () => {
     wrapper = open(); await flushPromises()
     let activeSignal: AbortSignal | undefined
-    mocks.stream.mockImplementation((_chat, _key, signal) => new Promise((_resolve, reject) => {
+    mocks.stream.mockImplementation((_chat, _key, signal, changed) => new Promise((_resolve, reject) => {
       activeSignal = signal
+      changed('Partial answer', 'Checking sources')
       signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
     }))
     await wrapper.get('[data-testid="chat-input"]').setValue('你好')
     await wrapper.get('[data-testid="chat-input"]').trigger('keydown', { key: 'Enter', isComposing: true })
     expect(mocks.stream).not.toHaveBeenCalled()
     await wrapper.get('form').trigger('submit'); await flushPromises()
+    expect(wrapper.get('.chat-markdown').text()).toBe('Partial answer')
+    expect(wrapper.get('[data-testid="chat-stream-status"]').text()).toContain('chat.receiving')
     await wrapper.get('[data-testid="chat-stop"]').trigger('click'); await flushPromises()
     expect(activeSignal?.aborted).toBe(true)
     expect((await loadChats(1))[0].messages.at(-1)?.status).toBe('stopped')
+    expect((await loadChats(1))[0].messages.at(-1)?.content).toBe('Partial answer')
   })
   it('removes unsafe HTML and clears visible history after changing users', async () => {
     const history: ChatConversation = { id: 'old', title: 'User one secret', keyId: 4, model: 'gpt-6.1-sol', effort: '', updatedAt: '', messages: [

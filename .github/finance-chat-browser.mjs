@@ -23,8 +23,8 @@ const modelServer = createServer((request, response) => {
   const number = Number(request.headers['x-synthetic-request'])
   const finish = () => { response.end(delta(answer) + chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }) + 'data: [DONE]\n\n'); pendingStreams.delete(number) }
   if ([1, 4].includes(number)) {
-    response.write(delta(streamLead + '\n\n'))
-    pendingStreams.set(number, finish)
+    response.write(chunk({ choices: [{ index: 0, delta: { reasoning_content: '正在逐项核对来源。' }, finish_reason: null }] }))
+    pendingStreams.set(number, { text: () => response.write(delta(streamLead + '\n\n')), finish })
   } else finish()
 })
 await new Promise(resolve => modelServer.listen(0, '127.0.0.1', resolve))
@@ -142,11 +142,14 @@ try {
   assert.match(await page.getByTestId('chat-file-preview').nth(1).textContent(), /000012/)
   assert.equal(requests.length, 0, 'Reading files must not call a model')
   await page.getByTestId('chat-send').click()
+  await page.getByTestId('chat-reasoning').locator('p').waitFor({ state: 'visible' })
+  assert.equal(await page.locator('.chat-markdown').count(), 0)
+  pendingStreams.get(1).text()
   await page.locator('.chat-markdown').filter({ hasText: streamLead }).waitFor()
   assert.equal(await page.getByTestId('chat-stop').isVisible(), true)
   assert.equal(await page.getByTestId('chat-download-excel').count(), 0, 'First text must render before stream completion')
   await page.screenshot({ path: path.join(output, 'desktop-stream-in-progress.png') })
-  pendingStreams.get(1)()
+  pendingStreams.get(1).finish()
   await page.getByTestId('chat-download-excel').waitFor()
   assert.equal(requests.length, 1)
   assert.match(requests[0].messages.at(-1).content, /bank\.csv/)
@@ -270,11 +273,15 @@ try {
   await phoneLayout(mobile, 550)
   assert.equal(requests.length, 3)
   await mobile.getByTestId('chat-send').click()
+  await mobile.getByTestId('chat-reasoning').locator('p').waitFor({ state: 'visible' })
+  assert.equal(await mobile.locator('.chat-markdown').count(), 0)
+  await mobile.screenshot({ path: path.join(output, 'mobile-reasoning-in-progress.png') })
+  pendingStreams.get(4).text()
   await mobile.locator('.chat-markdown').filter({ hasText: streamLead }).waitFor()
   assert.equal(await mobile.getByTestId('chat-stop').isVisible(), true)
   assert.equal(await mobile.getByTestId('chat-download-excel').count(), 0)
   await mobile.screenshot({ path: path.join(output, 'mobile-stream-in-progress.png') })
-  pendingStreams.get(4)()
+  pendingStreams.get(4).finish()
   await mobile.getByTestId('chat-download-excel').waitFor()
   assert.equal(requests.length, 4)
   assert.equal(requests[3].messages.at(-1).content.filter(part => part.type === 'image_url').length, 2)
@@ -430,5 +437,5 @@ try {
     mobile_plus_tray: true, mobile_keyboard_viewport: true, mobile_small_screen: true, mobile_internal_scroll: true,
     mobile_four_photo_draft: true, mobile_enter_newline: true, mobile_light_and_dark: true, mobile_minimum_text_contrast: Math.min(...contrastResults.map(result => result.ratio)),
     mobile_contrast_checks: contrastResults.length, automatic_dark_theme: true, incremental_http_stream_desktop: true,
-    incremental_http_stream_mobile: true, native_camera_hardware_tested: false }, null, 2))
+    incremental_http_stream_mobile: true, reasoning_visible_before_answer: true, native_camera_hardware_tested: false }, null, 2))
 } finally { await browser.close(); modelServer.closeAllConnections(); await new Promise(resolve => modelServer.close(resolve)) }

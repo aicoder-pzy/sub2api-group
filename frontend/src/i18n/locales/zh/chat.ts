@@ -17,7 +17,7 @@ export default {
       conflict: '两端同时修改的内容已保留为“冲突副本”，请在历史对话中核对。', copySuffix: '（冲突副本）',
       deleteFailed: '未能删除对话，可能另一台设备刚有修改或网络中断。请同步后再试。', shareFailed: '请等待会话同步成功后再用手机接续；当前内容已保留。' },
     historyError: '无法读取本机聊天记录，已暂停保存和发送以保护原记录；请关闭其他旧版本页面并刷新，或检查浏览器存储权限。',
-    you: '你', assistant: '助手', thinking: '思考过程', waiting: '正在生成…', copy: '复制回答',
+    you: '你', assistant: '助手', thinking: '思考过程', waiting: '等待模型返回首段内容…', receiving: '正在接收…', copy: '复制回答',
     workspaceTitle: '财务工作台', workspaceHint: '对账核对 · 报表分析 · 经营报告，全程使用浏览器',
     searchHistory: '搜索对话名称', rename: '修改对话名称', exportChat: '导出对话', settings: '模型与回答设置',
     financeMode: '财务核对模式', outputLength: '回答篇幅', outputShort: '简短（4K）', outputStandard: '标准（8K）', outputLong: '长报告（16K）',

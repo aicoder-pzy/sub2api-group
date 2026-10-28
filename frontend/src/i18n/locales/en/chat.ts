@@ -17,7 +17,7 @@ export default {
       conflict: 'Concurrent edits were retained in a conflict copy. Check your conversation history.', copySuffix: ' (conflict copy)',
       deleteFailed: 'Unable to delete: another device may have edited this conversation, or the connection failed. Sync and retry.', shareFailed: 'Wait for this conversation to sync before continuing on your phone. Your content is retained.' },
     historyError: 'Cannot read local history. Saving and sending are paused to protect it. Close older app tabs and reload, or check browser storage permissions.',
-    you: 'You', assistant: 'Assistant', thinking: 'Reasoning', waiting: 'Generating…', copy: 'Copy answer',
+    you: 'You', assistant: 'Assistant', thinking: 'Reasoning', waiting: 'Waiting for the first response…', receiving: 'Receiving…', copy: 'Copy answer',
     workspaceTitle: 'Finance workspace', workspaceHint: 'Reconciliation, financial analysis and reports in your browser',
     searchHistory: 'Search conversation titles', rename: 'Rename conversation', exportChat: 'Export chat', settings: 'Model and response settings',
     financeMode: 'Financial review mode', outputLength: 'Response length', outputShort: 'Short (4K)', outputStandard: 'Standard (8K)', outputLong: 'Long report (16K)',

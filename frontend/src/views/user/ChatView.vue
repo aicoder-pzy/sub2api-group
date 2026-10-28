@@ -93,10 +93,10 @@
                 </details>
               </template>
               <template v-else>
-                <details v-if="message.reasoning" class="mb-3 rounded-xl border border-gray-100 px-4 py-3 dark:border-dark-700"><summary class="cursor-pointer text-xs text-gray-500">{{ t('chat.thinking') }}</summary><p class="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-gray-500">{{ message.reasoning }}</p></details>
+                <details v-if="message.reasoning" :open="message.status === 'streaming' && !message.content" data-testid="chat-reasoning" class="mb-3 rounded-xl border border-gray-100 px-4 py-3 dark:border-dark-700"><summary class="cursor-pointer text-xs text-gray-500">{{ t('chat.thinking') }}</summary><p class="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-gray-500">{{ message.reasoning }}</p></details>
                 <!-- Only sanitized model Markdown is rendered as HTML. -->
                 <div v-if="message.content" class="chat-markdown" v-html="chatMarkdown(message.content)"></div>
-                <p v-if="message.status === 'streaming' && !message.content" class="animate-pulse py-2 text-sm text-gray-400" role="status">{{ t('chat.waiting') }}</p>
+                <p v-if="message.status === 'streaming'" class="py-2 text-xs text-gray-500" role="status" data-testid="chat-stream-status"><span class="mr-1 inline-block animate-pulse" aria-hidden="true">●</span>{{ t(message.content || message.reasoning ? 'chat.receiving' : 'chat.waiting') }}</p>
                 <p v-if="['stopped', 'failed', 'limited'].includes(message.status)" class="mt-3 text-xs text-amber-600">{{ t('chat.' + message.status) }}</p>
                 <div v-if="message.content && message.status !== 'streaming'" class="mt-3 flex flex-wrap items-center gap-4 text-xs text-gray-500">
                   <button @click="copy(message.content)">{{ t('chat.copy') }}</button>

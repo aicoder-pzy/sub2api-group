@@ -56,7 +56,7 @@ func (s *OpenAIGatewayService) newStreamHeaderWriter(c *gin.Context, upstream ht
 			responseheaders.WriteFilteredHeaders(c.Writer.Header(), upstream, s.responseHeaderFilter)
 		}
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
-		c.Writer.Header().Set("Cache-Control", "no-cache")
+		c.Writer.Header().Set("Cache-Control", "no-cache, no-transform")
 		c.Writer.Header().Set("Connection", "keep-alive")
 		c.Writer.Header().Set("X-Accel-Buffering", "no")
 		c.Writer.WriteHeader(http.StatusOK)
@@ -216,6 +216,8 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	upstreamReq.Header.Set("Authorization", "Bearer "+bearerToken)
 	if stream {
 		upstreamReq.Header.Set("Accept", "text/event-stream")
+		upstreamReq.Header.Set("Accept-Encoding", "identity")
+		upstreamReq.Header.Set("Cache-Control", "no-cache, no-transform")
 	} else {
 		upstreamReq.Header.Set("Accept", "application/json")
 	}
