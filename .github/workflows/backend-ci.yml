@@ -65,6 +65,24 @@ jobs:
       - name: Build production frontend
         working-directory: frontend
         run: pnpm run build
+      - name: Finance workspace browser regression (mock gateway)
+        env:
+          BROWSER_TEST_MODULES: ${{ runner.temp }}/finance-browser
+        run: |
+          npm install --prefix "$BROWSER_TEST_MODULES" --no-save --no-package-lock playwright
+          "$BROWSER_TEST_MODULES/node_modules/.bin/playwright" install --with-deps chromium
+          pnpm --dir frontend exec vite preview --host 127.0.0.1 --port 4173 > /tmp/finance-preview.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/chat > /dev/null; then break; fi
+            sleep 1
+          done
+          node .github/tests/finance-chat-browser.mjs
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: finance-browser-results
+          path: finance-browser-results
+          if-no-files-found: ignore
 
   golangci-lint:
     runs-on: ubuntu-latest
