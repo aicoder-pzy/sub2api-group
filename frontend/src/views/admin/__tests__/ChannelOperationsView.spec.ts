@@ -7,7 +7,10 @@ import * as ops from '@/api/admin/channelOperations'
 
 vi.mock('@/api/admin/channels', () => ({ list: vi.fn(), getById: vi.fn() }))
 vi.mock('@/api/admin/channelOperations', () => ({ catalog: vi.fn(), snapshot: vi.fn(), mutate: vi.fn() }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key, locale: ref('en') }) }))
+vi.mock('vue-i18n', async () => ({
+  ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
+  useI18n: () => ({ t: (key: string) => key, locale: ref('en') })
+}))
 const section = (data: unknown) => ({ status: 'ready', data, queried_at: new Date().toISOString() })
 const makeSnapshot = () => ({ scope: {}, from: '2026-10-27T01:23:00Z', until: '2026-10-28T01:23:00Z', usage: section({ summary: { requests: 1, samples: 1, unknown_samples: 0, p50_ms: null, p90_ms: null, p95_ms: null }, rows: [], total: 0, lineage: [], lineage_total: 0 }), quality: section({ summary: { normal: 0, degraded: 0, unknown: 0, failed: 0 }, rows: [], has_more: false }), errors: section({ records: 0, rows: [] }), capacity: section({ accounts: 1, schedulable: 1, configured_concurrency: 10 }) })
 const mountView = () => mount(ChannelOperationsView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true, BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' }, ConfirmDialog: true } } })
