@@ -22,9 +22,18 @@ beforeEach(() => {
   mocks.key.mockResolvedValue(key); mocks.models.mockResolvedValue(['gpt-6.1-sol'])
   mocks.stream.mockImplementation(async (_chat, _key, _signal, changed) => { changed('Hello **world**', ''); return 'complete' })
 })
-afterEach(() => wrapper?.unmount())
+afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals() })
 
 describe('online chat', () => {
+  it('keeps existing history untouched and blocks sending when browser storage cannot be read', async () => {
+    localStorage.setItem('sub2api-chats:v1:1', 'EXISTING_HISTORY')
+    vi.stubGlobal('indexedDB', { open: () => { throw new Error('Storage denied') } })
+    wrapper = open(); await flushPromises()
+    expect(wrapper.text()).toContain('chat.historyError')
+    expect(wrapper.get('[data-testid="chat-send"]').attributes('disabled')).toBeDefined()
+    expect(localStorage.getItem('sub2api-chats:v1:1')).toBe('EXISTING_HISTORY')
+    expect(mocks.stream).not.toHaveBeenCalled()
+  })
   it('pastes screenshots without sending, preserves text and submits an image-only message once', async () => {
     wrapper = open(); await flushPromises()
     const image = { name: 'screenshot.png', dataUrl: 'data:image/png;base64,AA==', width: 100, height: 200 }

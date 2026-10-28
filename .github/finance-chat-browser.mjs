@@ -91,12 +91,13 @@ try {
   assert.match(await page.locator('.chat-markdown').textContent(), /0012/)
   assert.equal(requests.length, 1, 'Reload and exports must not call a model')
   // Generate an oversized-edge screenshot in Chromium; exercise the actual browser image decoder/canvas.
-  const screenshotData = await page.evaluate(() => {
+  const screenshotSources = await page.evaluate(() => {
     const canvas = document.createElement('canvas'); canvas.width = 3200; canvas.height = 1200
     const ctx = canvas.getContext('2d'); ctx.fillStyle = 'white'; ctx.fillRect(0, 0, 3200, 1200)
     ctx.fillStyle = '#111'; ctx.font = '90px sans-serif'; ctx.fillText('Receipt 0012   CNY -120.50', 100, 300)
-    return canvas.toDataURL('image/png')
+    return { png: canvas.toDataURL('image/png'), jpeg: canvas.toDataURL('image/jpeg', 0.9) }
   })
+  const screenshotData = screenshotSources.png
   await page.getByTestId('chat-input').fill('')
   await page.getByTestId('chat-input').evaluate((input, data) => {
     const bytes = Uint8Array.from(atob(data.split(',')[1]), char => char.charCodeAt(0))
@@ -123,6 +124,14 @@ try {
   await page.getByTestId('chat-send').click()
   await page.getByTestId('chat-download-excel').nth(2).waitFor()
   assert.equal(requests.length, 3)
+  await page.locator('form.chat-composer').evaluate((form, data) => {
+    const bytes = Uint8Array.from(atob(data.split(',')[1]), char => char.charCodeAt(0))
+    const transfer = new DataTransfer(); transfer.items.add(new File([bytes], 'dropped.png', { type: 'image/png' }))
+    form.dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }))
+  }, screenshotData)
+  await page.getByTestId('chat-image-preview').waitFor()
+  await page.getByRole('button', { name: '移除文件 dropped.png', exact: true }).click()
+  assert.equal(await page.getByTestId('chat-image-preview').count(), 0)
   assert.ok(requests[2].messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image_url')))
   const stored = await page.evaluate(() => new Promise((resolve, reject) => {
     const open = indexedDB.open('sub2api-chat-history', 1)
@@ -150,8 +159,14 @@ try {
   await mobile.locator('.chat-toolbar').getByRole('button', { name: /新对话/ }).click()
   assert.equal(await mobile.getByTestId('chat-camera-input').getAttribute('capture'), 'environment')
   assert.equal(await mobile.getByTestId('chat-image-input').getAttribute('capture'), null)
-  await mobile.getByTestId('chat-camera-input').setInputFiles({ name: 'camera.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(screenshotData.split(',')[1], 'base64') })
+  const cameraJPEG = Buffer.from(screenshotSources.jpeg.split(',')[1], 'base64')
+  const orientationEXIF = Buffer.from('ffe1002245786966000049492a0008000000010012010300010000000600000000000000', 'hex')
+  const cameraWithEXIF = Buffer.concat([cameraJPEG.subarray(0, 2), orientationEXIF, cameraJPEG.subarray(2)])
+  await mobile.getByTestId('chat-camera-input').setInputFiles({ name: 'camera.jpg', mimeType: 'image/jpeg', buffer: cameraWithEXIF })
   await mobile.getByTestId('chat-image-preview').waitFor()
+  assert.match(await mobile.getByTestId('chat-image-preview').textContent(), /960 × 2560/)
+  const normalizedCamera = await mobile.getByTestId('chat-image-preview').locator('img').getAttribute('src')
+  assert.equal(Buffer.from(normalizedCamera.split(',')[1], 'base64').includes(Buffer.from('Exif')), false)
   await mobile.getByTestId('chat-image-input').setInputFiles({ name: 'gallery.png', mimeType: 'image/png', buffer: Buffer.from(screenshotData.split(',')[1], 'base64') })
   await mobile.getByTestId('chat-image-preview').nth(1).waitFor()
   assert.equal(requests.length, 3)
@@ -172,5 +187,6 @@ try {
     draft_restored: true, mobile_no_horizontal_overflow: true, browser_errors: errors,
     screenshot_paste: true, image_only_send: true, image_resize: true, image_followup: true, image_draft_restored: true,
     image_history_restored: true, legacy_history_migrated: true, camera_input: true, gallery_input: true,
-    mixed_batch_atomic: true, native_camera_hardware_tested: false }, null, 2))
+    mixed_batch_atomic: true, image_drop: true, camera_orientation: true, camera_exif_removed: true,
+    native_camera_hardware_tested: false }, null, 2))
 } finally { await browser.close() }

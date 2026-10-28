@@ -22,7 +22,7 @@ export default {
     viewImage: '放大查看 {name}', imagePreview: '图片预览', closePreview: '关闭预览',
     sheetSize: '{rows} 行 × {columns} 列', previewPartial: '预览仅展示前 3000 个字符；发送时包含本文件全部已导入内容。',
     removeFile: '移除文件 {name}', fileHint: '表格 / 文本 ≤ 5 MB/个，图片原图 ≤ 20 MB/张；图片和文件合计最多 4 个。发送后交给所选模型，并存入本机对话。',
-    imageHint: '支持粘贴截图、PNG / JPG / WebP 和手机拍照；图片缩放至最长边 2560 像素并移除拍摄信息。需选择支持看图的模型；后续追问会携带原图并计费。',
+    imageHint: '支持粘贴截图、PNG / JPG / WebP 和手机拍照；图片缩放至最长边 2560 像素并移除拍摄信息。需选择支持看图的模型；后续追问会携带已发送图片并计费。',
     reviewHint: '金额、匹配和结论请复核；助手不直接执行表格计算。',
     copyTable: '复制首个表格到 Excel', downloadExcel: '下载全部表格（Excel）', downloadReport: '下载报告（网页）',
     reportDownloaded: '报告已下载，用浏览器打开后可打印或另存为 PDF。', exportError: '文件导出失败，请重试或复制回答。',
