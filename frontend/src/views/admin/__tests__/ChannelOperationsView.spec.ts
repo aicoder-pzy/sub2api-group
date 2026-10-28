@@ -5,7 +5,11 @@ import ChannelOperationsView from '../ChannelOperationsView.vue'
 import * as channels from '@/api/admin/channels'
 import * as ops from '@/api/admin/channelOperations'
 
-vi.mock('@/api/admin/channels', () => ({ list: vi.fn(), getById: vi.fn() }))
+vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<div><slot /></div>' } }))
+vi.mock('@/api/admin/channels', () => {
+  const api = { list: vi.fn(), getById: vi.fn() }
+  return { ...api, default: api }
+})
 vi.mock('@/api/admin/channelOperations', () => ({ catalog: vi.fn(), snapshot: vi.fn(), mutate: vi.fn() }))
 vi.mock('vue-i18n', async () => ({
   ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
