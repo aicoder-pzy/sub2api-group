@@ -259,7 +259,7 @@ watch(() => [draft.value, draftFiles.value, draftImages.value], () => { clearTim
 watch(() => auth.user?.id, async userId => {
   runController?.abort(); modelsController?.abort(); filesController?.abort(); generation++
   runController = undefined; busy.value = false; filesLoading.value = false; keys.value = []; models.value = []; error.value = ''; historySearch.value = ''
-  clearTimeout(draftTimer); imageDialog.value?.close(); previewImage.value = undefined
+  clearTimeout(draftTimer); imageDialog.value?.close?.(); previewImage.value = undefined
   conversations.value = []; selectedId.value = ''; historyReady.value = false; historyError.value = false; storageError.value = false
   if (!userId) return
   try {

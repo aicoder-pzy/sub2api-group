@@ -13,7 +13,7 @@ export function isChatImage(file: File): boolean {
 export async function readChatImage(file: File, signal: AbortSignal): Promise<ChatImage> {
   if (file.size > 20 * 1024 * 1024) throw new Error('imageSize')
   if (!/\.(?:png|jpe?g|webp)$/i.test(file.name) && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error('imageFormat')
-  const url = URL.createObjectURL(file), image = new Image()
+  const url = URL.createObjectURL(file), image = new Image(), canvas = document.createElement('canvas')
   try {
     await new Promise<void>((resolve, reject) => {
       const finish = (error?: Error) => {
@@ -30,7 +30,6 @@ export async function readChatImage(file: File, signal: AbortSignal): Promise<Ch
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
     if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 40000000) throw new Error('imageSize')
     const scale = Math.min(1, 2560 / Math.max(image.naturalWidth, image.naturalHeight))
-    const canvas = document.createElement('canvas')
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
     const context = canvas.getContext('2d')
     if (!context) throw new Error('imageFormat')
@@ -40,7 +39,7 @@ export async function readChatImage(file: File, signal: AbortSignal): Promise<Ch
     if (dataUrl.length > CHAT_MAX_IMAGE_DATA) dataUrl = canvas.toDataURL('image/jpeg', 0.9)
     if (dataUrl.length > CHAT_MAX_IMAGE_DATA || !dataUrl.startsWith('data:image/')) throw new Error('imageSize')
     return { name: (file.name || 'image.jpg').slice(0, 255), dataUrl, width: canvas.width, height: canvas.height }
-  } finally { URL.revokeObjectURL(url); image.src = '' }
+  } finally { URL.revokeObjectURL(url); image.src = ''; canvas.width = canvas.height = 0 }
 }
 
 export async function readChatFile(file: File, signal: AbortSignal): Promise<ChatAttachment> {
