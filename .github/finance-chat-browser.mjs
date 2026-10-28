@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { createServer } from 'node:http'
 
 const require = createRequire(path.resolve(process.env.BROWSER_TEST_MODULES, 'probe.cjs'))
 const { chromium } = require('playwright')
@@ -10,6 +11,23 @@ const XLSX = createRequire(path.resolve('frontend/package.json'))('xlsx')
 const output = path.resolve('finance-browser-results')
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
+const pendingStreams = new Map()
+const streamLead = '已收到资料，正在核对。'
+const modelServer = createServer((request, response) => {
+  request.resume()
+  response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' })
+  response.flushHeaders()
+  const chunk = data => 'data: ' + JSON.stringify(data) + '\n\n'
+  const delta = content => chunk({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })
+  const answer = '| 单号 | 差额 |\n| --- | --- |\n| 0012 | -120.50 |\n\n## 核对结论\n请按来源逐项复核。'
+  const number = Number(request.headers['x-synthetic-request'])
+  const finish = () => { response.end(delta(answer) + chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }) + 'data: [DONE]\n\n'); pendingStreams.delete(number) }
+  if ([1, 4].includes(number)) {
+    response.write(delta(streamLead + '\n\n'))
+    pendingStreams.set(number, finish)
+  } else finish()
+})
+await new Promise(resolve => modelServer.listen(0, '127.0.0.1', resolve))
 const contrastResults = []
 async function readable(theme, name, locator, pseudo = null) {
   await locator.waitFor({ state: 'visible' })
@@ -81,11 +99,9 @@ try {
       assert.equal(request.headers().authorization, 'Bearer TEST_KEY')
       const payload = request.postDataJSON(); requests.push(payload)
       assert.equal(payload.messages[0].role, 'system')
-      const answer = '| 单号 | 差额 |\n| --- | --- |\n| 0012 | -120.50 |\n\n## 核对结论\n请按来源逐项复核。'
-      const chunk = data => 'data: ' + JSON.stringify(data) + '\n\n'
-      return route.fulfill({ contentType: 'text/event-stream', body:
-        chunk({ choices: [{ index: 0, delta: { content: answer }, finish_reason: null }] }) +
-        chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }) + 'data: [DONE]\n\n' })
+      assert.equal(payload.stream, true)
+      return route.continue({ url: `http://127.0.0.1:${modelServer.address().port}/v1/chat/completions`,
+        headers: { ...request.headers(), 'x-synthetic-request': String(requests.length) } })
     }
     if (url.pathname.startsWith('/api/v1/chat/conversations')) {
       assert.equal(request.headers().authorization, 'Bearer TEST_PANEL_TOKEN')
@@ -126,6 +142,11 @@ try {
   assert.match(await page.getByTestId('chat-file-preview').nth(1).textContent(), /000012/)
   assert.equal(requests.length, 0, 'Reading files must not call a model')
   await page.getByTestId('chat-send').click()
+  await page.locator('.chat-markdown').filter({ hasText: streamLead }).waitFor()
+  assert.equal(await page.getByTestId('chat-stop').isVisible(), true)
+  assert.equal(await page.getByTestId('chat-download-excel').count(), 0, 'First text must render before stream completion')
+  await page.screenshot({ path: path.join(output, 'desktop-stream-in-progress.png') })
+  pendingStreams.get(1)()
   await page.getByTestId('chat-download-excel').waitFor()
   assert.equal(requests.length, 1)
   assert.match(requests[0].messages.at(-1).content, /bank\.csv/)
@@ -249,6 +270,11 @@ try {
   await phoneLayout(mobile, 550)
   assert.equal(requests.length, 3)
   await mobile.getByTestId('chat-send').click()
+  await mobile.locator('.chat-markdown').filter({ hasText: streamLead }).waitFor()
+  assert.equal(await mobile.getByTestId('chat-stop').isVisible(), true)
+  assert.equal(await mobile.getByTestId('chat-download-excel').count(), 0)
+  await mobile.screenshot({ path: path.join(output, 'mobile-stream-in-progress.png') })
+  pendingStreams.get(4)()
   await mobile.getByTestId('chat-download-excel').waitFor()
   assert.equal(requests.length, 4)
   assert.equal(requests[3].messages.at(-1).content.filter(part => part.type === 'image_url').length, 2)
@@ -403,5 +429,6 @@ try {
     mobile_message_pane_height: dimensions.message_pane_height, mobile_history_menu: true, mobile_settings_sheet: true,
     mobile_plus_tray: true, mobile_keyboard_viewport: true, mobile_small_screen: true, mobile_internal_scroll: true,
     mobile_four_photo_draft: true, mobile_enter_newline: true, mobile_light_and_dark: true, mobile_minimum_text_contrast: Math.min(...contrastResults.map(result => result.ratio)),
-    mobile_contrast_checks: contrastResults.length, automatic_dark_theme: true, native_camera_hardware_tested: false }, null, 2))
-} finally { await browser.close() }
+    mobile_contrast_checks: contrastResults.length, automatic_dark_theme: true, incremental_http_stream_desktop: true,
+    incremental_http_stream_mobile: true, native_camera_hardware_tested: false }, null, 2))
+} finally { await browser.close(); modelServer.closeAllConnections(); await new Promise(resolve => modelServer.close(resolve)) }
