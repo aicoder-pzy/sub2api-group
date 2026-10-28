@@ -104,9 +104,10 @@
           <p v-if="storageError" role="status" class="mb-2 text-xs text-amber-600">{{ t('chat.storageError') }}</p>
           <p v-if="historyError" role="alert" class="mb-2 text-xs text-red-600">{{ t('chat.historyError') }}</p>
           <button v-if="current?.messages.at(-1)?.role === 'assistant' && !busy" class="mb-3 text-xs font-medium text-gray-500 hover:text-primary-600" :disabled="!canSend" data-testid="chat-retry" @click="send(true)">↻ {{ t('chat.retry') }}</button>
-          <div class="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-            <span>{{ t('chat.quickTasks') }}</span><button v-for="task in tasks" :key="task" class="rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-dark-800" :disabled="busy" @click="useTask(task)">{{ t('chat.tasks.' + task + '.title') }}</button>
-          </div>
+          <details class="mb-2 text-xs text-gray-500">
+            <summary class="cursor-pointer">{{ t('chat.quickTasks') }}</summary>
+            <div class="mt-2 flex flex-wrap items-center gap-2"><button v-for="task in tasks" :key="task" class="rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-dark-800" :disabled="busy" @click="useTask(task)">{{ t('chat.tasks.' + task + '.title') }}</button></div>
+          </details>
           <form class="chat-composer" :class="{ 'ring-2 ring-primary-400': dragging }" @submit.prevent="send(false)" @paste="pasteImages" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dropFiles">
             <div v-if="draftImages.length" class="flex flex-wrap gap-3 px-4 pt-3">
               <div v-for="(image, index) in draftImages" :key="index" class="chat-image relative">
@@ -433,5 +434,8 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
 .chat-markdown :deep(h2) { @apply text-lg; }
 .chat-markdown :deep(table) { @apply my-3 block max-w-full overflow-x-auto border-collapse; }
 .chat-markdown :deep(th), .chat-markdown :deep(td) { @apply border border-gray-200 px-3 py-2 text-left dark:border-dark-600; }
-@media (max-width: 639px) { .chat-shell { height: calc(100dvh - 7rem); min-height: 560px; } }
+@media (max-width: 639px) {
+  .chat-shell { height: calc(100dvh - 7rem); min-height: 560px; }
+  .chat-composer textarea { height: 4rem; min-height: 4rem; }
+}
 </style>
