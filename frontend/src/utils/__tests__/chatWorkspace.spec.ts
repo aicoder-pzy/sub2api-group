@@ -25,6 +25,10 @@ describe('finance source files and exports', () => {
     expect(file.content).toContain('[formula: =SUM(B2:B2)]')
     sheet.C2 = { t: 'n', f: 'SUM(B2:B2)' }
     expect(() => parseChatFile('missing.xlsx', workbook(sheet))).toThrow('formula')
+    const archive = XLSX.CFB.read(new Uint8Array(workbook(sheet)), { type: 'array' })
+    const entry = archive.FileIndex.find(item => item.name === 'sheet1.xml')!
+    entry.content = new TextEncoder().encode(new TextDecoder().decode(entry.content).replace(/t="n"/g, ''))
+    expect(() => parseChatFile('implicit-zero.xlsx', XLSX.CFB.write(archive, { type: 'array', fileType: 'zip' }))).toThrow('formula')
     sheet.C2 = { t: 'e', v: 7 }
     expect(() => parseChatFile('error.xlsx', workbook(sheet))).toThrow('formula')
   })

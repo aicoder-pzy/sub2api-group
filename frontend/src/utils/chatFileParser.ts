@@ -21,7 +21,17 @@ export function parseChatFile(name: string, buffer: ArrayBuffer): ChatAttachment
   // Read only a bounded number of rows; !fullref is checked before accepting the file.
   // Formulae/macros are never executed. Keep formatted text (dates, account IDs, leading zeroes).
   const book = XLSX.read(text || buffer, { type: text ? 'string' : 'array', raw: true,
-    sheetRows: MAX_ROWS + 1, sheetStubs: true, cellText: true, cellFormula: true, bookVBA: false })
+    sheetRows: MAX_ROWS + 1, sheetStubs: true, cellText: true, cellFormula: true, bookVBA: false, bookFiles: extension === 'xlsx' })
+  // SheetJS can synthesize zero for an OOXML formula without a cached <v>.
+  // Inspect its existing ZIP entries so an absent result is never reported as a real zero.
+  const files = (book as XLSX.WorkBook & { files?: Record<string, { content?: Uint8Array }> }).files
+  for (const [path, file] of Object.entries(files || {})) {
+    if (!/(?:^|\/)worksheets\/[^/]+\.xml$/.test(path) || !file.content) continue
+    const xml = new TextDecoder().decode(file.content).replace(/<!--[\s\S]*?-->/g, '')
+    for (const [cell] of xml.matchAll(/<(?:\w+:)?c(?=[\s>])[^>]*>[\s\S]*?<\/(?:\w+:)?c\s*>/g)) {
+      if (/<(?:\w+:)?f[\s/>]/.test(cell) && !/<(?:\w+:)?v(?:\s[^>]*)?>\s*[^<\s][^<]*<\/(?:\w+:)?v\s*>/.test(cell)) throw new Error('formula')
+    }
+  }
   const sheets: ChatAttachment['sheets'] = []
   const sections: string[] = []
   let cells = 0, characters = 0
