@@ -55,8 +55,9 @@ func (r *usageLogRepository) GetModelAutoAccountQuality(ctx context.Context, gro
 // error on this account removes a partial response from the speed comparison.
 // Cost is account expense / standard expense, so cache hits and output length
 // cannot make a cheaper workload look like a cheaper provider.
+// Keep $2 typed when smart scope replaces every business-model predicate.
 const modelAutoSpeedSQL = `WITH chosen AS (
- SELECT COALESCE(NULLIF($3,''),(SELECT COALESCE(reasoning_effort,'') FROM usage_logs
+ SELECT $2::text AS routing_model,COALESCE(NULLIF($3,''),(SELECT COALESCE(reasoning_effort,'') FROM usage_logs
  WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=/*business_model*/$2 /*ingress:*/
  AND created_at>=NOW()-INTERVAL '24 hours' GROUP BY reasoning_effort ORDER BY COUNT(*) DESC,reasoning_effort LIMIT 1),'') AS effort
 ), requests AS (
