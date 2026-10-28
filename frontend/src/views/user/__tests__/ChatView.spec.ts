@@ -4,9 +4,10 @@ import { reactive } from 'vue'
 import ChatView from '../ChatView.vue'
 import { loadChats, saveChats, type ChatConversation } from '@/api/chat'
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), key: vi.fn(), models: vi.fn(), stream: vi.fn(), auth: { user: { id: 1 } } }))
+const mocks = vi.hoisted(() => ({ list: vi.fn(), key: vi.fn(), models: vi.fn(), stream: vi.fn(), readFile: vi.fn(), auth: { user: { id: 1 } } }))
 vi.mock('@/api/keys', () => ({ list: mocks.list, getById: mocks.key }))
 vi.mock('@/api/chat', async () => ({ ...await vi.importActual<typeof import('@/api/chat')>('@/api/chat'), listChatModels: mocks.models, streamChat: mocks.stream }))
+vi.mock('@/utils/chatWorkspace', async () => ({ ...await vi.importActual<typeof import('@/utils/chatWorkspace')>('@/utils/chatWorkspace'), readChatFile: mocks.readFile }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => mocks.auth }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
@@ -24,6 +25,34 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount())
 
 describe('online chat', () => {
+  it('previews a source without invoking a model, submits it once, and restores unsent drafts', async () => {
+    wrapper = open(); await flushPromises()
+    mocks.readFile.mockResolvedValue({ name: 'ledger.csv', content: 'Row 2: ["0012","-120.50"]', sheets: [{ name: 'Ledger', rows: 2, columns: 2 }] })
+    const file = wrapper.get('[data-testid="chat-file-input"]')
+    Object.defineProperty(file.element, 'files', { configurable: true, value: [new File(['Account,Amount'], 'ledger.csv')] })
+    await file.trigger('change'); await flushPromises()
+    expect(wrapper.get('[data-testid="chat-file-preview"]').text()).toContain('0012')
+    expect(mocks.stream).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="chat-task-reconcile"]').trigger('click')
+    expect(wrapper.get('[data-testid="chat-input"]').element).toHaveProperty('value', 'chat.tasks.reconcile.prompt')
+    await wrapper.get('form').trigger('submit'); await flushPromises()
+    expect(mocks.stream).toHaveBeenCalledTimes(1)
+    expect(mocks.stream.mock.calls[0][0].messages[0].attachments[0].content).toContain('0012')
+    expect(loadChats(1)[0].messages[0].attachments?.[0].name).toBe('ledger.csv')
+    await wrapper.get('[data-testid="chat-input"]').setValue('Unsent follow-up')
+    wrapper.unmount(); wrapper = open(); await flushPromises()
+    expect(wrapper.get('[data-testid="chat-input"]').element).toHaveProperty('value', 'Unsent follow-up')
+  })
+  it('does not accept a partial batch when one source cannot be read', async () => {
+    wrapper = open(); await flushPromises()
+    mocks.readFile.mockResolvedValueOnce({ name: 'one.csv', content: 'Source', sheets: [] }).mockRejectedValueOnce(new Error('formula'))
+    const input = wrapper.get('[data-testid="chat-file-input"]')
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [new File(['x'], 'one.csv'), new File(['y'], 'two.xlsx')] })
+    await input.trigger('change'); await flushPromises()
+    expect(wrapper.text()).toContain('chat.files.formula')
+    expect(wrapper.find('[data-testid="chat-file-preview"]').exists()).toBe(false)
+    expect(mocks.stream).not.toHaveBeenCalled()
+  })
   it('uses owned keys, sends context, renders safe Markdown and saves history without credentials', async () => {
     wrapper = open(); await flushPromises()
     expect(wrapper.get('[data-testid="chat-key"]').findAll('option')).toHaveLength(2)

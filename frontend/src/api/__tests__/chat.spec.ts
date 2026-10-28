@@ -23,6 +23,25 @@ beforeEach(() => { fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock); local
 afterEach(() => vi.unstubAllGlobals())
 
 describe('web chat gateway', () => {
+  it('sends attachment evidence as user data with financial review instructions and an explicit output limit', async () => {
+    fetchMock.mockResolvedValue(sse(delta('Reviewed') + finish() + done))
+    const chat = conversation(); chat.financeMode = true; chat.maxOutputTokens = 8192
+    chat.messages[2].attachments = [{ name: 'data.csv', content: 'Row 2: ["0012","-120.50"]', sheets: [] }]
+    await streamChat(chat, 'key', new AbortController().signal, () => {})
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(payload.max_completion_tokens).toBe(8192)
+    expect(payload.messages[0].role).toBe('system')
+    expect(payload.messages[0].content).toContain('没有代码执行')
+    expect(payload.messages.at(-1).role).toBe('user')
+    expect(payload.messages.at(-1).content).toContain('data.csv')
+    expect(payload.messages.at(-1).content).toContain('0012')
+    expect(payload.tools).toBeUndefined()
+  })
+  it('blocks excessive context before making a paid request, keeping all source messages intact', async () => {
+    const chat = conversation(); chat.messages[0].content = 'x'.repeat(300001)
+    await expect(streamChat(chat, 'key', new AbortController().signal, () => {})).rejects.toMatchObject({ code: 'inputLimit' })
+    expect(fetchMock).not.toHaveBeenCalled(); expect(chat.messages[0].content).toHaveLength(300001)
+  })
   it('streams split UTF-8 and reasoning, keeps context and authenticates only with the selected key', async () => {
     localStorage.setItem('auth_token', 'PANEL_SECRET')
     fetchMock.mockResolvedValue(sse(': keepalive\r\n\r\n' + event({ choices: [{ delta: { reasoning_content: '想一想' } }] }) + delta('你好') + finish() + event({ choices: [], usage: { total_tokens: 20 } }) + done))
@@ -67,6 +86,14 @@ describe('web chat gateway', () => {
 })
 
 describe('browser history', () => {
+  it('restores per-conversation drafts and attachments using only the explicit safe schema', () => {
+    const chat = conversation(); chat.financeMode = true; chat.maxOutputTokens = 8192
+    chat.draft = 'Please reconcile'; chat.draftFiles = [Object.assign({ name: 'data.csv', content: '0012,-120.50', sheets: [] }, { key: 'DO_NOT_KEEP' })]
+    expect(saveChats(1, [chat])).toBe(true)
+    expect(loadChats(1)[0]).toMatchObject({ draft: 'Please reconcile', financeMode: true, maxOutputTokens: 8192,
+      draftFiles: [{ name: 'data.csv', content: '0012,-120.50', sheets: [] }] })
+    expect(localStorage.getItem('sub2api-chats:v1:1')).not.toContain('DO_NOT_KEEP')
+  })
   it('isolates users, stores an explicit schema and restores interrupted output as stopped', () => {
     const chat = conversation()
     chat.messages[1].status = 'streaming'

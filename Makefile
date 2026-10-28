@@ -2,6 +2,7 @@
 
 FRONTEND_CRITICAL_VITEST := \
 	src/api/__tests__/chat.spec.ts \
+	src/utils/__tests__/chatWorkspace.spec.ts \
 	src/views/user/__tests__/ChatView.spec.ts \
 	src/api/__tests__/groupCacheTest.spec.ts \
 	src/views/admin/__tests__/GroupCacheTestView.spec.ts \
