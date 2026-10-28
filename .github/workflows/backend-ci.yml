@@ -76,7 +76,7 @@ jobs:
             if curl --fail --silent http://127.0.0.1:4173/chat > /dev/null; then break; fi
             sleep 1
           done
-          node .github/tests/finance-chat-browser.mjs
+          node .github/finance-chat-browser.mjs
       - uses: actions/upload-artifact@v6
         if: always()
         with:

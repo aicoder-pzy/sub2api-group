@@ -1,0 +1,95 @@
+// Browser regression with synthetic financial data and intercepted APIs: no paid model calls.
+import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+
+const require = createRequire(path.resolve(process.env.BROWSER_TEST_MODULES, 'probe.cjs'))
+const { chromium } = require('playwright')
+const XLSX = createRequire(path.resolve('frontend/package.json'))('xlsx')
+const output = path.resolve('finance-browser-results')
+await mkdir(output, { recursive: true })
+const browser = await chromium.launch({ headless: true })
+try {
+  const context = await browser.newContext({ viewport: { width: 1366, height: 900 }, locale: 'zh-CN' })
+  const user = { id: 1, role: 'user', email: 'finance@example.invalid', username: 'Finance', balance: 100, status: 'active', concurrency: 5 }
+  const key = { id: 4, user_id: 1, name: 'Finance', key: 'TEST_KEY', group_id: 24, group: { id: 24, name: '财务办公' }, status: 'active', quota: 0, quota_used: 0 }
+  const requests = [], errors = []
+  await context.addInitScript(({ user }) => {
+    localStorage.setItem('auth_token', 'TEST_PANEL_TOKEN')
+    localStorage.setItem('auth_user', JSON.stringify(user))
+    localStorage.setItem('sub2api_locale', 'zh')
+  }, { user })
+  await context.route('**/*', async route => {
+    const request = route.request(), url = new URL(request.url())
+    if (url.origin !== 'http://127.0.0.1:4173') return route.abort()
+    const json = data => route.fulfill({ json: { code: 0, data } })
+    if (url.pathname === '/v1/models') return route.fulfill({ json: { data: [{ id: 'gpt-6.1-sol' }] } })
+    if (url.pathname === '/v1/chat/completions') {
+      assert.equal(request.headers().authorization, 'Bearer TEST_KEY')
+      const payload = request.postDataJSON(); requests.push(payload)
+      assert.equal(payload.messages[0].role, 'system')
+      const answer = '| 单号 | 差额 |\n| --- | --- |\n| 0012 | -120.50 |\n\n## 核对结论\n请按来源逐项复核。'
+      const chunk = data => 'data: ' + JSON.stringify(data) + '\n\n'
+      return route.fulfill({ contentType: 'text/event-stream', body:
+        chunk({ choices: [{ index: 0, delta: { content: answer }, finish_reason: null }] }) +
+        chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }) + 'data: [DONE]\n\n' })
+    }
+    if (url.pathname === '/api/v1/auth/me') return json(user)
+    if (url.pathname === '/api/v1/keys') return json({ items: [key], total: 1, pages: 1, page: 1, page_size: 100 })
+    if (url.pathname === '/api/v1/keys/4') return json(key)
+    if (url.pathname === '/api/v1/settings/public') return json({ site_name: '财务办公', backend_mode_enabled: false, custom_menu_items: [] })
+    if (url.pathname.includes('/setup/status')) return json({ needs_setup: false })
+    if (url.pathname.startsWith('/api/')) return json([])
+    return route.continue()
+  })
+  const page = await context.newPage()
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto('http://127.0.0.1:4173/chat')
+  await page.getByTestId('chat-task-reconcile').waitFor()
+  await page.screenshot({ path: path.join(output, 'desktop-start.png') })
+  await page.getByTestId('chat-task-reconcile').click()
+  const sourceBook = XLSX.utils.book_new(), sourceSheet = XLSX.utils.aoa_to_sheet([['单号', '金额'], [12, -120.5]])
+  sourceSheet.A2.z = '000000'; sourceSheet.B2.z = '0.00'
+  XLSX.utils.book_append_sheet(sourceBook, sourceSheet, '总账')
+  await page.getByTestId('chat-file-input').setInputFiles([
+    { name: 'bank.csv', mimeType: 'text/csv', buffer: Buffer.from('单号,金额\n0012,-120.50\n') },
+    { name: 'ledger.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: XLSX.write(sourceBook, { type: 'buffer', bookType: 'xlsx' }) }
+  ])
+  await page.getByTestId('chat-file-preview').nth(1).waitFor({ state: 'attached' })
+  assert.match(await page.getByTestId('chat-file-preview').nth(0).textContent(), /0012/)
+  assert.match(await page.getByTestId('chat-file-preview').nth(1).textContent(), /000012/)
+  assert.equal(requests.length, 0, 'Reading files must not call a model')
+  await page.getByTestId('chat-send').click()
+  await page.getByTestId('chat-download-excel').waitFor()
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].messages.at(-1).content, /bank\.csv/)
+  assert.match(requests[0].messages.at(-1).content, /ledger\.xlsx/)
+  await page.screenshot({ path: path.join(output, 'desktop-result.png') })
+  const downloadEvent = page.waitForEvent('download')
+  await page.getByTestId('chat-download-excel').click()
+  const download = await downloadEvent
+  assert.match(download.suggestedFilename(), /\.xlsx$/)
+  const exported = XLSX.read(await readFile(await download.path()), { type: 'buffer' })
+  assert.equal(exported.Sheets['Table 1'].A2.v, '0012')
+  assert.equal(exported.Sheets['Table 1'].B2.v, '-120.50')
+  assert.equal(exported.Sheets['Table 1'].A2.t, 's')
+  const reportEvent = page.waitForEvent('download')
+  await page.getByRole('button', { name: '下载报告（网页）', exact: true }).click()
+  const report = await reportEvent
+  assert.match(report.suggestedFilename(), /\.html$/)
+  assert.match(await readFile(await report.path(), 'utf8'), /Content-Security-Policy/)
+  await page.getByTestId('chat-input').fill('刷新后继续核对')
+  await page.reload()
+  await page.getByTestId('chat-input').waitFor()
+  assert.equal(await page.getByTestId('chat-input').inputValue(), '刷新后继续核对')
+  assert.match(await page.locator('.chat-markdown').textContent(), /0012/)
+  assert.equal(requests.length, 1, 'Reload and exports must not call a model')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: path.join(output, 'mobile-result.png') })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+  assert.deepEqual(errors, [])
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, mock_model_requests: requests.length,
+    real_model_requests: 0, csv_worker: true, xlsx_worker: true, xlsx_download: true, html_report: true,
+    draft_restored: true, mobile_no_horizontal_overflow: true, browser_errors: errors }, null, 2))
+} finally { await browser.close() }
