@@ -55,7 +55,7 @@
               </details>
               <label for="broadcast-unsubscribe-url" class="input-label">{{ text('unsubscribeUrl') }}</label>
               <input id="broadcast-unsubscribe-url" v-model="unsubscribeUrl" type="url" class="input w-full" :placeholder="text('unsubscribePlaceholder')" />
-              <p class="input-hint">{{ text('unsubscribeHint', { placeholder: '{{unsubscribe_url}}' }) }}</p>
+              <p class="input-hint">{{ text('unsubscribeHint', { placeholder: unsubscribePlaceholder }) }}</p>
             </template>
             <label for="broadcast-interval" class="input-label">{{ text('interval') }}</label>
             <input id="broadcast-interval" v-model.number="interval" type="number" min="1" max="60" step="1" class="input w-28" required />
@@ -117,6 +117,7 @@ import * as api from '@/api/admin/emailBroadcasts'
 import { importBroadcastRecipients } from '@/utils/emailBroadcastImport'
 import promotionTemplate from '@/assets/templates/91token-promotion.html?raw'
 
+const unsubscribePlaceholder = '{{unsubscribe_url}}'
 const { t } = useI18n()
 const text = (key: string, params: Record<string, string | number> = {}) => t(`emailBroadcast.${key}`, params)
 const recipients = ref(''), subject = ref(text('promotionSubject')), content = ref(promotionTemplate), contentFormat = ref<api.BroadcastContentFormat>('html'), unsubscribeUrl = ref(''), interval = ref(2), testRecipient = ref('')
@@ -141,12 +142,12 @@ function isHttpsUrl(value: string) {
 }
 function previewHtml(source: string, url = unsubscribeUrl.value) {
   const replacement = url && isHttpsUrl(url) ? escapeHtmlAttribute(url) : '#'
-  return source.split('{{unsubscribe_url}}').join(replacement)
+  return source.split(unsubscribePlaceholder).join(replacement)
 }
 const htmlPreview = computed(() => previewHtml(content.value))
 function resolvedContent() {
   if (contentFormat.value !== 'html') return content.value
-  if (content.value.includes('{{unsubscribe_url}}') && !isHttpsUrl(unsubscribeUrl.value.trim())) throw new Error('unsubscribeUrlRequired')
+  if (content.value.includes(unsubscribePlaceholder) && !isHttpsUrl(unsubscribeUrl.value.trim())) throw new Error('unsubscribeUrlRequired')
   return content.value
 }
 function loadPromotionTemplate() {
