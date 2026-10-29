@@ -14,6 +14,7 @@ try {
   const context = await browser.newContext({ viewport: { width: 1366, height: 1000 }, locale: 'zh-CN' })
   const user = { id: 1, role: 'admin', email: 'admin@example.invalid', username: 'Admin', balance: 100, status: 'active', concurrency: 5 }
   await context.addInitScript(user => {
+    if (window.top !== window) return
     localStorage.setItem('auth_token', 'TEST_PANEL_TOKEN')
     localStorage.setItem('auth_user', JSON.stringify(user))
     localStorage.setItem('sub2api_locale', 'zh')
@@ -21,7 +22,7 @@ try {
   }, user)
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url()), pathname = url.pathname
-    if (url.origin !== 'http://127.0.0.1:4173') return route.abort()
+    if (url.origin !== 'http://127.0.0.1:4173') return route.abort('blockedbyclient')
     const json = data => route.fulfill({ json: { code: 0, data } })
     if (pathname === '/api/v1/auth/me') return json(user)
     if (pathname === '/api/v1/admin/compliance') return json({ required: false, version: 'test', ack_phrase_zh: '', ack_phrase_en: '' })
@@ -58,7 +59,9 @@ try {
   })
   const page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
-  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
+  page.on('console', message => {
+    if (message.type() === 'error' && !message.text().includes('net::ERR_BLOCKED_BY_CLIENT')) errors.push(message.text())
+  })
   await page.goto('http://127.0.0.1:4173/admin/email-broadcasts')
   try {
     await page.getByTestId('email-broadcast-title').waitFor({ timeout: 10000 })
