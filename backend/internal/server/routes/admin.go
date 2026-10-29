@@ -77,6 +77,12 @@ func RegisterAdminRoutes(
 
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)
+		admin.GET("/email-broadcasts", h.Admin.Setting.ListEmailBroadcasts)
+		admin.POST("/email-broadcasts/preview", h.Admin.Setting.PreviewEmailBroadcast)
+		admin.POST("/email-broadcasts/test", h.Admin.Setting.TestEmailBroadcast)
+		admin.POST("/email-broadcasts", h.Admin.Setting.CreateEmailBroadcast)
+		admin.GET("/email-broadcasts/:id", h.Admin.Setting.GetEmailBroadcast)
+		admin.POST("/email-broadcasts/:id/cancel", h.Admin.Setting.CancelEmailBroadcast)
 
 		// OpenAI OAuth
 		registerOpenAIOAuthRoutes(admin, h)

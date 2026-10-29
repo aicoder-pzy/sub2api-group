@@ -54,7 +54,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install frontend dependencies
@@ -77,11 +77,18 @@ jobs:
             sleep 1
           done
           node .github/finance-chat-browser.mjs
+          node .github/email-broadcast-browser.mjs
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: finance-browser-results
           path: finance-browser-results
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: email-broadcast-browser-results
+          path: email-broadcast-browser-results
           if-no-files-found: ignore
 
   golangci-lint:

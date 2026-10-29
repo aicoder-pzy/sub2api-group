@@ -12,6 +12,7 @@ import misc from './misc'
 import channelStatistics from './channelStatistics'
 import chat from './chat'
 import modelTrace from './modelTrace'
+import emailBroadcast from './emailBroadcast'
 
 export default {
   channelOps,
@@ -26,5 +27,6 @@ export default {
   channelStatistics,
   ...chat,
   modelTrace,
+  emailBroadcast,
   ...misc,
 }

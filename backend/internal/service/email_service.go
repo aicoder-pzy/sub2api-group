@@ -25,6 +25,7 @@ import (
 
 var (
 	ErrEmailNotConfigured    = infraerrors.ServiceUnavailable("EMAIL_NOT_CONFIGURED", "email service not configured")
+	ErrSMTPDeliveryUncertain = errors.New("SMTP delivery outcome is uncertain")
 	ErrInvalidVerifyCode     = infraerrors.BadRequest("INVALID_VERIFY_CODE", "invalid or expired verification code")
 	ErrVerifyCodeTooFrequent = infraerrors.TooManyRequests("VERIFY_CODE_TOO_FREQUENT", "please wait before requesting a new code")
 	ErrVerifyCodeMaxAttempts = infraerrors.TooManyRequests("VERIFY_CODE_MAX_ATTEMPTS", "too many failed attempts, please request a new code")
@@ -229,10 +230,10 @@ func (s *EmailService) sendEmailWithConfig(ctx context.Context, config *SMTPConf
 		return fmt.Errorf("smtp data: %w", err)
 	}
 	if _, err = w.Write(message.data); err != nil {
-		return fmt.Errorf("write msg: %w", err)
+		return fmt.Errorf("write msg: %w: %v", ErrSMTPDeliveryUncertain, err)
 	}
 	if err = w.Close(); err != nil {
-		return fmt.Errorf("close writer: %w", err)
+		return fmt.Errorf("close writer: %w: %v", ErrSMTPDeliveryUncertain, err)
 	}
 	// Email is sent successfully after w.Close(), ignore Quit errors
 	// Some SMTP servers return non-standard responses on QUIT
