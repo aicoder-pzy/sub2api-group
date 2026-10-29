@@ -18,7 +18,7 @@ export async function importBroadcastRecipients(file: File): Promise<string> {
     const range = XLSX.utils.decode_range(sheet['!fullref'] || sheet['!ref'] || 'A1')
     if (range.e.r > 10000) throw new Error('tooManyRows')
     values = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
-      header: 1, raw: true, blankrows: false, range: { s: { r: 0, c: 0 }, e: { r: range.e.r, c: 0 } }
+      header: 1, raw: false, blankrows: false, range: { s: { r: 0, c: 0 }, e: { r: range.e.r, c: 0 } }
     }).map(row => String(row[0] ?? '').trim()).filter(Boolean)
   } else throw new Error('fileType')
   if (header.test(values[0] || '')) values.shift()

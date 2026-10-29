@@ -372,7 +372,7 @@ func (s *EmailBroadcastService) tick(ctx context.Context) error {
 	}
 	var id, subject, content string
 	var interval int
-	err = tx.QueryRowContext(ctx, `SELECT id,subject,content,interval_seconds FROM email_broadcasts WHERE status IN ('queued','running') AND next_send_at<=NOW() ORDER BY created_at,id FOR UPDATE LIMIT 1`).Scan(&id, &subject, &content, &interval)
+	err = tx.QueryRowContext(ctx, `SELECT id,subject,content,interval_seconds FROM email_broadcasts WHERE status IN ('queued','running') AND next_send_at<=NOW() ORDER BY created_at,id LIMIT 1 FOR UPDATE`).Scan(&id, &subject, &content, &interval)
 	if errors.Is(err, sql.ErrNoRows) {
 		return tx.Commit()
 	}

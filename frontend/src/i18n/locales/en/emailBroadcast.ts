@@ -3,7 +3,7 @@ export default {
   description: 'Import QQ numbers to convert them into QQ email addresses, or enter existing emails. Each recipient receives a separate message.',
   smtpSettings: 'SMTP settings',
   recipients: 'QQ numbers or emails',
-  recipientPlaceholder: '123456789\n987654321\nuser@example.com',
+  recipientPlaceholder: "123456789\n987654321\nuser{'@'}example.com",
   recipientHint: 'One entry per line, or separate with spaces, commas or semicolons. QQ numbers become QQ email addresses; duplicates are removed. Up to 10000 recipients.',
   importFile: 'Import file',
   previewRecipients: 'Check and convert addresses',

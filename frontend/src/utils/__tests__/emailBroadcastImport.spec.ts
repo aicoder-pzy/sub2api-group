@@ -11,11 +11,13 @@ describe('Broadcast recipient imports', () => {
   })
   it('reads only the first sheet and first column without turning other numbers into recipients', async () => {
     const book = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['QQ号', 'amount'], [123456789, 888888], ['012345', 999999], ['user@example.com']]), 'Contacts')
+    const sheet = XLSX.utils.aoa_to_sheet([['QQ号', 'amount'], [123456789, 888888], [12345, 999999], ['user@example.com']])
+    sheet.A3.z = '000000'
+    XLSX.utils.book_append_sheet(book, sheet, 'Contacts')
     XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([[987654321]]), 'Ignore')
     const bytes = XLSX.write(book, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
     expect(await importBroadcastRecipients(file('qq.xlsx', bytes))).toBe('123456789\n012345\nuser@example.com')
-    expect(await importBroadcastRecipients(file('qq.csv', new TextEncoder().encode('email,other\nuser@example.com,123456789').buffer))).toBe('user@example.com')
+    expect(await importBroadcastRecipients(file('qq.csv', new TextEncoder().encode('email,other\n00123456,123456789\nuser@example.com,987654321').buffer))).toBe('00123456\nuser@example.com')
   })
   it('rejects oversized files and too many rows before import', async () => {
     await expect(importBroadcastRecipients({ size: 2 * 1024 * 1024 + 1 } as File)).rejects.toThrow('fileTooLarge')

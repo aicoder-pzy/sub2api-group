@@ -2,7 +2,7 @@
   <AppLayout>
     <div class="space-y-5">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h1 class="text-xl font-semibold">{{ text('title') }}</h1>
+        <h1 data-testid="email-broadcast-title" class="text-xl font-semibold">{{ text('title') }}</h1>
         <RouterLink to="/admin/settings?tab=email" class="btn btn-secondary">{{ text('smtpSettings') }}</RouterLink>
       </div>
       <p class="text-sm text-gray-600 dark:text-gray-300">{{ text('description') }}</p>

@@ -3,7 +3,7 @@ export default {
   description: '导入 QQ 号即可自动补全为 QQ 邮箱，也支持已有邮箱。逐封发送，每位收件人只会看到自己的地址。',
   smtpSettings: 'SMTP 邮件设置',
   recipients: 'QQ 号或邮箱',
-  recipientPlaceholder: '123456789\n987654321\nuser@example.com',
+  recipientPlaceholder: "123456789\n987654321\nuser{'@'}example.com",
   recipientHint: '一行一个，也可用空格、逗号或分号分隔。QQ 号自动补全为「号码＠qq.com」，自动去重；每次最多 10000 位收件人。',
   importFile: '导入文件',
   previewRecipients: '检查并转换地址',

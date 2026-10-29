@@ -23,6 +23,7 @@ try {
     if (url.origin !== 'http://127.0.0.1:4173') return route.abort()
     const json = data => route.fulfill({ json: { code: 0, data } })
     if (pathname === '/api/v1/auth/me') return json(user)
+    if (pathname === '/api/v1/admin/compliance') return json({ required: false, version: 'test', ack_phrase_zh: '', ack_phrase_en: '' })
     if (pathname === '/api/v1/settings/public') return json({ site_name: 'Sub2API', backend_mode_enabled: false, custom_menu_items: [] })
     if (pathname.includes('/setup/status')) return json({ needs_setup: false })
     const root = '/api/v1/admin/email-broadcasts'
@@ -57,7 +58,13 @@ try {
   const page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
   await page.goto('http://127.0.0.1:4173/admin/email-broadcasts')
-  await page.getByRole('heading', { name: '邮件群发', exact: true }).waitFor()
+  try {
+    await page.getByTestId('email-broadcast-title').waitFor({ timeout: 10000 })
+  } catch (error) {
+    await page.screenshot({ path: path.join(output, 'route-load-failure.png'), fullPage: true })
+    console.error(JSON.stringify({ url: page.url(), title: await page.title(), body: (await page.locator('body').innerText()).slice(0, 2000), errors }))
+    throw error
+  }
   const book = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['QQ号', 'ignore'], [123456789, 11111111], ['123456789@qq.com'], ['user@example.com'], ['错误项']]), 'Contacts')
   await page.getByTestId('broadcast-file').setInputFiles({ name: 'qq.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) })

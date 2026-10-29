@@ -10,9 +10,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
@@ -72,9 +74,9 @@ func TestEmailBroadcastPersistentQueue(t *testing.T) {
 	var calls atomic.Int32
 	started, finish := make(chan struct{}), make(chan struct{})
 	svc.send = func(_ context.Context, _ *SMTPConfig, to, subject, body string) error {
-		require.Equal(t, "12345@qq.com", to)
-		require.Equal(t, input.Subject, subject)
-		require.NotContains(t, body, "<script>")
+		assert.Equal(t, "12345@qq.com", to)
+		assert.Equal(t, input.Subject, subject)
+		assert.NotContains(t, body, "<script>")
 		calls.Add(1)
 		close(started)
 		<-finish
@@ -82,7 +84,13 @@ func TestEmailBroadcastPersistentQueue(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- svc.tick(ctx) }()
-	<-started
+	select {
+	case <-started:
+	case err := <-done:
+		t.Fatalf("worker did not attempt delivery: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("worker did not start within 10 seconds")
+	}
 	// A second worker sees the persisted claim and cannot send another message.
 	require.NoError(t, svc.tick(ctx))
 	require.EqualValues(t, 1, calls.Load())
