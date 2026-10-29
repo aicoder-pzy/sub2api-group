@@ -138,16 +138,18 @@ function escapeHtmlAttribute(value: string) {
   return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] || character)
 }
 function isHttpsUrl(value: string) {
-  try { return new URL(value).protocol === 'https:' } catch { return false }
+  try { const url = new URL(value); return url.protocol === 'https:' && !!url.hostname && !url.username && !url.password } catch { return false }
 }
 function previewHtml(source: string, url = unsubscribeUrl.value) {
-  const replacement = url && isHttpsUrl(url) ? escapeHtmlAttribute(url) : '#'
+  url = url.trim()
+  if (!url) source = source.replace(/<!-- sub2api:unsubscribe:start -->[\s\S]*?<!-- sub2api:unsubscribe:end -->/g, '')
+  const replacement = url && isHttpsUrl(url) ? escapeHtmlAttribute(url) : ''
   return source.split(unsubscribePlaceholder).join(replacement)
 }
 const htmlPreview = computed(() => previewHtml(content.value))
 function resolvedContent() {
   if (contentFormat.value !== 'html') return content.value
-  if (content.value.includes(unsubscribePlaceholder) && !isHttpsUrl(unsubscribeUrl.value.trim())) throw new Error('unsubscribeUrlRequired')
+  if (content.value.includes(unsubscribePlaceholder) && unsubscribeUrl.value.trim() && !isHttpsUrl(unsubscribeUrl.value.trim())) throw new Error('unsubscribeUrlRequired')
   return content.value
 }
 function loadPromotionTemplate() {

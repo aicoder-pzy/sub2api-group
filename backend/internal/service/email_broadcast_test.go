@@ -49,3 +49,20 @@ func TestEmailBroadcastContentFormats(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestEmailBroadcastOptionalUnsubscribeURL(t *testing.T) {
+	footer := `<!-- sub2api:unsubscribe:start --><p>Unsubscribe? <a href="{{unsubscribe_url}}">Click here</a></p><!-- sub2api:unsubscribe:end -->`
+	content := "<h1>Promotion</h1>" + footer + `<p><a href="https://example.com/signup">Sign up</a></p>`
+	for _, empty := range []string{"", " \t\n "} {
+		resolved, err := resolveEmailBroadcastUnsubscribeURL(content, empty)
+		require.NoError(t, err)
+		require.Equal(t, `<h1>Promotion</h1><p><a href="https://example.com/signup">Sign up</a></p>`, resolved)
+		body, err := emailBroadcastBody(resolved, "html")
+		require.NoError(t, err)
+		require.Equal(t, resolved, body)
+	}
+	resolved, err := resolveEmailBroadcastUnsubscribeURL(content, " https://example.com/unsubscribe?a=1&b=2 ")
+	require.NoError(t, err)
+	require.Contains(t, resolved, `<a href="https://example.com/unsubscribe?a=1&amp;b=2">Click here</a>`)
+	require.NotContains(t, resolved, "{{unsubscribe_url}}")
+}

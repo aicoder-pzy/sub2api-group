@@ -27,6 +27,7 @@ const EmailBroadcastMaxRecipients = 10000
 const emailBroadcastMaxInput = 1 << 20
 
 var qqNumberPattern = regexp.MustCompile(`^[1-9][0-9]{4,11}$`)
+var emailBroadcastUnsubscribeBlock = regexp.MustCompile(`(?s)<!-- sub2api:unsubscribe:start -->.*?<!-- sub2api:unsubscribe:end -->`)
 
 type EmailBroadcastPreview struct {
 	Recipients []string `json:"recipients"`
@@ -170,9 +171,14 @@ func resolveEmailBroadcastUnsubscribeURL(content, unsubscribeURL string) (string
 	if !strings.Contains(content, "{{unsubscribe_url}}") {
 		return content, nil
 	}
-	parsed, err := url.Parse(strings.TrimSpace(unsubscribeURL))
+	unsubscribeURL = strings.TrimSpace(unsubscribeURL)
+	if unsubscribeURL == "" {
+		content = emailBroadcastUnsubscribeBlock.ReplaceAllString(content, "")
+		return strings.ReplaceAll(content, "{{unsubscribe_url}}", ""), nil
+	}
+	parsed, err := url.Parse(unsubscribeURL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-		return "", infraerrors.BadRequest("BROADCAST_INVALID_UNSUBSCRIBE_URL", "A valid HTTPS unsubscribe URL is required")
+		return "", infraerrors.BadRequest("BROADCAST_INVALID_UNSUBSCRIBE_URL", "Unsubscribe URL must be HTTPS when provided")
 	}
 	return strings.ReplaceAll(content, "{{unsubscribe_url}}", html.EscapeString(parsed.String())), nil
 }
