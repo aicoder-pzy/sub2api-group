@@ -3,6 +3,7 @@ import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import EmailBroadcastsView from '../EmailBroadcastsView.vue'
 import * as api from '@/api/admin/emailBroadcasts'
+import promotionTemplate from '@/assets/templates/91token-promotion.html?raw'
 
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<div><slot /></div>' } }))
 vi.mock('@/api/admin/emailBroadcasts', () => ({ preview: vi.fn(), create: vi.fn(), list: vi.fn(), detail: vi.fn(), test: vi.fn(), cancel: vi.fn() }))
@@ -25,7 +26,7 @@ describe('Email broadcasts', () => {
 
   it('requires review, blocks invalid input, and reuses the request ID after an ambiguous response', async () => {
     const { wrapper, vm } = view(); await flushPromises()
-    vm.recipients = '123456789,123456789@qq.com'; vm.subject = 'Notice'; vm.content = '<b>plain text</b>'
+    vm.recipients = '123456789,123456789@qq.com'; vm.subject = 'Notice'; vm.content = '<b>plain text</b>'; vm.contentFormat = 'text'
     await vm.prepareSend()
     expect(api.create).not.toHaveBeenCalled()
     expect(wrapper.html()).not.toContain('<b>plain text</b>')
@@ -62,13 +63,13 @@ describe('Email broadcasts', () => {
     expect(api.create).not.toHaveBeenCalled()
   })
 
-  it('loads the bundled HTML promotion and requires a valid HTTPS unsubscribe URL', async () => {
+  it('shows the bundled promotion and preview by default and requires a valid HTTPS unsubscribe URL', async () => {
     const { wrapper, vm } = view(); await flushPromises()
-    vm.loadPromotionTemplate()
-    await nextTick()
     expect(vm.contentFormat).toBe('html')
-    expect(vm.content).toContain('91tokenai')
+    expect(vm.subject).toBe('emailBroadcast.promotionSubject')
+    expect(vm.content).toBe(promotionTemplate)
     expect(wrapper.find('iframe[sandbox=""]').exists()).toBe(true)
+    expect(wrapper.find('iframe').attributes('srcdoc')).toBe(vm.previewHtml(promotionTemplate))
     expect(() => vm.resolvedContent()).toThrow('unsubscribeUrlRequired')
     vm.unsubscribeUrl = 'http://example.com/unsubscribe'
     expect(() => vm.resolvedContent()).toThrow('unsubscribeUrlRequired')
@@ -78,5 +79,16 @@ describe('Email broadcasts', () => {
     await vm.prepareSend()
     expect(vm.pending?.content).toContain('{{unsubscribe_url}}')
     expect(vm.pending?.unsubscribe_url).toBe(vm.unsubscribeUrl)
+  })
+
+  it('keeps the built-in template accessible from plain text without replacing a custom subject', async () => {
+    const { wrapper, vm } = view(); await flushPromises()
+    vm.contentFormat = 'text'; vm.content = 'Custom message'; vm.subject = 'Custom subject'
+    await nextTick()
+    await wrapper.findAll('button').find(button => button.text() === 'emailBroadcast.loadTemplate')!.trigger('click')
+    expect(vm.contentFormat).toBe('html')
+    expect(vm.content).toBe(promotionTemplate)
+    expect(vm.subject).toBe('Custom subject')
+    expect(wrapper.find('iframe[sandbox=""]').exists()).toBe(true)
   })
 })

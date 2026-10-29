@@ -35,22 +35,27 @@
             <input id="broadcast-subject" v-model="subject" class="input w-full" maxlength="200" required />
             <div class="flex flex-wrap items-end justify-between gap-2">
               <label for="broadcast-content" class="input-label">{{ text('content') }}</label>
-              <div class="flex items-center gap-2" role="group" :aria-label="text('contentFormat')">
+              <div class="flex flex-wrap items-center gap-2" role="group" :aria-label="text('contentFormat')">
                 <button type="button" class="btn btn-secondary" :class="{ 'ring-2 ring-primary-500': contentFormat === 'text' }" :aria-pressed="contentFormat === 'text' ? 'true' : 'false'" @click="contentFormat = 'text'">{{ text('plainText') }}</button>
                 <button type="button" class="btn btn-secondary" :class="{ 'ring-2 ring-primary-500': contentFormat === 'html' }" :aria-pressed="contentFormat === 'html' ? 'true' : 'false'" @click="contentFormat = 'html'">{{ text('html') }}</button>
-                <button v-if="contentFormat === 'html'" type="button" class="btn btn-secondary" @click="loadPromotionTemplate">{{ text('loadTemplate') }}</button>
+                <button type="button" class="btn btn-secondary" @click="loadPromotionTemplate">{{ text('loadTemplate') }}</button>
               </div>
             </div>
-            <textarea id="broadcast-content" v-model="content" rows="10" maxlength="100000" class="input w-full font-mono text-sm" :placeholder="contentFormat === 'html' ? text('htmlPlaceholder') : ''" required />
+            <textarea v-if="contentFormat === 'text'" id="broadcast-content" v-model="content" rows="10" maxlength="100000" class="input w-full font-mono text-sm" required />
             <p class="input-hint">{{ text(contentFormat === 'html' ? 'htmlHint' : 'contentHint') }}</p>
             <template v-if="contentFormat === 'html'">
-              <label for="broadcast-unsubscribe-url" class="input-label">{{ text('unsubscribeUrl') }}</label>
-              <input id="broadcast-unsubscribe-url" v-model="unsubscribeUrl" type="url" class="input w-full" :placeholder="text('unsubscribePlaceholder')" />
-              <p class="input-hint">{{ text('unsubscribeHint') }}</p>
               <div v-if="content.trim()" class="space-y-2">
                 <p class="input-label">{{ text('htmlPreview') }}</p>
                 <iframe :srcdoc="htmlPreview" sandbox="" :title="text('htmlPreview')" class="h-[520px] w-full rounded-lg border border-gray-200 bg-white dark:border-dark-600" />
               </div>
+              <details>
+                <summary class="cursor-pointer text-sm font-medium">{{ text('htmlSource') }}</summary>
+                <label for="broadcast-content" class="sr-only">{{ text('htmlSource') }}</label>
+                <textarea id="broadcast-content" v-model="content" rows="10" maxlength="100000" class="input mt-2 w-full font-mono text-sm" :placeholder="text('htmlPlaceholder')" required />
+              </details>
+              <label for="broadcast-unsubscribe-url" class="input-label">{{ text('unsubscribeUrl') }}</label>
+              <input id="broadcast-unsubscribe-url" v-model="unsubscribeUrl" type="url" class="input w-full" :placeholder="text('unsubscribePlaceholder')" />
+              <p class="input-hint">{{ text('unsubscribeHint', { placeholder: unsubscribePlaceholder }) }}</p>
             </template>
             <label for="broadcast-interval" class="input-label">{{ text('interval') }}</label>
             <input id="broadcast-interval" v-model.number="interval" type="number" min="1" max="60" step="1" class="input w-28" required />
@@ -112,9 +117,10 @@ import * as api from '@/api/admin/emailBroadcasts'
 import { importBroadcastRecipients } from '@/utils/emailBroadcastImport'
 import promotionTemplate from '@/assets/templates/91token-promotion.html?raw'
 
+const unsubscribePlaceholder = '{{unsubscribe_url}}'
 const { t } = useI18n()
 const text = (key: string, params: Record<string, string | number> = {}) => t(`emailBroadcast.${key}`, params)
-const recipients = ref(''), subject = ref(''), content = ref(''), contentFormat = ref<api.BroadcastContentFormat>('text'), unsubscribeUrl = ref(''), interval = ref(2), testRecipient = ref('')
+const recipients = ref(''), subject = ref(text('promotionSubject')), content = ref(promotionTemplate), contentFormat = ref<api.BroadcastContentFormat>('html'), unsubscribeUrl = ref(''), interval = ref(2), testRecipient = ref('')
 const fileInput = ref<HTMLInputElement | null>(null), preview = ref<api.RecipientPreview | null>(null)
 const busy = ref(false), refreshing = ref(false), error = ref(''), notice = ref(''), submitError = ref('')
 const items = ref<api.Broadcast[]>([]), detail = ref<api.BroadcastDetail | null>(null), selectedID = ref('')
@@ -136,12 +142,12 @@ function isHttpsUrl(value: string) {
 }
 function previewHtml(source: string, url = unsubscribeUrl.value) {
   const replacement = url && isHttpsUrl(url) ? escapeHtmlAttribute(url) : '#'
-  return source.split('{{unsubscribe_url}}').join(replacement)
+  return source.split(unsubscribePlaceholder).join(replacement)
 }
 const htmlPreview = computed(() => previewHtml(content.value))
 function resolvedContent() {
   if (contentFormat.value !== 'html') return content.value
-  if (content.value.includes('{{unsubscribe_url}}') && !isHttpsUrl(unsubscribeUrl.value.trim())) throw new Error('unsubscribeUrlRequired')
+  if (content.value.includes(unsubscribePlaceholder) && !isHttpsUrl(unsubscribeUrl.value.trim())) throw new Error('unsubscribeUrlRequired')
   return content.value
 }
 function loadPromotionTemplate() {
@@ -202,7 +208,7 @@ async function submit() {
     const result = await api.create(pending.value)
     selectedID.value = result.broadcast.id; recipientPage.value = 1; recipientStatus.value = ''; historyPage.value = 1
     detail.value = result; pending.value = null; notice.value = text('queued')
-    recipients.value = ''; subject.value = ''; content.value = ''; contentFormat.value = 'text'; unsubscribeUrl.value = ''; requestID = ''
+    recipients.value = ''; subject.value = text('promotionSubject'); content.value = promotionTemplate; contentFormat.value = 'html'; unsubscribeUrl.value = ''; requestID = ''
     await refresh()
   } catch (e) { submitError.value = failure(e) } finally { busy.value = false }
 }

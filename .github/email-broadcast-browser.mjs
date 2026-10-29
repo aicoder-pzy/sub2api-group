@@ -14,13 +14,15 @@ try {
   const context = await browser.newContext({ viewport: { width: 1366, height: 1000 }, locale: 'zh-CN' })
   const user = { id: 1, role: 'admin', email: 'admin@example.invalid', username: 'Admin', balance: 100, status: 'active', concurrency: 5 }
   await context.addInitScript(user => {
+    if (window.top !== window) return
     localStorage.setItem('auth_token', 'TEST_PANEL_TOKEN')
     localStorage.setItem('auth_user', JSON.stringify(user))
     localStorage.setItem('sub2api_locale', 'zh')
+    localStorage.setItem('admin_guide_1_admin_v4_interactive', 'true')
   }, user)
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url()), pathname = url.pathname
-    if (url.origin !== 'http://127.0.0.1:4173') return route.abort()
+    if (url.origin !== 'http://127.0.0.1:4173') return route.abort('blockedbyclient')
     const json = data => route.fulfill({ json: { code: 0, data } })
     if (pathname === '/api/v1/auth/me') return json(user)
     if (pathname === '/api/v1/admin/compliance') return json({ required: false, version: 'test', ack_phrase_zh: '', ack_phrase_en: '' })
@@ -57,6 +59,9 @@ try {
   })
   const page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => {
+    if (message.type() === 'error' && !message.text().includes('net::ERR_BLOCKED_BY_CLIENT')) errors.push(message.text())
+  })
   await page.goto('http://127.0.0.1:4173/admin/email-broadcasts')
   try {
     await page.getByTestId('email-broadcast-title').waitFor({ timeout: 10000 })
@@ -65,6 +70,24 @@ try {
     console.error(JSON.stringify({ url: page.url(), title: await page.title(), body: (await page.locator('body').innerText()).slice(0, 2000), errors }))
     throw error
   }
+  assert.equal(await page.locator('#broadcast-subject').inputValue(), '91tokenai｜注册领取 1 元体验额度')
+  await page.getByText('模板中的 {{unsubscribe_url}} 会替换为此地址；只接受 HTTPS 地址。', { exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'HTML', exact: true }).getAttribute('aria-pressed'), 'true')
+  const promotionPreview = page.frameLocator('iframe[title="HTML 预览"]')
+  await promotionPreview.getByRole('heading', { name: /GPT.*不降智/ }).waitFor()
+  await promotionPreview.getByText('91token 视频站', { exact: true }).waitFor()
+  assert.equal(await promotionPreview.getByRole('link', { name: '取消订阅', exact: true }).getAttribute('href'), '#')
+  assert.equal(await page.locator('#broadcast-content').isVisible(), false)
+  assert.equal(creates.length, 0)
+  assert.equal(tests.length, 0)
+  await page.screenshot({ path: path.join(output, 'desktop-built-in-template.png'), fullPage: true })
+  await page.getByText('编辑 HTML 源码', { exact: true }).first().click()
+  await page.locator('#broadcast-content').fill('<h1>Edited preview</h1>')
+  await promotionPreview.getByRole('heading', { name: 'Edited preview', exact: true }).waitFor()
+  await page.getByRole('button', { name: '纯文本', exact: true }).click()
+  await page.getByRole('button', { name: '恢复 91token 内置模板', exact: true }).click()
+  await promotionPreview.getByText('91token 视频站', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '纯文本', exact: true }).click()
   const book = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['QQ号', 'ignore'], [123456789, 11111111], ['123456789@qq.com'], ['user@example.com'], ['错误项']]), 'Contacts')
   await page.getByTestId('broadcast-file').setInputFiles({ name: 'qq.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) })
@@ -90,6 +113,8 @@ try {
   assert.equal(creates.length, 1)
   assert.equal(creates[0].interval_seconds, 2)
   assert.equal(creates[0].recipients, '123456789@qq.com\nuser@example.com')
+  assert.equal(creates[0].content_format, 'text')
+  await promotionPreview.getByText('91token 视频站', { exact: true }).waitFor()
   await page.reload()
   await page.getByRole('button', { name: '停止后续发送', exact: true }).waitFor()
   await page.getByRole('button', { name: '停止后续发送', exact: true }).click()
@@ -130,5 +155,5 @@ try {
     await page.screenshot({ path: path.join(output, `phone-${theme}.png`), fullPage: true })
   }
   assert.deepEqual(errors, [])
-  await writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, mock_broadcasts: creates.length, mock_tests: tests.length, mock_cancellations: cancellations.length, real_emails_sent: 0, console_errors: errors }, null, 2))
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, default_promotion_preview: true, html_source_edit_and_restore: true, mock_broadcasts: creates.length, mock_tests: tests.length, mock_cancellations: cancellations.length, real_emails_sent: 0, console_errors: errors }, null, 2))
 } finally { await browser.close() }
