@@ -1,0 +1,63 @@
+import { mount, flushPromises } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import EmailBroadcastsView from '../EmailBroadcastsView.vue'
+import * as api from '@/api/admin/emailBroadcasts'
+
+vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<div><slot /></div>' } }))
+vi.mock('@/api/admin/emailBroadcasts', () => ({ preview: vi.fn(), create: vi.fn(), list: vi.fn(), detail: vi.fn(), test: vi.fn(), cancel: vi.fn() }))
+vi.mock('vue-i18n', async () => ({
+  ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
+  useI18n: () => ({ t: (key: string) => key })
+}))
+const mountView = () => mount(EmailBroadcastsView, { global: { stubs: { RouterLink: true, BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /><slot name="footer" /></div>' } } } })
+type VM = { recipients: string; subject: string; content: string; preview: api.RecipientPreview | null; pending: api.BroadcastInput | null; previewRecipients: () => Promise<void>; prepareSend: () => Promise<void>; submit: () => Promise<void>; useValidRecipients: () => void }
+
+describe('Email broadcasts', () => {
+  const wrappers: ReturnType<typeof mountView>[] = []
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(api.list).mockResolvedValue({ items: [] })
+    vi.mocked(api.preview).mockResolvedValue({ recipients: ['123456789@qq.com'], invalid: [], duplicates: 1 })
+  })
+  afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()) })
+  const view = () => { const wrapper = mountView(); wrappers.push(wrapper); return { wrapper, vm: wrapper.vm as unknown as VM } }
+
+  it('requires review, blocks invalid input, and reuses the request ID after an ambiguous response', async () => {
+    const { wrapper, vm } = view(); await flushPromises()
+    vm.recipients = '123456789,123456789@qq.com'; vm.subject = 'Notice'; vm.content = '<b>plain text</b>'
+    await vm.prepareSend()
+    expect(api.create).not.toHaveBeenCalled()
+    expect(wrapper.html()).not.toContain('<b>plain text</b>')
+    expect(vm.pending?.recipients).toBe('123456789@qq.com')
+    const id = vm.pending?.id
+    vi.mocked(api.create).mockRejectedValue({ message: 'Connection lost' })
+    await vm.submit()
+    expect(vm.pending?.id).toBe(id)
+    await vm.prepareSend(); await vm.submit()
+    expect(api.create).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(api.create).mock.calls[1][0].id).toBe(id)
+    vm.recipients = 'invalid'
+    vi.mocked(api.preview).mockResolvedValue({ recipients: [], invalid: ['invalid'], duplicates: 0 })
+    vm.pending = null; await vm.prepareSend()
+    expect(vm.pending).toBeNull()
+    expect(wrapper.text()).toContain('emailBroadcast.invalidHint')
+  })
+  it('ignores a stale preview and makes dropping invalid entries explicit', async () => {
+    const { vm } = view(); await flushPromises()
+    let resolve!: (value: api.RecipientPreview) => void
+    vi.mocked(api.preview).mockReturnValueOnce(new Promise(r => { resolve = r }))
+    vm.recipients = '12345'
+    const pending = vm.previewRecipients()
+    vm.recipients = '67890'
+    resolve({ recipients: ['12345@qq.com'], invalid: [], duplicates: 0 })
+    await pending
+    expect(vm.preview).toBeNull()
+    vi.mocked(api.preview).mockResolvedValue({ recipients: ['67890@qq.com'], invalid: ['bad'], duplicates: 0 })
+    await vm.previewRecipients()
+    expect(vm.recipients).toBe('67890')
+    vm.useValidRecipients()
+    expect(vm.recipients).toBe('67890@qq.com')
+    expect(vm.preview?.invalid).toEqual([])
+    expect(api.create).not.toHaveBeenCalled()
+  })
+})

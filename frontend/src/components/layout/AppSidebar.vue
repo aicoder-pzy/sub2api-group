@@ -803,6 +803,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/prism', label: t('nav.prismAdmin'), icon: SignalIcon },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
+    { path: '/admin/email-broadcasts', label: t('emailBroadcast.title'), icon: BellIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
     {
       path: '/admin/security-audit',

@@ -53,6 +53,7 @@ func firstNonEmpty(values ...string) string {
 type SettingHandler struct {
 	settingService           *service.SettingService
 	emailService             *service.EmailService
+	emailBroadcastService    *service.EmailBroadcastService
 	turnstileService         *service.TurnstileService
 	aliyunCaptchaService     *service.AliyunCaptchaService
 	opsService               *service.OpsService
