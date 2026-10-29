@@ -66,14 +66,16 @@ func (h *SettingHandler) CreateEmailBroadcast(c *gin.Context) {
 
 func (h *SettingHandler) TestEmailBroadcast(c *gin.Context) {
 	var input struct {
-		Recipient string `json:"recipient"`
-		Subject   string `json:"subject"`
-		Content   string `json:"content"`
+		Recipient      string `json:"recipient"`
+		Subject        string `json:"subject"`
+		Content        string `json:"content"`
+		ContentFormat  string `json:"content_format"`
+		UnsubscribeURL string `json:"unsubscribe_url"`
 	}
 	if !bindEmailBroadcast(c, &input) {
 		return
 	}
-	if err := h.emailBroadcastService.Test(c.Request.Context(), input.Recipient, input.Subject, input.Content); err != nil {
+	if err := h.emailBroadcastService.TestWithFormat(c.Request.Context(), input.Recipient, input.Subject, input.Content, input.ContentFormat, input.UnsubscribeURL); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}

@@ -26,3 +26,26 @@ func TestEmailBroadcastRecipientConversion(t *testing.T) {
 	require.Contains(t, emailBroadcastHTML("<script>alert(1)</script>\nnext"), "&lt;script&gt;")
 	require.NotContains(t, emailBroadcastHTML("<script>alert(1)</script>"), "<script>")
 }
+
+func TestEmailBroadcastContentFormats(t *testing.T) {
+	plain, err := emailBroadcastBody("<b>plain</b>", "text")
+	require.NoError(t, err)
+	require.Contains(t, plain, "&lt;b&gt;plain&lt;/b&gt;")
+
+	html, err := emailBroadcastBody("<b>rich</b>", "html")
+	require.NoError(t, err)
+	require.Equal(t, "<b>rich</b>", html)
+
+	_, err = emailBroadcastBody("<a href=\"{{unsubscribe_url}}\">unsubscribe</a>", "html")
+	require.Error(t, err)
+	_, err = emailBroadcastBody("body", "markdown")
+	require.Error(t, err)
+
+	resolved, err := resolveEmailBroadcastUnsubscribeURL(`<a href="{{unsubscribe_url}}">unsubscribe</a>`, "https://example.com/unsubscribe?a=1&b=2")
+	require.NoError(t, err)
+	require.Equal(t, `<a href="https://example.com/unsubscribe?a=1&amp;b=2">unsubscribe</a>`, resolved)
+	for _, invalid := range []string{"http://example.com/unsubscribe", "javascript:alert(1)", "https://user:pass@example.com/unsubscribe"} {
+		_, err = resolveEmailBroadcastUnsubscribeURL(`<a href="{{unsubscribe_url}}">unsubscribe</a>`, invalid)
+		require.Error(t, err)
+	}
+}

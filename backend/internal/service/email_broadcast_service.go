@@ -11,6 +11,7 @@ import (
 	"html"
 	"log/slog"
 	"net/mail"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -76,6 +77,8 @@ type EmailBroadcastInput struct {
 	Recipients      string `json:"recipients"`
 	Subject         string `json:"subject"`
 	Content         string `json:"content"`
+	ContentFormat   string `json:"content_format"`
+	UnsubscribeURL  string `json:"unsubscribe_url"`
 	IntervalSeconds int    `json:"interval_seconds"`
 }
 
@@ -83,6 +86,7 @@ type EmailBroadcast struct {
 	ID              string    `json:"id"`
 	Subject         string    `json:"subject"`
 	Content         string    `json:"content,omitempty"`
+	ContentFormat   string    `json:"content_format"`
 	IntervalSeconds int       `json:"interval_seconds"`
 	Status          string    `json:"status"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -162,12 +166,57 @@ func emailBroadcastHTML(content string) string {
 	return `<!doctype html><html><body><div style="font-family:Arial,sans-serif;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere">` + strings.ReplaceAll(html.EscapeString(content), "\n", "<br>\n") + `</div></body></html>`
 }
 
+func resolveEmailBroadcastUnsubscribeURL(content, unsubscribeURL string) (string, error) {
+	if !strings.Contains(content, "{{unsubscribe_url}}") {
+		return content, nil
+	}
+	parsed, err := url.Parse(strings.TrimSpace(unsubscribeURL))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return "", infraerrors.BadRequest("BROADCAST_INVALID_UNSUBSCRIBE_URL", "A valid HTTPS unsubscribe URL is required")
+	}
+	return strings.ReplaceAll(content, "{{unsubscribe_url}}", html.EscapeString(parsed.String())), nil
+}
+
+func emailBroadcastBody(content, format string) (string, error) {
+	switch format {
+	case "":
+		return emailBroadcastHTML(content), nil
+	case "text":
+		return emailBroadcastHTML(content), nil
+	case "html":
+		if strings.Contains(content, "{{unsubscribe_url}}") {
+			return "", infraerrors.BadRequest("BROADCAST_UNRESOLVED_TEMPLATE", "Replace the unsubscribe URL placeholder before sending")
+		}
+		return content, nil
+	default:
+		return "", infraerrors.BadRequest("BROADCAST_INVALID_FORMAT", "Message format must be text or html")
+	}
+}
+
 func (s *EmailBroadcastService) Create(ctx context.Context, actorID int64, input EmailBroadcastInput) (*EmailBroadcastDetail, error) {
 	if _, err := uuid.Parse(input.ID); err != nil || actorID <= 0 {
 		return nil, infraerrors.BadRequest("BROADCAST_INVALID_ID", "A valid request UUID is required")
 	}
 	input.Subject = strings.TrimSpace(input.Subject)
 	if err := validateEmailBroadcastMessage(input.Subject, input.Content); err != nil {
+		return nil, err
+	}
+	input.ContentFormat = strings.ToLower(strings.TrimSpace(input.ContentFormat))
+	if input.ContentFormat == "" {
+		input.ContentFormat = "text"
+	}
+	if input.ContentFormat == "html" {
+		resolvedContent, err := resolveEmailBroadcastUnsubscribeURL(input.Content, input.UnsubscribeURL)
+		if err != nil {
+			return nil, err
+		}
+		input.Content = resolvedContent
+		if err := validateEmailBroadcastMessage(input.Subject, input.Content); err != nil {
+			return nil, err
+		}
+	}
+	body, err := emailBroadcastBody(input.Content, input.ContentFormat)
+	if err != nil {
 		return nil, err
 	}
 	if input.IntervalSeconds < 1 || input.IntervalSeconds > 60 {
@@ -184,10 +233,10 @@ func (s *EmailBroadcastService) Create(ctx context.Context, actorID int64, input
 	if err != nil {
 		return nil, err
 	}
-	if _, err = buildSMTPMessage(config, preview.Recipients[0], input.Subject, emailBroadcastHTML(input.Content)); err != nil {
+	if _, err = buildSMTPMessage(config, preview.Recipients[0], input.Subject, body); err != nil {
 		return nil, infraerrors.BadRequest("BROADCAST_INVALID_SMTP", "Check SMTP sender configuration")
 	}
-	payload, err := json.Marshal([]any{actorID, input.Subject, input.Content, input.IntervalSeconds, preview.Recipients})
+	payload, err := json.Marshal([]any{actorID, input.Subject, input.Content, input.ContentFormat, input.IntervalSeconds, preview.Recipients})
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +247,7 @@ func (s *EmailBroadcastService) Create(ctx context.Context, actorID int64, input
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	result, err := tx.ExecContext(ctx, `INSERT INTO email_broadcasts (id,actor_id,payload_hash,subject,content,interval_seconds) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING`, input.ID, actorID, hash, input.Subject, input.Content, input.IntervalSeconds)
+	result, err := tx.ExecContext(ctx, `INSERT INTO email_broadcasts (id,actor_id,payload_hash,subject,content,content_format,interval_seconds) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`, input.ID, actorID, hash, input.Subject, input.Content, input.ContentFormat, input.IntervalSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +279,29 @@ func (s *EmailBroadcastService) Create(ctx context.Context, actorID int64, input
 }
 
 func (s *EmailBroadcastService) Test(ctx context.Context, recipient, subject, content string) error {
+	return s.TestWithFormat(ctx, recipient, subject, content, "text", "")
+}
+
+func (s *EmailBroadcastService) TestWithFormat(ctx context.Context, recipient, subject, content, format, unsubscribeURL string) error {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "" {
+		format = "text"
+	}
 	if err := validateEmailBroadcastMessage(subject, content); err != nil {
+		return err
+	}
+	if format == "html" {
+		var err error
+		content, err = resolveEmailBroadcastUnsubscribeURL(content, unsubscribeURL)
+		if err != nil {
+			return err
+		}
+		if err := validateEmailBroadcastMessage(subject, content); err != nil {
+			return err
+		}
+	}
+	body, err := emailBroadcastBody(content, format)
+	if err != nil {
 		return err
 	}
 	preview, err := ParseEmailBroadcastRecipients(recipient)
@@ -246,13 +317,13 @@ func (s *EmailBroadcastService) Test(ctx context.Context, recipient, subject, co
 	}
 	sendCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	if err := s.send(sendCtx, config, preview.Recipients[0], subject, emailBroadcastHTML(content)); err != nil {
+	if err := s.send(sendCtx, config, preview.Recipients[0], subject, body); err != nil {
 		return infraerrors.BadRequest("BROADCAST_TEST_FAILED", "SMTP test delivery failed; check SMTP configuration and recipient")
 	}
 	return nil
 }
 
-const emailBroadcastSelect = `SELECT b.id,b.subject,b.content,b.interval_seconds,b.status,b.created_at,
+const emailBroadcastSelect = `SELECT b.id,b.subject,b.content,b.content_format,b.interval_seconds,b.status,b.created_at,
 COUNT(r.id),COUNT(r.id) FILTER (WHERE r.status='pending'),COUNT(r.id) FILTER (WHERE r.status='sending'),
 COUNT(r.id) FILTER (WHERE r.status='sent'),COUNT(r.id) FILTER (WHERE r.status='failed'),
 COUNT(r.id) FILTER (WHERE r.status='unknown'),COUNT(r.id) FILTER (WHERE r.status='cancelled')
@@ -260,7 +331,7 @@ FROM email_broadcasts b LEFT JOIN email_broadcast_recipients r ON r.broadcast_id
 
 func scanEmailBroadcast(row interface{ Scan(...any) error }) (EmailBroadcast, error) {
 	var b EmailBroadcast
-	err := row.Scan(&b.ID, &b.Subject, &b.Content, &b.IntervalSeconds, &b.Status, &b.CreatedAt, &b.Total, &b.Pending, &b.Sending, &b.Sent, &b.Failed, &b.Unknown, &b.Cancelled)
+	err := row.Scan(&b.ID, &b.Subject, &b.Content, &b.ContentFormat, &b.IntervalSeconds, &b.Status, &b.CreatedAt, &b.Total, &b.Pending, &b.Sending, &b.Sent, &b.Failed, &b.Unknown, &b.Cancelled)
 	return b, err
 }
 
@@ -370,9 +441,9 @@ func (s *EmailBroadcastService) tick(ctx context.Context) error {
 	if sending {
 		return tx.Commit()
 	}
-	var id, subject, content string
+	var id, subject, content, format string
 	var interval int
-	err = tx.QueryRowContext(ctx, `SELECT id,subject,content,interval_seconds FROM email_broadcasts WHERE status IN ('queued','running') AND next_send_at<=NOW() ORDER BY created_at,id LIMIT 1 FOR UPDATE`).Scan(&id, &subject, &content, &interval)
+	err = tx.QueryRowContext(ctx, `SELECT id,subject,content,content_format,interval_seconds FROM email_broadcasts WHERE status IN ('queued','running') AND next_send_at<=NOW() ORDER BY created_at,id LIMIT 1 FOR UPDATE`).Scan(&id, &subject, &content, &format, &interval)
 	if errors.Is(err, sql.ErrNoRows) {
 		return tx.Commit()
 	}
@@ -390,10 +461,14 @@ func (s *EmailBroadcastService) tick(ctx context.Context) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	body, bodyErr := emailBroadcastBody(content, format)
 	config, sendErr := s.email.GetSMTPConfig(ctx)
+	if bodyErr != nil {
+		sendErr = bodyErr
+	}
 	if sendErr == nil {
 		sendCtx, stop := context.WithTimeout(ctx, 25*time.Second)
-		sendErr = s.send(sendCtx, config, email, subject, emailBroadcastHTML(content))
+		sendErr = s.send(sendCtx, config, email, subject, body)
 		stop()
 	}
 	status, detail := "sent", ""

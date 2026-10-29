@@ -98,12 +98,34 @@ try {
   await page.screenshot({ path: path.join(output, 'desktop-history.png'), fullPage: true })
   for (const theme of ['light', 'dark']) {
     await page.setViewportSize({ width: 390, height: 844 })
+    await page.waitForFunction(() => {
+      const sidebar = document.querySelector('.sidebar')?.getBoundingClientRect()
+      const main = document.querySelector('main')?.getBoundingClientRect()
+      return sidebar && main && sidebar.right <= 1 && main.left <= 1
+    })
     await page.evaluate(theme => {
       document.documentElement.classList.toggle('dark', theme === 'dark')
       document.documentElement.dataset.theme = theme
     }, theme)
     await page.locator('#broadcast-recipients').fill('123456789\n987654321')
-    const dimensions = await page.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth }))
+    const dimensions = await page.evaluate(() => {
+      const overflow = [...document.querySelectorAll('body *')]
+        .map(element => {
+          const rect = element.getBoundingClientRect()
+          return {
+            tag: element.tagName.toLowerCase(),
+            id: element.id,
+            className: typeof element.className === 'string' ? element.className : '',
+            left: Math.round(rect.left),
+            right: Math.round(rect.right)
+          }
+        })
+        .filter(element => element.right > innerWidth + 1)
+        .sort((a, b) => b.right - a.right)
+        .slice(0, 12)
+      return { viewport: innerWidth, width: document.documentElement.scrollWidth, overflow }
+    })
+    if (dimensions.width > dimensions.viewport) await page.screenshot({ path: path.join(output, `phone-${theme}-overflow.png`), fullPage: true })
     assert.ok(dimensions.width <= dimensions.viewport, JSON.stringify(dimensions))
     await page.screenshot({ path: path.join(output, `phone-${theme}.png`), fullPage: true })
   }

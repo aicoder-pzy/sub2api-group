@@ -1,4 +1,5 @@
 import { mount, flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import EmailBroadcastsView from '../EmailBroadcastsView.vue'
 import * as api from '@/api/admin/emailBroadcasts'
@@ -10,7 +11,7 @@ vi.mock('vue-i18n', async () => ({
   useI18n: () => ({ t: (key: string) => key })
 }))
 const mountView = () => mount(EmailBroadcastsView, { global: { stubs: { RouterLink: true, BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /><slot name="footer" /></div>' } } } })
-type VM = { recipients: string; subject: string; content: string; preview: api.RecipientPreview | null; pending: api.BroadcastInput | null; previewRecipients: () => Promise<void>; prepareSend: () => Promise<void>; submit: () => Promise<void>; useValidRecipients: () => void }
+type VM = { recipients: string; subject: string; content: string; contentFormat: api.BroadcastContentFormat; unsubscribeUrl: string; preview: api.RecipientPreview | null; pending: api.BroadcastInput | null; previewRecipients: () => Promise<void>; prepareSend: () => Promise<void>; submit: () => Promise<void>; useValidRecipients: () => void; loadPromotionTemplate: () => void; resolvedContent: () => string; previewHtml: (source: string, url?: string) => string }
 
 describe('Email broadcasts', () => {
   const wrappers: ReturnType<typeof mountView>[] = []
@@ -59,5 +60,23 @@ describe('Email broadcasts', () => {
     expect(vm.recipients).toBe('67890@qq.com')
     expect(vm.preview?.invalid).toEqual([])
     expect(api.create).not.toHaveBeenCalled()
+  })
+
+  it('loads the bundled HTML promotion and requires a valid HTTPS unsubscribe URL', async () => {
+    const { wrapper, vm } = view(); await flushPromises()
+    vm.loadPromotionTemplate()
+    await nextTick()
+    expect(vm.contentFormat).toBe('html')
+    expect(vm.content).toContain('91tokenai')
+    expect(wrapper.find('iframe[sandbox=""]').exists()).toBe(true)
+    expect(() => vm.resolvedContent()).toThrow('unsubscribeUrlRequired')
+    vm.unsubscribeUrl = 'http://example.com/unsubscribe'
+    expect(() => vm.resolvedContent()).toThrow('unsubscribeUrlRequired')
+    vm.unsubscribeUrl = 'https://example.com/unsubscribe?x=1&y=2'
+    expect(() => vm.resolvedContent()).not.toThrow()
+    expect(vm.previewHtml(vm.content, vm.unsubscribeUrl)).toContain('https://example.com/unsubscribe?x=1&amp;y=2')
+    await vm.prepareSend()
+    expect(vm.pending?.content).toContain('{{unsubscribe_url}}')
+    expect(vm.pending?.unsubscribe_url).toBe(vm.unsubscribeUrl)
   })
 })

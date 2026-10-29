@@ -41,6 +41,10 @@ func TestEmailBroadcastPersistentQueue(t *testing.T) {
 		_, err = db.Exec(string(migration))
 		require.NoError(t, err)
 	}
+	formatMigration, err := os.ReadFile("../../migrations/262_email_broadcast_content_format.sql")
+	require.NoError(t, err)
+	_, err = db.Exec(string(formatMigration))
+	require.NoError(t, err)
 	svc := NewEmailBroadcastService(db, NewEmailService(&broadcastTestSettings{}, nil))
 	input := EmailBroadcastInput{ID: uuid.NewString(), Recipients: "12345,67890,11111,12345@qq.com", Subject: "通知", Content: "<script>plain</script>\n正文", IntervalSeconds: 2}
 	// Retried and concurrent submissions create exactly one immutable job.

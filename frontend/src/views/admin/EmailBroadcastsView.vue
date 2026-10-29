@@ -33,9 +33,25 @@
           <div class="space-y-3">
             <label for="broadcast-subject" class="input-label">{{ text('subject') }}</label>
             <input id="broadcast-subject" v-model="subject" class="input w-full" maxlength="200" required />
-            <label for="broadcast-content" class="input-label">{{ text('content') }}</label>
-            <textarea id="broadcast-content" v-model="content" rows="10" maxlength="100000" class="input w-full" required />
-            <p class="input-hint">{{ text('contentHint') }}</p>
+            <div class="flex flex-wrap items-end justify-between gap-2">
+              <label for="broadcast-content" class="input-label">{{ text('content') }}</label>
+              <div class="flex items-center gap-2" role="group" :aria-label="text('contentFormat')">
+                <button type="button" class="btn btn-secondary" :class="{ 'ring-2 ring-primary-500': contentFormat === 'text' }" :aria-pressed="contentFormat === 'text' ? 'true' : 'false'" @click="contentFormat = 'text'">{{ text('plainText') }}</button>
+                <button type="button" class="btn btn-secondary" :class="{ 'ring-2 ring-primary-500': contentFormat === 'html' }" :aria-pressed="contentFormat === 'html' ? 'true' : 'false'" @click="contentFormat = 'html'">{{ text('html') }}</button>
+                <button v-if="contentFormat === 'html'" type="button" class="btn btn-secondary" @click="loadPromotionTemplate">{{ text('loadTemplate') }}</button>
+              </div>
+            </div>
+            <textarea id="broadcast-content" v-model="content" rows="10" maxlength="100000" class="input w-full font-mono text-sm" :placeholder="contentFormat === 'html' ? text('htmlPlaceholder') : ''" required />
+            <p class="input-hint">{{ text(contentFormat === 'html' ? 'htmlHint' : 'contentHint') }}</p>
+            <template v-if="contentFormat === 'html'">
+              <label for="broadcast-unsubscribe-url" class="input-label">{{ text('unsubscribeUrl') }}</label>
+              <input id="broadcast-unsubscribe-url" v-model="unsubscribeUrl" type="url" class="input w-full" :placeholder="text('unsubscribePlaceholder')" />
+              <p class="input-hint">{{ text('unsubscribeHint') }}</p>
+              <div v-if="content.trim()" class="space-y-2">
+                <p class="input-label">{{ text('htmlPreview') }}</p>
+                <iframe :srcdoc="htmlPreview" sandbox="" :title="text('htmlPreview')" class="h-[520px] w-full rounded-lg border border-gray-200 bg-white dark:border-dark-600" />
+              </div>
+            </template>
             <label for="broadcast-interval" class="input-label">{{ text('interval') }}</label>
             <input id="broadcast-interval" v-model.number="interval" type="number" min="1" max="60" step="1" class="input w-28" required />
             <p class="input-hint">{{ text('intervalHint') }}</p>
@@ -75,7 +91,9 @@
       <template v-if="pending">
         <p class="mb-3 font-medium">{{ text('confirmCount', { count: preview?.recipients.length || 0 }) }}</p>
         <p class="mb-2 break-words font-semibold">{{ pending.subject }}</p>
-        <p class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-700">{{ pending.content }}</p>
+        <p class="mb-2 text-sm">{{ text('format') }}: {{ text(pending.content_format === 'html' ? 'html' : 'plainText') }}</p>
+        <p v-if="pending.content_format === 'text'" class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-700">{{ pending.content }}</p>
+        <iframe v-else :srcdoc="previewHtml(pending.content, pending.unsubscribe_url)" sandbox="" :title="text('htmlPreview')" class="h-[420px] w-full rounded-lg border border-gray-200 bg-white dark:border-dark-600" />
         <p class="mt-3 text-sm">{{ text('confirmHint', { interval: pending.interval_seconds }) }}</p>
         <p v-if="submitError" role="alert" class="mt-3 text-red-600 dark:text-red-400">{{ submitError }}</p>
       </template>
@@ -85,17 +103,18 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import * as api from '@/api/admin/emailBroadcasts'
 import { importBroadcastRecipients } from '@/utils/emailBroadcastImport'
+import promotionTemplate from '@/assets/templates/91token-promotion.html?raw'
 
 const { t } = useI18n()
 const text = (key: string, params: Record<string, string | number> = {}) => t(`emailBroadcast.${key}`, params)
-const recipients = ref(''), subject = ref(''), content = ref(''), interval = ref(2), testRecipient = ref('')
+const recipients = ref(''), subject = ref(''), content = ref(''), contentFormat = ref<api.BroadcastContentFormat>('text'), unsubscribeUrl = ref(''), interval = ref(2), testRecipient = ref('')
 const fileInput = ref<HTMLInputElement | null>(null), preview = ref<api.RecipientPreview | null>(null)
 const busy = ref(false), refreshing = ref(false), error = ref(''), notice = ref(''), submitError = ref('')
 const items = ref<api.Broadcast[]>([]), detail = ref<api.BroadcastDetail | null>(null), selectedID = ref('')
@@ -107,7 +126,30 @@ const statusLabel = (status: string) => text(`statuses.${status}`)
 const failure = (e: unknown) => (e as { message?: string })?.message || text('failed')
 let requestID = '', timer: ReturnType<typeof setInterval> | undefined, alive = true, refreshVersion = 0
 watch(recipients, () => { preview.value = null; requestID = '' }, { flush: 'sync' })
-watch([subject, content, interval], () => { requestID = '' }, { flush: 'sync' })
+watch([subject, content, contentFormat, unsubscribeUrl, interval], () => { requestID = '' }, { flush: 'sync' })
+
+function escapeHtmlAttribute(value: string) {
+  return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] || character)
+}
+function isHttpsUrl(value: string) {
+  try { return new URL(value).protocol === 'https:' } catch { return false }
+}
+function previewHtml(source: string, url = unsubscribeUrl.value) {
+  const replacement = url && isHttpsUrl(url) ? escapeHtmlAttribute(url) : '#'
+  return source.split('{{unsubscribe_url}}').join(replacement)
+}
+const htmlPreview = computed(() => previewHtml(content.value))
+function resolvedContent() {
+  if (contentFormat.value !== 'html') return content.value
+  if (content.value.includes('{{unsubscribe_url}}') && !isHttpsUrl(unsubscribeUrl.value.trim())) throw new Error('unsubscribeUrlRequired')
+  return content.value
+}
+function loadPromotionTemplate() {
+  contentFormat.value = 'html'
+  content.value = promotionTemplate
+  if (!subject.value.trim()) subject.value = text('promotionSubject')
+  notice.value = text('templateLoaded')
+}
 
 async function fetchPreview() {
   const source = recipients.value
@@ -146,10 +188,11 @@ async function prepareSend() {
     const result = preview.value || await fetchPreview()
     if (!result) return
     if (!result.recipients.length || result.invalid.length) { error.value = text('invalidHint'); return }
-    if (new TextEncoder().encode(content.value).length > 100000) { error.value = text('contentTooLarge'); return }
+    const message = resolvedContent()
+    if (new TextEncoder().encode(message).length > 100000) { error.value = text('contentTooLarge'); return }
     requestID ||= crypto.randomUUID()
-    pending.value = { id: requestID, recipients: result.recipients.join('\n'), subject: subject.value.trim(), content: content.value, interval_seconds: interval.value }
-  } catch (e) { error.value = failure(e) } finally { busy.value = false }
+    pending.value = { id: requestID, recipients: result.recipients.join('\n'), subject: subject.value.trim(), content: message, content_format: contentFormat.value, unsubscribe_url: unsubscribeUrl.value.trim(), interval_seconds: interval.value }
+  } catch (e) { error.value = (e as Error).message === 'unsubscribeUrlRequired' ? text('unsubscribeUrlRequired') : failure(e) } finally { busy.value = false }
 }
 function closeConfirmation() { if (!busy.value) pending.value = null }
 async function submit() {
@@ -159,14 +202,14 @@ async function submit() {
     const result = await api.create(pending.value)
     selectedID.value = result.broadcast.id; recipientPage.value = 1; recipientStatus.value = ''; historyPage.value = 1
     detail.value = result; pending.value = null; notice.value = text('queued')
-    recipients.value = ''; subject.value = ''; content.value = ''; requestID = ''
+    recipients.value = ''; subject.value = ''; content.value = ''; contentFormat.value = 'text'; unsubscribeUrl.value = ''; requestID = ''
     await refresh()
   } catch (e) { submitError.value = failure(e) } finally { busy.value = false }
 }
 async function sendTest() {
   busy.value = true; error.value = ''; notice.value = ''
-  try { await api.test(testRecipient.value, subject.value, content.value); notice.value = text('testSent') }
-  catch (e) { error.value = failure(e) } finally { busy.value = false }
+  try { await api.test(testRecipient.value, subject.value, resolvedContent(), contentFormat.value, unsubscribeUrl.value.trim()); notice.value = text('testSent') }
+  catch (e) { error.value = (e as Error).message === 'unsubscribeUrlRequired' ? text('unsubscribeUrlRequired') : failure(e) } finally { busy.value = false }
 }
 async function cancelJob(id: string) {
   busy.value = true; error.value = ''
