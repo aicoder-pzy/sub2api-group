@@ -55,7 +55,7 @@
               </details>
               <label for="broadcast-unsubscribe-url" class="input-label">{{ text('unsubscribeUrl') }}</label>
               <input id="broadcast-unsubscribe-url" v-model="unsubscribeUrl" type="url" class="input w-full" :placeholder="text('unsubscribePlaceholder')" />
-              <p class="input-hint">{{ text('unsubscribeHint') }}</p>
+              <p class="input-hint">{{ text('unsubscribeHint', { placeholder: '{{unsubscribe_url}}' }) }}</p>
             </template>
             <label for="broadcast-interval" class="input-label">{{ text('interval') }}</label>
             <input id="broadcast-interval" v-model.number="interval" type="number" min="1" max="60" step="1" class="input w-28" required />

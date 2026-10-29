@@ -28,7 +28,7 @@ export default {
   htmlSource: '编辑 HTML 源码',
   unsubscribeUrl: '退订地址（HTTPS）',
   unsubscribePlaceholder: 'https://example.com/unsubscribe',
-  unsubscribeHint: '模板中的 {{unsubscribe_url}} 会替换为此地址；只接受 HTTPS 地址。',
+  unsubscribeHint: '模板中的 {placeholder} 会替换为此地址；只接受 HTTPS 地址。',
   unsubscribeUrlRequired: 'HTML 中包含退订占位符，请填写有效的 HTTPS 退订地址。',
   interval: '发送间隔（秒 / 封）',
   intervalHint: '默认 2 秒一封，可设 1–60 秒；任务在后台继续执行，关闭页面也不影响。',

@@ -17,6 +17,7 @@ try {
     localStorage.setItem('auth_token', 'TEST_PANEL_TOKEN')
     localStorage.setItem('auth_user', JSON.stringify(user))
     localStorage.setItem('sub2api_locale', 'zh')
+    localStorage.setItem('admin_guide_1_admin_v4_interactive', 'true')
   }, user)
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url()), pathname = url.pathname
@@ -57,6 +58,7 @@ try {
   })
   const page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
   await page.goto('http://127.0.0.1:4173/admin/email-broadcasts')
   try {
     await page.getByTestId('email-broadcast-title').waitFor({ timeout: 10000 })
@@ -66,6 +68,7 @@ try {
     throw error
   }
   assert.equal(await page.locator('#broadcast-subject').inputValue(), '91tokenai｜注册领取 1 元体验额度')
+  await page.getByText('模板中的 {{unsubscribe_url}} 会替换为此地址；只接受 HTTPS 地址。', { exact: true }).waitFor()
   assert.equal(await page.getByRole('button', { name: 'HTML', exact: true }).getAttribute('aria-pressed'), 'true')
   const promotionPreview = page.frameLocator('iframe[title="HTML 预览"]')
   await promotionPreview.getByRole('heading', { name: /GPT.*不降智/ }).waitFor()
