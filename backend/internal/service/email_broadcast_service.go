@@ -219,7 +219,7 @@ func (s *EmailBroadcastService) Create(ctx context.Context, actorID int64, input
 		if err != nil {
 			return nil, err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO email_broadcast_recipients (broadcast_id,email) SELECT $1,value FROM jsonb_array_elements_text($2::jsonb)`, input.ID, string(recipients)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO email_broadcast_recipients (broadcast_id,email) SELECT $1,recipient.value FROM jsonb_array_elements_text($2::jsonb) WITH ORDINALITY AS recipient(value,ordinal) ORDER BY recipient.ordinal`, input.ID, string(recipients)); err != nil {
 			return nil, err
 		}
 	}
