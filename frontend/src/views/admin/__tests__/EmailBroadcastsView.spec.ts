@@ -63,14 +63,23 @@ describe('Email broadcasts', () => {
     expect(api.create).not.toHaveBeenCalled()
   })
 
-  it('shows the bundled promotion and preview by default and requires a valid HTTPS unsubscribe URL', async () => {
+  it('shows the promotion and allows sending without an unsubscribe URL', async () => {
     const { wrapper, vm } = view(); await flushPromises()
     expect(vm.contentFormat).toBe('html')
     expect(vm.subject).toBe('emailBroadcast.promotionSubject')
     expect(vm.content).toBe(promotionTemplate)
     expect(wrapper.find('iframe[sandbox=""]').exists()).toBe(true)
     expect(wrapper.find('iframe').attributes('srcdoc')).toBe(vm.previewHtml(promotionTemplate))
-    expect(() => vm.resolvedContent()).toThrow('unsubscribeUrlRequired')
+    expect(() => vm.resolvedContent()).not.toThrow()
+    expect(vm.previewHtml(vm.content)).not.toContain('取消订阅')
+    expect(vm.previewHtml(vm.content)).not.toContain('{{unsubscribe_url}}')
+    expect(vm.previewHtml(vm.content)).toContain('91tokenai.top/sign-up')
+    vm.recipients = '123456789'
+    await vm.prepareSend()
+    expect(vm.pending?.content_format).toBe('html')
+    expect(vm.pending?.unsubscribe_url).toBe('')
+    expect(vm.previewHtml(vm.pending!.content, vm.pending!.unsubscribe_url)).not.toContain('取消订阅')
+    expect(api.create).not.toHaveBeenCalled()
     vm.unsubscribeUrl = 'http://example.com/unsubscribe'
     expect(() => vm.resolvedContent()).toThrow('unsubscribeUrlRequired')
     vm.unsubscribeUrl = 'https://example.com/unsubscribe?x=1&y=2'

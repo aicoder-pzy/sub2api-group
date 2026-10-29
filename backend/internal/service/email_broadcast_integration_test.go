@@ -152,4 +152,31 @@ func TestEmailBroadcastPersistentQueue(t *testing.T) {
 	require.NoError(t, restarted.Test(ctx, "11111", "测试", "test"))
 	require.EqualValues(t, 4, calls.Load())
 	require.Error(t, restarted.Test(ctx, "11111,22222", "test", "test"))
+
+	// The bundled promotion supports both queued and test delivery without an unsubscribe URL.
+	promotion, err := os.ReadFile("../../../frontend/src/assets/templates/91token-promotion.html")
+	require.NoError(t, err)
+	for _, unsubscribeURL := range []string{"", "https://example.com/unsubscribe?a=1&b=2"} {
+		expected, err := resolveEmailBroadcastUnsubscribeURL(string(promotion), unsubscribeURL)
+		require.NoError(t, err)
+		require.NotContains(t, expected, "{{unsubscribe_url}}")
+		require.Contains(t, expected, "91tokenai.top/sign-up")
+		if unsubscribeURL == "" {
+			require.NotContains(t, expected, "取消订阅")
+		} else {
+			require.Contains(t, expected, "https://example.com/unsubscribe?a=1&amp;b=2")
+		}
+		var delivered int
+		restarted.send = func(_ context.Context, _ *SMTPConfig, _, _, body string) error {
+			require.Equal(t, expected, body)
+			delivered++
+			return nil
+		}
+		job, err := restarted.Create(ctx, 1, EmailBroadcastInput{ID: uuid.NewString(), Recipients: "11111", Subject: "推广", Content: string(promotion), ContentFormat: "html", UnsubscribeURL: unsubscribeURL, IntervalSeconds: 2})
+		require.NoError(t, err)
+		require.Equal(t, expected, job.Broadcast.Content)
+		require.NoError(t, restarted.tick(ctx))
+		require.NoError(t, restarted.TestWithFormat(ctx, "11111", "推广", string(promotion), "html", unsubscribeURL))
+		require.Equal(t, 2, delivered)
+	}
 }
