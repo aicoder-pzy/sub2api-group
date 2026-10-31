@@ -70,11 +70,13 @@ try {
     console.error(JSON.stringify({ url: page.url(), title: await page.title(), body: (await page.locator('body').innerText()).slice(0, 2000), errors }))
     throw error
   }
-  assert.equal(await page.locator('#broadcast-subject').inputValue(), '91tokenai｜注册领取 1 元体验额度')
+  assert.equal(await page.locator('#broadcast-subject').inputValue(), '91tokenai｜福利分组上新：全模型不降智 0.09×，注册送 1 元')
   await page.getByText('留空时不显示内置模板的退订行；填写后，{{unsubscribe_url}} 会替换为此 HTTPS 地址。', { exact: true }).waitFor()
   assert.equal(await page.getByRole('button', { name: 'HTML', exact: true }).getAttribute('aria-pressed'), 'true')
   const promotionPreview = page.frameLocator('iframe[title="HTML 预览"]')
   await promotionPreview.getByRole('heading', { name: /GPT.*不降智/ }).waitFor()
+  await promotionPreview.getByText('福利-全模型不降智', { exact: false }).waitFor()
+  await promotionPreview.getByText('分组倍率 0.09×', { exact: true }).waitFor()
   await promotionPreview.getByText('91token 视频站', { exact: true }).waitFor()
   assert.equal(await promotionPreview.getByRole('link', { name: '取消订阅', exact: true }).count(), 0)
   await page.locator('#broadcast-unsubscribe-url').fill('https://example.com/unsubscribe?x=1&y=2')
