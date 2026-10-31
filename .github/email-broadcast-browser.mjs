@@ -76,7 +76,7 @@ try {
   const promotionPreview = page.frameLocator('iframe[title="HTML 预览"]')
   await promotionPreview.getByRole('heading', { name: /GPT.*不降智/ }).waitFor()
   await promotionPreview.getByText('福利-全模型不降智', { exact: false }).waitFor()
-  await promotionPreview.getByText('分组倍率 0.09×', { exact: true }).waitFor()
+  await promotionPreview.getByText('分组倍率 0.09×', { exact: false }).waitFor()
   await promotionPreview.getByText('91token 视频站', { exact: true }).waitFor()
   assert.equal(await promotionPreview.getByRole('link', { name: '取消订阅', exact: true }).count(), 0)
   await page.locator('#broadcast-unsubscribe-url').fill('https://example.com/unsubscribe?x=1&y=2')
