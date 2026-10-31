@@ -19,7 +19,7 @@ export default {
   html: 'HTML',
   format: '格式',
   loadTemplate: '恢复 91token 内置模板',
-  promotionSubject: '91tokenai｜注册领取 1 元体验额度',
+  promotionSubject: '91tokenai｜福利分组上新：全模型不降智 0.09×，注册送 1 元',
   templateLoaded: '已载入 91token 推广模板，退订地址可选填。',
   contentHint: '填写普通文字，保留换行，不执行 HTML。发送前可先发一封测试。',
   htmlHint: '已内置推广邮件，可展开源码编辑。发送前请检查预览，退订地址可选填。',
