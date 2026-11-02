@@ -19,7 +19,7 @@ export default {
   html: 'HTML',
   format: 'Format',
   loadTemplate: 'Restore built-in 91token template',
-  promotionSubject: "91tokenai {'|'} Claim your 1 RMB trial credit",
+  promotionSubject: "91tokenai {'|'} Full-capability models from 0.06× + 1 RMB trial credit",
   templateLoaded: '91token promotion template loaded. The unsubscribe URL is optional.',
   contentHint: 'Plain text with line breaks. HTML is not executed. Send yourself a test before broadcasting.',
   htmlHint: 'The promotion email is ready. Expand the source to edit and check the preview. The unsubscribe URL is optional.',

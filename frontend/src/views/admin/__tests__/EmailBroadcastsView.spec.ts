@@ -69,7 +69,7 @@ describe('Email broadcasts', () => {
     expect(vm.subject).toBe('emailBroadcast.promotionSubject')
     expect(vm.content).toBe(promotionTemplate)
     expect(vm.content).toContain('福利-全模型不降智')
-    expect(vm.content).toContain('分组倍率 0.09×')
+    expect(vm.content).toContain('最低倍率 0.06 起')
     expect(wrapper.find('iframe[sandbox=""]').exists()).toBe(true)
     expect(wrapper.find('iframe').attributes('srcdoc')).toBe(vm.previewHtml(promotionTemplate))
     expect(() => vm.resolvedContent()).not.toThrow()
