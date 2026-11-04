@@ -195,6 +195,10 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 
 	created, err := builder.Save(ctx)
 	if err != nil {
+		var pgErr *pq.Error
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.Constraint == "accounts_upstream_import_identity" {
+			return service.ErrUpstreamKeyAlreadyImported.WithCause(err)
+		}
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
 

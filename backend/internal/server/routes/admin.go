@@ -218,6 +218,7 @@ func registerContentModerationRoutes(admin *gin.RouterGroup, h *handler.Handlers
 }
 
 func registerAdminAPIKeyRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	admin.GET("/api-keys/prompt-profiles", h.Admin.APIKey.PromptProfiles)
 	apiKeys := admin.Group("/api-keys")
 	{
 		apiKeys.PUT("/:id", h.Admin.APIKey.UpdateGroup)
@@ -400,6 +401,14 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/upstream-billing-probe/settings", h.Admin.Account.GetUpstreamBillingProbeSettings)
 		accounts.PUT("/upstream-billing-probe/settings", h.Admin.Account.UpdateUpstreamBillingProbeSettings)
 		accounts.POST("/upstream-billing-probe/batch", h.Admin.Account.ProbeUpstreamBillingBatch)
+		accounts.GET("/upstream-sites", h.Admin.Account.ListUpstreamSites)
+		accounts.POST("/upstream-sites", h.Admin.Account.SaveUpstreamSite)
+		accounts.PUT("/upstream-sites/:site_id", h.Admin.Account.SaveUpstreamSite)
+		accounts.DELETE("/upstream-sites/:site_id", h.Admin.Account.DeleteUpstreamSite)
+		accounts.GET("/upstream-sites/:site_id/inventory", h.Admin.Account.UpstreamSiteInventory)
+		accounts.GET("/upstream-sites/:site_id/keys/:key_id/models", h.Admin.Account.UpstreamSiteModels)
+		accounts.POST("/upstream-sites/:site_id/keys", h.Admin.Account.CreateUpstreamSiteKey)
+		accounts.POST("/upstream-sites/:site_id/import", h.Admin.Account.ImportUpstreamSiteKey)
 		accounts.GET("/upstream-balance/settings", h.Admin.Account.GetUpstreamBalanceSettings)
 		accounts.PUT("/upstream-balance/settings", h.Admin.Account.UpdateUpstreamBalanceSettings)
 		accounts.POST("/upstream-balance/batch", h.Admin.Account.ProbeUpstreamBalanceBatch)

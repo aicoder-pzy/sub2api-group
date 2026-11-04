@@ -748,6 +748,7 @@ export interface CompositeRouteDecision {
 }
 
 export interface ApiKey {
+  prompt_policy?: Record<string, string> | null
   model_mapping?: Record<string, string> | null
   id: number
   user_id: number
@@ -781,6 +782,7 @@ export interface ApiKey {
 }
 
 export interface CreateApiKeyRequest {
+  prompt_policy?: Record<string, string> | null
   model_mapping?: Record<string, string>
   name: string
   group_id?: number | null
@@ -795,6 +797,7 @@ export interface CreateApiKeyRequest {
 }
 
 export interface UpdateApiKeyRequest {
+  prompt_policy?: Record<string, string> | null
   model_mapping?: Record<string, string>
   name?: string
   group_id?: number | null

@@ -14,7 +14,10 @@ import chat from './chat'
 import modelTrace from './modelTrace'
 import emailBroadcast from './emailBroadcast'
 
+import zakoFeatures from './zakoFeatures'
+
 export default {
+  zakoFeatures,
   channelOps,
   ...landing,
   ...common,

@@ -66,9 +66,10 @@ export async function create(
   quota?: number,
   expiresInDays?: number,
   rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number },
-  modelMapping?: Record<string, string>
+  modelMapping?: Record<string, string>,
+  promptPolicy?: Record<string, string>
 ): Promise<ApiKey> {
-  const payload: CreateApiKeyRequest = { name, model_mapping: modelMapping }
+  const payload: CreateApiKeyRequest = { name, model_mapping: modelMapping, prompt_policy: promptPolicy }
   if (groupId !== undefined) {
     payload.group_id = groupId
   }

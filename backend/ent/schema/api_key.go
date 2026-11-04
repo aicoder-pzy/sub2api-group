@@ -33,6 +33,7 @@ func (APIKey) Mixin() []ent.Mixin {
 
 func (APIKey) Fields() []ent.Field {
 	return []ent.Field{
+		field.JSON("prompt_policy", map[string]string{}).Optional(),
 		field.Int64("user_id"),
 		field.String("key").
 			MaxLen(128).

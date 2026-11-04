@@ -67,6 +67,12 @@ func (_c *APIKeyCreate) SetNillableDeletedAt(v *time.Time) *APIKeyCreate {
 	return _c
 }
 
+// SetPromptPolicy sets the "prompt_policy" field.
+func (_c *APIKeyCreate) SetPromptPolicy(v map[string]string) *APIKeyCreate {
+	_c.mutation.SetPromptPolicy(v)
+	return _c
+}
+
 // SetUserID sets the "user_id" field.
 func (_c *APIKeyCreate) SetUserID(v int64) *APIKeyCreate {
 	_c.mutation.SetUserID(v)
@@ -529,6 +535,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 		_spec.SetField(apikey.FieldDeletedAt, field.TypeTime, value)
 		_node.DeletedAt = &value
 	}
+	if value, ok := _c.mutation.PromptPolicy(); ok {
+		_spec.SetField(apikey.FieldPromptPolicy, field.TypeJSON, value)
+		_node.PromptPolicy = value
+	}
 	if value, ok := _c.mutation.Key(); ok {
 		_spec.SetField(apikey.FieldKey, field.TypeString, value)
 		_node.Key = value
@@ -734,6 +744,24 @@ func (u *APIKeyUpsert) UpdateDeletedAt() *APIKeyUpsert {
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (u *APIKeyUpsert) ClearDeletedAt() *APIKeyUpsert {
 	u.SetNull(apikey.FieldDeletedAt)
+	return u
+}
+
+// SetPromptPolicy sets the "prompt_policy" field.
+func (u *APIKeyUpsert) SetPromptPolicy(v map[string]string) *APIKeyUpsert {
+	u.Set(apikey.FieldPromptPolicy, v)
+	return u
+}
+
+// UpdatePromptPolicy sets the "prompt_policy" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdatePromptPolicy() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldPromptPolicy)
+	return u
+}
+
+// ClearPromptPolicy clears the value of the "prompt_policy" field.
+func (u *APIKeyUpsert) ClearPromptPolicy() *APIKeyUpsert {
+	u.SetNull(apikey.FieldPromptPolicy)
 	return u
 }
 
@@ -1168,6 +1196,27 @@ func (u *APIKeyUpsertOne) UpdateDeletedAt() *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) ClearDeletedAt() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetPromptPolicy sets the "prompt_policy" field.
+func (u *APIKeyUpsertOne) SetPromptPolicy(v map[string]string) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetPromptPolicy(v)
+	})
+}
+
+// UpdatePromptPolicy sets the "prompt_policy" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdatePromptPolicy() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdatePromptPolicy()
+	})
+}
+
+// ClearPromptPolicy clears the value of the "prompt_policy" field.
+func (u *APIKeyUpsertOne) ClearPromptPolicy() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearPromptPolicy()
 	})
 }
 
@@ -1827,6 +1876,27 @@ func (u *APIKeyUpsertBulk) UpdateDeletedAt() *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) ClearDeletedAt() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetPromptPolicy sets the "prompt_policy" field.
+func (u *APIKeyUpsertBulk) SetPromptPolicy(v map[string]string) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetPromptPolicy(v)
+	})
+}
+
+// UpdatePromptPolicy sets the "prompt_policy" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdatePromptPolicy() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdatePromptPolicy()
+	})
+}
+
+// ClearPromptPolicy clears the value of the "prompt_policy" field.
+func (u *APIKeyUpsertBulk) ClearPromptPolicy() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearPromptPolicy()
 	})
 }
 

@@ -7,6 +7,8 @@ import { keysAPI } from '@/api'
 import KeysView from '../KeysView.vue'
 import KeyModelMappingEditor from '@/components/keys/KeyModelMappingEditor.vue'
 
+vi.mock('@/api/client', () => ({ apiClient: { get: vi.fn().mockResolvedValue({ data: [] }) } }))
+
 const {
   listKeys,
   updateKey,

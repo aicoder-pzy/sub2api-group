@@ -32,6 +32,7 @@ func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
 
 // CreateAPIKeyRequest represents the create API key request payload
 type CreateAPIKeyRequest struct {
+	PromptPolicy  map[string]string `json:"prompt_policy"`
 	ModelMapping  map[string]string `json:"model_mapping"`
 	Name          string            `json:"name" binding:"required"`
 	GroupID       *int64            `json:"group_id"`        // nullable
@@ -49,6 +50,7 @@ type CreateAPIKeyRequest struct {
 
 // UpdateAPIKeyRequest represents the update API key request payload
 type UpdateAPIKeyRequest struct {
+	PromptPolicy *map[string]string `json:"prompt_policy"`
 	ModelMapping *map[string]string `json:"model_mapping"`
 	Name         string             `json:"name"`
 	GroupID      *int64             `json:"group_id"`
@@ -199,6 +201,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 	}
 
 	svcReq := service.CreateAPIKeyRequest{
+		PromptPolicy:  req.PromptPolicy,
 		ModelMapping:  req.ModelMapping,
 		Name:          req.Name,
 		GroupID:       req.GroupID,
@@ -255,6 +258,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	}
 
 	svcReq := service.UpdateAPIKeyRequest{
+		PromptPolicy:        req.PromptPolicy,
 		ModelMapping:        req.ModelMapping,
 		IPWhitelist:         req.IPWhitelist,
 		IPBlacklist:         req.IPBlacklist,

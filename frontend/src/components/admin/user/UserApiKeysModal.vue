@@ -44,7 +44,7 @@
             </div>
             <div class="flex items-center gap-1"><span>{{ t('admin.users.columns.created') }}: {{ formatDateTime(key.created_at) }}</span></div>
           </div>
-          <button type="button" class="btn btn-secondary mt-3 text-xs" @click="editMapping(key)">{{ t('keys.modelMapping') }} ({{ Object.keys(key.model_mapping || {}).length }})</button>
+          <button type="button" class="btn btn-secondary mt-3 text-xs" @click="editMapping(key)">{{ t('keys.modelMapping') }} ({{ Object.keys(key.model_mapping || {}).length }}) / {{ t('zakoFeatures.prompt.title') }}</button>
         </div>
       </div>
     </div>
@@ -53,6 +53,7 @@
   <BaseDialog :show="mappingKey !== null" :title="t('keys.modelMapping')" @close="mappingKey = null">
     <form class="space-y-4" @submit.prevent="saveMapping">
       <KeyModelMappingEditor v-model="mappingEntries" />
+      <KeyPromptPolicyEditor v-model="promptEntries" admin />
       <button type="submit" class="btn btn-primary" :disabled="savingMapping">{{ t('common.save') }}</button>
     </form>
   </BaseDialog>
@@ -121,6 +122,8 @@ import { adminAPI } from '@/api/admin'
 import { formatDateTime } from '@/utils/format'
 import type { AdminUser, AdminGroup, ApiKey } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import KeyPromptPolicyEditor from '@/components/keys/KeyPromptPolicyEditor.vue'
+import { buildKeyPromptPolicy } from '@/utils/keyPromptPolicy'
 import KeyModelMappingEditor from '@/components/keys/KeyModelMappingEditor.vue'
 import { buildKeyModelMapping, keyModelMappingEntries, type KeyModelMappingEntry } from '@/utils/keyModelMapping'
 import GroupBadge from '@/components/common/GroupBadge.vue'
@@ -133,13 +136,17 @@ const appStore = useAppStore()
 
 const mappingKey = ref<ApiKey | null>(null)
 const mappingEntries = ref<KeyModelMappingEntry[]>([])
+const promptEntries = ref<KeyModelMappingEntry[]>([])
 const savingMapping = ref(false)
 const editMapping = (key: ApiKey) => {
   mappingKey.value = key
   mappingEntries.value = keyModelMappingEntries(key.model_mapping)
+  promptEntries.value = keyModelMappingEntries(key.prompt_policy)
 }
 const saveMapping = async () => {
   if (!mappingKey.value) return
+  let policy: Record<string, string>
+  try { policy = buildKeyPromptPolicy(promptEntries.value) } catch { appStore.showError(t('zakoFeatures.prompt.invalid')); return }
   let mapping: Record<string, string>
   try { mapping = buildKeyModelMapping(mappingEntries.value) } catch {
     appStore.showError(t('keys.modelMappingInvalid'))
@@ -147,7 +154,7 @@ const saveMapping = async () => {
   }
   savingMapping.value = true
   try {
-    const result = await adminAPI.apiKeys.updateApiKeyModelMapping(mappingKey.value.id, mapping)
+    const result = await adminAPI.apiKeys.updateApiKeyModelMapping(mappingKey.value.id, mapping, policy)
     const index = apiKeys.value.findIndex(key => key.id === result.api_key.id)
     if (index !== -1) apiKeys.value[index] = result.api_key
     mappingKey.value = null

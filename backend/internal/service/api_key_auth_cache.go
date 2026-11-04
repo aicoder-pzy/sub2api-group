@@ -4,6 +4,7 @@ import "time"
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
+	PromptPolicy map[string]string        `json:"prompt_policy,omitempty"`
 	ModelMapping map[string]string        `json:"model_mapping,omitempty"`
 	Version      int                      `json:"version"`
 	APIKeyID     int64                    `json:"api_key_id"`

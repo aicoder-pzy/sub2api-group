@@ -114,6 +114,7 @@ type APIKeyMutation struct {
 	created_at         *time.Time
 	updated_at         *time.Time
 	deleted_at         *time.Time
+	prompt_policy      *map[string]string
 	key                *string
 	name               *string
 	status             *string
@@ -373,6 +374,55 @@ func (m *APIKeyMutation) DeletedAtCleared() bool {
 func (m *APIKeyMutation) ResetDeletedAt() {
 	m.deleted_at = nil
 	delete(m.clearedFields, apikey.FieldDeletedAt)
+}
+
+// SetPromptPolicy sets the "prompt_policy" field.
+func (m *APIKeyMutation) SetPromptPolicy(value map[string]string) {
+	m.prompt_policy = &value
+}
+
+// PromptPolicy returns the value of the "prompt_policy" field in the mutation.
+func (m *APIKeyMutation) PromptPolicy() (r map[string]string, exists bool) {
+	v := m.prompt_policy
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPromptPolicy returns the old "prompt_policy" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldPromptPolicy(ctx context.Context) (v map[string]string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPromptPolicy is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPromptPolicy requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPromptPolicy: %w", err)
+	}
+	return oldValue.PromptPolicy, nil
+}
+
+// ClearPromptPolicy clears the value of the "prompt_policy" field.
+func (m *APIKeyMutation) ClearPromptPolicy() {
+	m.prompt_policy = nil
+	m.clearedFields[apikey.FieldPromptPolicy] = struct{}{}
+}
+
+// PromptPolicyCleared returns if the "prompt_policy" field was cleared in this mutation.
+func (m *APIKeyMutation) PromptPolicyCleared() bool {
+	_, ok := m.clearedFields[apikey.FieldPromptPolicy]
+	return ok
+}
+
+// ResetPromptPolicy resets all changes to the "prompt_policy" field.
+func (m *APIKeyMutation) ResetPromptPolicy() {
+	m.prompt_policy = nil
+	delete(m.clearedFields, apikey.FieldPromptPolicy)
 }
 
 // SetUserID sets the "user_id" field.
@@ -1582,7 +1632,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 25)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1591,6 +1641,9 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.deleted_at != nil {
 		fields = append(fields, apikey.FieldDeletedAt)
+	}
+	if m.prompt_policy != nil {
+		fields = append(fields, apikey.FieldPromptPolicy)
 	}
 	if m.user != nil {
 		fields = append(fields, apikey.FieldUserID)
@@ -1669,6 +1722,8 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.UpdatedAt()
 	case apikey.FieldDeletedAt:
 		return m.DeletedAt()
+	case apikey.FieldPromptPolicy:
+		return m.PromptPolicy()
 	case apikey.FieldUserID:
 		return m.UserID()
 	case apikey.FieldKey:
@@ -1726,6 +1781,8 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldUpdatedAt(ctx)
 	case apikey.FieldDeletedAt:
 		return m.OldDeletedAt(ctx)
+	case apikey.FieldPromptPolicy:
+		return m.OldPromptPolicy(ctx)
 	case apikey.FieldUserID:
 		return m.OldUserID(ctx)
 	case apikey.FieldKey:
@@ -1797,6 +1854,13 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDeletedAt(v)
+		return nil
+	case apikey.FieldPromptPolicy:
+		v, ok := value.(map[string]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPromptPolicy(v)
 		return nil
 	case apikey.FieldUserID:
 		v, ok := value.(int64)
@@ -2077,6 +2141,9 @@ func (m *APIKeyMutation) ClearedFields() []string {
 	if m.FieldCleared(apikey.FieldDeletedAt) {
 		fields = append(fields, apikey.FieldDeletedAt)
 	}
+	if m.FieldCleared(apikey.FieldPromptPolicy) {
+		fields = append(fields, apikey.FieldPromptPolicy)
+	}
 	if m.FieldCleared(apikey.FieldGroupID) {
 		fields = append(fields, apikey.FieldGroupID)
 	}
@@ -2121,6 +2188,9 @@ func (m *APIKeyMutation) ClearField(name string) error {
 	case apikey.FieldDeletedAt:
 		m.ClearDeletedAt()
 		return nil
+	case apikey.FieldPromptPolicy:
+		m.ClearPromptPolicy()
+		return nil
 	case apikey.FieldGroupID:
 		m.ClearGroupID()
 		return nil
@@ -2164,6 +2234,9 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldDeletedAt:
 		m.ResetDeletedAt()
+		return nil
+	case apikey.FieldPromptPolicy:
+		m.ResetPromptPolicy()
 		return nil
 	case apikey.FieldUserID:
 		m.ResetUserID()
