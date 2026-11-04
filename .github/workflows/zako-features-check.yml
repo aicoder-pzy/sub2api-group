@@ -1,0 +1,26 @@
+name: Zako feature checks
+on:
+  push:
+    branches: [codex/upstream-import-key-strategies-20261104]
+    paths: [backend/ent/schema/api_key.go, .github/workflows/zako-features-check.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Generate ORM
+        working-directory: backend
+        run: go generate ./ent
+      - name: Package generated files
+        run: tar -czf /tmp/generated-ent.tar.gz backend/ent
+      - uses: actions/upload-artifact@v6
+        with:
+          name: generated-ent
+          path: /tmp/generated-ent.tar.gz
