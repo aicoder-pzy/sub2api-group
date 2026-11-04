@@ -53,7 +53,7 @@
   <BaseDialog :show="mappingKey !== null" :title="t('keys.modelMapping')" @close="mappingKey = null">
     <form class="space-y-4" @submit.prevent="saveMapping">
       <KeyModelMappingEditor v-model="mappingEntries" />
-      <KeyPromptPolicyEditor v-model="promptEntries" />
+      <KeyPromptPolicyEditor v-model="promptEntries" admin />
       <button type="submit" class="btn btn-primary" :disabled="savingMapping">{{ t('common.save') }}</button>
     </form>
   </BaseDialog>
