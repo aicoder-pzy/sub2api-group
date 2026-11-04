@@ -111,7 +111,7 @@ func TestUpstreamSitePaginationCompatibilityAndCompleteness(t *testing.T) {
 				return siteImportResponse(`{"success":true,"data":` + body + `}`), nil
 			}}
 			svc := newUpstreamBillingProbeTestService(nil, upstream, nil)
-			keys, err := svc.UpstreamSiteKeys(context.Background(), &UpstreamSite{Kind: "newapi", BaseURL: "https://example.com", AccessToken: "management"})
+			keys, err := svc.UpstreamSiteKeys(context.Background(), &UpstreamSite{Kind: "newapi", BaseURL: "https://example.com", UserID: 7, AccessToken: "management"})
 			if tc.wantError {
 				require.Error(t, err)
 			} else {
