@@ -3,7 +3,8 @@ import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import EmailBroadcastsView from '../EmailBroadcastsView.vue'
 import * as api from '@/api/admin/emailBroadcasts'
-import promotionTemplate from '@/assets/templates/91token-promotion.html?raw'
+import promotionTemplate from '@/assets/templates/91token-double11.html?raw'
+import legacyPromotionTemplate from '@/assets/templates/91token-promotion.html?raw'
 
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<div><slot /></div>' } }))
 vi.mock('@/api/admin/emailBroadcasts', () => ({ preview: vi.fn(), create: vi.fn(), list: vi.fn(), detail: vi.fn(), test: vi.fn(), cancel: vi.fn() }))
@@ -12,7 +13,7 @@ vi.mock('vue-i18n', async () => ({
   useI18n: () => ({ t: (key: string) => key })
 }))
 const mountView = () => mount(EmailBroadcastsView, { global: { stubs: { RouterLink: true, BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /><slot name="footer" /></div>' } } } })
-type VM = { recipients: string; subject: string; content: string; contentFormat: api.BroadcastContentFormat; unsubscribeUrl: string; preview: api.RecipientPreview | null; pending: api.BroadcastInput | null; previewRecipients: () => Promise<void>; prepareSend: () => Promise<void>; submit: () => Promise<void>; useValidRecipients: () => void; loadPromotionTemplate: () => void; resolvedContent: () => string; previewHtml: (source: string, url?: string) => string }
+type VM = { recipients: string; subject: string; content: string; contentFormat: api.BroadcastContentFormat; unsubscribeUrl: string; preview: api.RecipientPreview | null; pending: api.BroadcastInput | null; previewRecipients: () => Promise<void>; prepareSend: () => Promise<void>; submit: () => Promise<void>; useValidRecipients: () => void; loadPromotionTemplate: (legacy?: boolean) => void; resolvedContent: () => string; previewHtml: (source: string, url?: string) => string }
 
 describe('Email broadcasts', () => {
   const wrappers: ReturnType<typeof mountView>[] = []
@@ -68,6 +69,7 @@ describe('Email broadcasts', () => {
     expect(vm.contentFormat).toBe('html')
     expect(vm.subject).toBe('emailBroadcast.promotionSubject')
     expect(vm.content).toBe(promotionTemplate)
+    expect(vm.content).toContain('三重好礼')
     expect(vm.content).toContain('福利-全模型不降智')
     expect(vm.content).toContain('最低倍率 0.06 起')
     expect(wrapper.find('iframe[sandbox=""]').exists()).toBe(true)
@@ -101,5 +103,24 @@ describe('Email broadcasts', () => {
     expect(vm.content).toBe(promotionTemplate)
     expect(vm.subject).toBe('Custom subject')
     expect(wrapper.find('iframe[sandbox=""]').exists()).toBe(true)
+  })
+
+  it('switches between the campaign and the unchanged previous promotion without sending', async () => {
+    const { wrapper, vm } = view(); await flushPromises()
+    vm.recipients = '123456789'
+    await wrapper.findAll('button').find(button => button.text() === 'emailBroadcast.loadLegacyTemplate')!.trigger('click')
+    expect(vm.content).toBe(legacyPromotionTemplate)
+    expect(vm.subject).toBe('emailBroadcast.legacyPromotionSubject')
+    expect(vm.content).toContain('注册即送 1 元')
+    expect(vm.content).toContain('每周定时开奖')
+    await wrapper.findAll('button').find(button => button.text() === 'emailBroadcast.loadTemplate')!.trigger('click')
+    expect(vm.content).toBe(promotionTemplate)
+    expect(vm.subject).toBe('emailBroadcast.promotionSubject')
+    expect(vm.recipients).toBe('123456789')
+    expect(api.create).not.toHaveBeenCalled()
+    expect(api.test).not.toHaveBeenCalled()
+    vm.subject = 'Custom subject'
+    vm.loadPromotionTemplate(true)
+    expect(vm.subject).toBe('Custom subject')
   })
 })
