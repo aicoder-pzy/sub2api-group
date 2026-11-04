@@ -89,6 +89,10 @@ func ValidateAPIKeyPromptPolicy(policy map[string]string) error {
 }
 
 func ApplyAPIKeyPromptPolicy(body []byte, path string, policy map[string]string) ([]byte, error) {
+	return applyAPIKeyPromptPolicyForModel(body, path, policy, "")
+}
+
+func applyAPIKeyPromptPolicyForModel(body []byte, path string, policy map[string]string, model string) ([]byte, error) {
 	if len(policy) == 0 {
 		return body, nil
 	}
@@ -107,8 +111,9 @@ func ApplyAPIKeyPromptPolicy(body []byte, path string, policy map[string]string)
 	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
 		return nil, infraerrors.BadRequest("INVALID_PROMPT_REQUEST", "Prompt policies require a JSON object")
 	}
-	var model string
-	_ = json.Unmarshal(payload["model"], &model)
+	if model == "" {
+		_ = json.Unmarshal(payload["model"], &model)
+	}
 	id := policy[model]
 	if id == "" {
 		id = policy["*"]

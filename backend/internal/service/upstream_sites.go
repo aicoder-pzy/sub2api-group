@@ -369,7 +369,8 @@ func (s *UpstreamBillingProbeService) UpstreamSiteKeys(ctx context.Context, site
 			returnedPage = gjson.GetBytes(data, "page")
 		}
 		if returnedPage.Exists() {
-			if returnedPage.Type != gjson.Number || returnedPage.Float() != float64(returnedPage.Int()) || (returnedPage.Int() != int64(page) && !(iteration == 0 && page == 0 && returnedPage.Int() == 1)) {
+			firstPageClamped := iteration == 0 && page == 0 && returnedPage.Int() == 1
+			if returnedPage.Type != gjson.Number || returnedPage.Float() != float64(returnedPage.Int()) || (returnedPage.Int() != int64(page) && !firstPageClamped) {
 				return nil, upstreamSiteError("Invalid upstream pagination")
 			}
 			nextPage = int(returnedPage.Int()) + 1

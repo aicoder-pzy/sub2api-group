@@ -6,6 +6,7 @@ export default {
     invalid: 'Enter a valid model and prompt. Each model may have only one policy.', loadFailed: 'Could not load profiles. Reopen this dialog to retry.'
   },
   sites: {
+    accountName: 'Local account name',
     models: 'Discover available models', selectedModels: '{count} models selected',
     title: 'Upstream sites and key import', name: 'Site name', kind: 'Site type', url: 'Site URL', userId: 'New API user ID (optional for modern tokens)',
     token: 'Site management access token (not a model API key)', tokenHint: 'Encrypted at rest. Leave blank to retain on edit. Use a Sub2API login access token or a New API personal system token.',

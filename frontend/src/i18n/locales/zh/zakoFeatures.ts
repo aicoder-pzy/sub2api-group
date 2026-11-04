@@ -6,6 +6,7 @@ export default {
     invalid: '请填写有效模型和提示词；同一模型只能设置一项策略。', loadFailed: '内置策略加载失败，请重新打开后重试。'
   },
   sites: {
+    accountName: '本地账号名称',
     models: '拉取可用模型', selectedModels: '已选择 {count} 个模型',
     title: '上游站点与密钥导入', name: '站点名称', kind: '站点类型', url: '站点地址', userId: 'New API 用户 ID（新版令牌可留空）',
     token: '站点管理访问令牌（不是模型 API Key）', tokenHint: '令牌加密保存，编辑时留空保留。Sub2API 使用登录访问令牌；New API 使用个人设置中的系统令牌。',

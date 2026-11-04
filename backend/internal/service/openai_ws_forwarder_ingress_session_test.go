@@ -560,6 +560,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_FollowupCreateCa
 		req.Header = req.Header.Clone()
 		req.Header.Set("User-Agent", "unit-test-agent/1.0")
 		ginCtx.Request = req
+		ginCtx.Set("api_key", &APIKey{PromptPolicy: map[string]string{"client-model": "custom:client strategy", "*": "custom:wrong fallback", "gpt-5.1": "custom:wrong upstream"}})
 
 		readCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		msgType, firstMessage, readErr := conn.Read(readCtx)
@@ -616,6 +617,12 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_FollowupCreateCa
 	}
 
 	require.Len(t, captureConn.writes, 2)
+	for _, frame := range captureConn.writes {
+		instructions := gjson.Get(requestToJSONString(frame), "instructions").String()
+		require.Contains(t, instructions, "client strategy")
+		require.Equal(t, 1, strings.Count(instructions, "client strategy"))
+		require.NotContains(t, instructions, "wrong")
+	}
 	require.Equal(t, "gpt-5.1", gjson.Get(requestToJSONString(captureConn.writes[0]), "model").String())
 	require.Equal(t, "gpt-5.1", gjson.Get(requestToJSONString(captureConn.writes[1]), "model").String())
 	require.Equal(t, "resp_omit_model_1", gjson.Get(requestToJSONString(captureConn.writes[1]), "previous_response_id").String())

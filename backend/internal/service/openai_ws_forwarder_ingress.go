@@ -270,8 +270,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			)
 		}
 		if key := getAPIKeyFromContext(c); key != nil && len(key.PromptPolicy) > 0 {
+			policyModel := strings.TrimSpace(values[1].String())
+			if policyModel == "" {
+				policyModel = ingressSessionOriginalModel
+			}
 			var policyErr error
-			normalized, policyErr = ApplyAPIKeyPromptPolicy(normalized, "/v1/responses", key.PromptPolicy)
+			normalized, policyErr = applyAPIKeyPromptPolicyForModel(normalized, "/v1/responses", key.PromptPolicy, policyModel)
 			if policyErr != nil {
 				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid prompt policy request", policyErr)
 			}
