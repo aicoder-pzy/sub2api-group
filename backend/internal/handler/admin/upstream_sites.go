@@ -152,6 +152,14 @@ func (h *AccountHandler) ImportUpstreamSiteKey(c *gin.Context) {
 		response.BadRequest(c, "Choose a local group, models, concurrency (1-1000) and purchase multiplier (0-100)")
 		return
 	}
+	if input.Platform != service.PlatformOpenAI && input.Platform != service.PlatformAnthropic {
+		response.BadRequest(c, "Choose OpenAI-compatible or Anthropic-compatible account protocol")
+		return
+	}
+	if input.Name == "" || len(input.Name) > 100 {
+		response.BadRequest(c, "Account name must contain 1-100 bytes")
+		return
+	}
 	for _, model := range input.Models {
 		if err := service.ValidateAPIKeyModelMapping(map[string]string{model: model}); err != nil {
 			response.ErrorFrom(c, err)

@@ -76,6 +76,14 @@ func TestRedactAuditBody_BareSessionKeyRedacted(t *testing.T) {
 	}
 }
 
+func TestRedactAuditBody_PromptPolicyRedacted(t *testing.T) {
+	raw := []byte(`{"name":"visible-key","prompt_policy":{"*":"custom:private project instructions"}}`)
+	out := RedactAuditBody(raw, "application/json")
+	if strings.Contains(out, "private project instructions") || !strings.Contains(out, "visible-key") {
+		t.Fatalf("prompt policy must be redacted while retaining account metadata: %s", out)
+	}
+}
+
 // TestRedactAuditBody_AuthoritativeTablesSynced 覆盖曾经漏网的凭证字段：
 // 账号 credentials 敏感子键、支付渠道无分隔符密钥、字符串值内嵌凭证的 proxy_key / custom_key，
 // 以及 camelCase 等命名变体（归一化比对）。

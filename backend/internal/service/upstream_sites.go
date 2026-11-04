@@ -340,7 +340,12 @@ func parseUpstreamSiteKey(row gjson.Result, kind string, now time.Time) Upstream
 func (s *UpstreamBillingProbeService) UpstreamSiteKeys(ctx context.Context, site *UpstreamSite) ([]UpstreamSiteKey, error) {
 	out := []UpstreamSiteKey{}
 	seen := map[string]bool{}
-	for page := 1; page <= 20; page++ {
+	page := 1
+	if site.Kind == "newapi" {
+		page = 0
+	}
+	expectedTotal := int64(-1)
+	for iteration := 0; iteration < 100; iteration++ {
 		path := fmt.Sprintf("/api/v1/keys?page=%d&page_size=100", page)
 		if site.Kind == "newapi" {
 			path = fmt.Sprintf("/api/token/?p=%d&page_size=100", page)
@@ -353,22 +358,52 @@ func (s *UpstreamBillingProbeService) UpstreamSiteKeys(ctx context.Context, site
 		if err != nil {
 			return nil, err
 		}
+		if len(rows) > 1000 {
+			return nil, upstreamSiteError("Too many keys in upstream page")
+		}
+		nextPage := page + 1
+		returnedPage := gjson.GetBytes(data, "p")
+		if !returnedPage.Exists() {
+			returnedPage = gjson.GetBytes(data, "page")
+		}
+		if returnedPage.Exists() {
+			if returnedPage.Type != gjson.Number || returnedPage.Float() != float64(returnedPage.Int()) || (returnedPage.Int() != int64(page) && !(iteration == 0 && page == 0 && returnedPage.Int() == 1)) {
+				return nil, upstreamSiteError("Invalid upstream pagination")
+			}
+			nextPage = int(returnedPage.Int()) + 1
+		}
+		total := gjson.GetBytes(data, "total")
+		if total.Exists() {
+			if total.Type != gjson.Number || total.Float() != float64(total.Int()) || total.Int() < 0 || total.Int() > 10000 || (expectedTotal >= 0 && total.Int() != expectedTotal) {
+				return nil, upstreamSiteError("Upstream inventory changed or exceeded 10000 keys; refresh and retry")
+			}
+			expectedTotal = total.Int()
+		}
 		for _, row := range rows {
 			key := parseUpstreamSiteKey(row, site.Kind, time.Now())
-			if key.ID == "" || seen[key.ID] {
-				return nil, upstreamSiteError("Invalid or repeated key ID in upstream pagination")
+			numericID, e := strconv.ParseInt(key.ID, 10, 64)
+			if e != nil || numericID <= 0 || seen[key.ID] || len(key.Name) > 1024 || len(key.secret) > 16384 || len(key.GroupID) > 256 {
+				return nil, upstreamSiteError("Invalid or repeated key in upstream pagination")
 			}
 			seen[key.ID] = true
 			out = append(out, key)
 		}
-		if len(rows) < 100 {
+		if expectedTotal >= 0 {
+			if int64(len(out)) == expectedTotal {
+				return out, nil
+			}
+			if int64(len(out)) > expectedTotal || len(rows) == 0 {
+				return nil, upstreamSiteError("Incomplete upstream inventory; refresh and retry")
+			}
+		} else if len(rows) == 0 {
 			return out, nil
 		}
-		if total := gjson.GetBytes(data, "total"); total.Exists() && int64(len(out)) >= total.Int() {
-			return out, nil
+		if len(out) > 10000 {
+			return nil, upstreamSiteError("Too many upstream keys (maximum 10000)")
 		}
+		page = nextPage
 	}
-	return nil, upstreamSiteError("Too many upstream keys (maximum 2000); narrow the upstream account inventory")
+	return nil, upstreamSiteError("Upstream pagination did not complete within 100 pages")
 }
 
 func (s *UpstreamBillingProbeService) ResolveUpstreamSiteKey(ctx context.Context, site *UpstreamSite, keyID string) (*UpstreamSiteKey, error) {

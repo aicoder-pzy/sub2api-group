@@ -65,7 +65,7 @@ func TestUpstreamSiteInventoryKeepsSecretsServerSideAndRevealsSelectedKey(t *tes
 	upstream := &siteImportHTTP{call: func(req *http.Request) (*http.Response, error) {
 		paths = append(paths, req.Method+" "+req.URL.RequestURI())
 		switch req.Method + " " + req.URL.RequestURI() {
-		case "GET /api/token/?p=1&page_size=100":
+		case "GET /api/token/?p=0&page_size=100":
 			return siteImportResponse(`{"success":true,"data":{"items":[{"id":3,"name":"mine","key":"abcd********wxyz","status":1,"group":"vip","unlimited_quota":true}],"total":1}}`), nil
 		case "POST /api/token/3/key":
 			return siteImportResponse(`{"success":true,"data":"sk-relay-secret"}`), nil
@@ -86,6 +86,41 @@ func TestUpstreamSiteInventoryKeepsSecretsServerSideAndRevealsSelectedKey(t *tes
 	require.NoError(t, err)
 	require.Equal(t, "sk-relay-secret", key.secret)
 	require.Equal(t, "POST /api/token/3/key", paths[len(paths)-1])
+}
+
+func TestUpstreamSitePaginationCompatibilityAndCompleteness(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		pages     []string
+		queries   []string
+		wantError bool
+	}{
+		{"legacy zero-based", []string{`[{"id":1}]`, `[{"id":2}]`, `[]`}, []string{"0", "1", "2"}, false},
+		{"modern one-based", []string{`{"items":[{"id":1}],"total":2,"p":1}`, `{"items":[{"id":2}],"total":2,"p":2}`}, []string{"0", "2"}, false},
+		{"duplicate page", []string{`{"items":[{"id":1}],"total":2}`, `{"items":[{"id":1}],"total":2}`}, []string{"0", "1"}, true},
+		{"missing rows", []string{`{"items":[{"id":1}],"total":2}`, `{"items":[],"total":2}`}, []string{"0", "1"}, true},
+		{"changed total", []string{`{"items":[{"id":1}],"total":2}`, `{"items":[{"id":2}],"total":3}`}, []string{"0", "1"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			upstream := &siteImportHTTP{call: func(req *http.Request) (*http.Response, error) {
+				require.Less(t, calls, len(tc.pages))
+				require.Equal(t, tc.queries[calls], req.URL.Query().Get("p"))
+				body := tc.pages[calls]
+				calls++
+				return siteImportResponse(`{"success":true,"data":` + body + `}`), nil
+			}}
+			svc := newUpstreamBillingProbeTestService(nil, upstream, nil)
+			keys, err := svc.UpstreamSiteKeys(context.Background(), &UpstreamSite{Kind: "newapi", BaseURL: "https://example.com", AccessToken: "management"})
+			if tc.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Len(t, keys, 2)
+			}
+			require.Equal(t, len(tc.pages), calls)
+		})
+	}
 }
 
 func TestUpstreamSiteCreationIsNeverRetriedAfterAmbiguousFailure(t *testing.T) {

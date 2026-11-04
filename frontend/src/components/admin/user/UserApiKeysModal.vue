@@ -44,7 +44,7 @@
             </div>
             <div class="flex items-center gap-1"><span>{{ t('admin.users.columns.created') }}: {{ formatDateTime(key.created_at) }}</span></div>
           </div>
-          <button type="button" class="btn btn-secondary mt-3 text-xs" @click="editMapping(key)">{{ t('keys.modelMapping') }} / {{ t('zakoFeatures.prompt.title') }}</button>
+          <button type="button" class="btn btn-secondary mt-3 text-xs" @click="editMapping(key)">{{ t('keys.modelMapping') }} ({{ Object.keys(key.model_mapping || {}).length }}) / {{ t('zakoFeatures.prompt.title') }}</button>
         </div>
       </div>
     </div>

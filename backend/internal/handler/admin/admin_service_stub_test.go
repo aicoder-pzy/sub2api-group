@@ -777,6 +777,16 @@ func (s *stubAdminService) AdminUpdateAPIKeyModelMapping(ctx context.Context, ke
 	return nil, service.ErrAPIKeyNotFound
 }
 
+func (s *stubAdminService) AdminUpdateAPIKeyPromptPolicy(ctx context.Context, keyID int64, policy map[string]string) (*service.APIKey, error) {
+	for i := range s.apiKeys {
+		if s.apiKeys[i].ID == keyID {
+			s.apiKeys[i].PromptPolicy = policy
+			return &s.apiKeys[i], nil
+		}
+	}
+	return nil, service.ErrAPIKeyNotFound
+}
+
 func (s *stubAdminService) AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*service.APIKey, error) {
 	for i := range s.apiKeys {
 		if s.apiKeys[i].ID == keyID {
