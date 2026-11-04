@@ -38,7 +38,8 @@
               <div class="flex flex-wrap items-center gap-2" role="group" :aria-label="text('contentFormat')">
                 <button type="button" class="btn btn-secondary" :class="{ 'ring-2 ring-primary-500': contentFormat === 'text' }" :aria-pressed="contentFormat === 'text' ? 'true' : 'false'" @click="contentFormat = 'text'">{{ text('plainText') }}</button>
                 <button type="button" class="btn btn-secondary" :class="{ 'ring-2 ring-primary-500': contentFormat === 'html' }" :aria-pressed="contentFormat === 'html' ? 'true' : 'false'" @click="contentFormat = 'html'">{{ text('html') }}</button>
-                <button type="button" class="btn btn-secondary" @click="loadPromotionTemplate">{{ text('loadTemplate') }}</button>
+                <button type="button" class="btn btn-secondary" @click="loadPromotionTemplate()">{{ text('loadTemplate') }}</button>
+                <button type="button" class="btn btn-secondary" @click="loadPromotionTemplate(true)">{{ text('loadLegacyTemplate') }}</button>
               </div>
             </div>
             <textarea v-if="contentFormat === 'text'" id="broadcast-content" v-model="content" rows="10" maxlength="100000" class="input w-full font-mono text-sm" required />
@@ -115,7 +116,8 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import * as api from '@/api/admin/emailBroadcasts'
 import { importBroadcastRecipients } from '@/utils/emailBroadcastImport'
-import promotionTemplate from '@/assets/templates/91token-promotion.html?raw'
+import promotionTemplate from '@/assets/templates/91token-double11.html?raw'
+import legacyPromotionTemplate from '@/assets/templates/91token-promotion.html?raw'
 
 const unsubscribePlaceholder = '{{unsubscribe_url}}'
 const { t } = useI18n()
@@ -152,10 +154,12 @@ function resolvedContent() {
   if (content.value.includes(unsubscribePlaceholder) && unsubscribeUrl.value.trim() && !isHttpsUrl(unsubscribeUrl.value.trim())) throw new Error('unsubscribeUrlRequired')
   return content.value
 }
-function loadPromotionTemplate() {
+function loadPromotionTemplate(legacy = false) {
   contentFormat.value = 'html'
-  content.value = promotionTemplate
-  if (!subject.value.trim()) subject.value = text('promotionSubject')
+  content.value = legacy ? legacyPromotionTemplate : promotionTemplate
+  if (!subject.value.trim() || [text('promotionSubject'), text('legacyPromotionSubject')].includes(subject.value)) {
+    subject.value = text(legacy ? 'legacyPromotionSubject' : 'promotionSubject')
+  }
   notice.value = text('templateLoaded')
 }
 
