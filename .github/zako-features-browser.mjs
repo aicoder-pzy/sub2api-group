@@ -32,6 +32,7 @@ try {
     if (p === '/api/v1/keys/prompt-profiles') return json([{ id: 'zako-default', name: 'Zako · 通用默认策略', models: [], bytes: 3844 }, { id: 'test-model-profile', name: 'Test model strategy', models: ['model-1'], bytes: 2048 }])
     if (p === '/api/v1/keys/1' && request.method() === 'PUT') { const payload = request.postDataJSON(); policies.push(payload); Object.assign(key, payload); return json(key) }
     if (p === '/api/v1/keys') return json({ items: [key], total: 1, page: 1, page_size: 20, pages: 1 })
+    if (p === '/api/v1/usage/dashboard/api-keys-usage') return json({ stats: {} })
     if (p.includes('/groups') && !p.includes('upstream-sites')) return json([group])
     if (p === '/api/v1/admin/accounts') return json({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     const sites = '/api/v1/admin/accounts/upstream-sites'
@@ -45,6 +46,7 @@ try {
   })
   let page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => { if (message.type() === 'error' && !message.text().includes('net::ERR_BLOCKED_BY_CLIENT')) errors.push(message.text()) })
   context.on('requestfailed', request => networkFailures.push({ url: request.url(), error: request.failure()?.errorText }))
   await page.goto('http://127.0.0.1:4173/admin/accounts')
   await page.getByRole('button', { name: '上游站点与密钥导入', exact: true }).click()
@@ -77,6 +79,7 @@ try {
   await page.close()
   page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => { if (message.type() === 'error' && !message.text().includes('net::ERR_BLOCKED_BY_CLIENT')) errors.push(message.text()) })
   await page.goto('http://127.0.0.1:4173/keys')
   await page.getByRole('button', { name: '编辑', exact: true }).first().click()
   const editor = page.getByRole('dialog').filter({ has: page.getByText('提示词策略', { exact: true }) })
@@ -91,7 +94,10 @@ try {
   assert.equal(errors.length, 0, errors.join('\n'))
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ errors, networkFailures, imports, creations, policies, realRequests: 0 }, null, 2))
 } catch (error) {
-  for (const page of browser.contexts().flatMap(context => context.pages())) await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {})
+  for (const page of browser.contexts().flatMap(context => context.pages())) {
+    await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {})
+    await writeFile(path.join(output, 'failure.html'), await page.content()).catch(() => {})
+  }
   await writeFile(path.join(output, 'errors.json'), JSON.stringify({ errors, networkFailures, error: String(error) }, null, 2))
   throw error
 } finally { await browser.close() }
