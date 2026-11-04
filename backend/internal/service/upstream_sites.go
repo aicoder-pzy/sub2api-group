@@ -32,6 +32,8 @@ type UpstreamSite struct {
 	cipher      string
 }
 
+var ErrUpstreamKeyAlreadyImported = infraerrors.Conflict("UPSTREAM_KEY_ALREADY_IMPORTED", "This upstream key has already been imported for this platform")
+
 type UpstreamSiteGroup struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`

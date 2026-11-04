@@ -89,7 +89,9 @@ watch(() => props.show, show => { if (show) void run(loadSites); else { form.val
 async function run(action: () => Promise<void>) {
   if (busy.value) return
   busy.value = true; error.value = ''; notice.value = ''
-  try { await action() } catch (cause: unknown) { error.value = cause instanceof Error ? cause.message : t('zakoFeatures.sites.error') }
+  try { await action() } catch (cause: unknown) {
+    error.value = cause && typeof cause === 'object' && 'message' in cause && typeof cause.message === 'string' ? cause.message : t('zakoFeatures.sites.error')
+  }
   finally { busy.value = false }
 }
 async function loadSites() { sites.value = (await apiClient.get<Site[]>(endpoint)).data }
