@@ -54,6 +54,7 @@ type AdminUser struct {
 }
 
 type APIKey struct {
+	PromptPolicy map[string]string `json:"prompt_policy"`
 	ModelMapping map[string]string `json:"model_mapping"`
 	ID           int64             `json:"id"`
 	UserID       int64             `json:"user_id"`

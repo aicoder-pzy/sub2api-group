@@ -36,6 +36,7 @@ type APIKey struct {
 	Status       string
 	IPWhitelist  []string
 	IPBlacklist  []string
+	PromptPolicy map[string]string
 	ModelMapping map[string]string
 	// 预编译的 IP 规则，用于认证热路径避免重复 ParseIP/ParseCIDR。
 	CompiledIPWhitelist *ip.CompiledIPRules `json:"-"`

@@ -16,7 +16,7 @@ func TestAPIKeyModelMappingPersistenceAndAuthProjection(t *testing.T) {
 	ctx := context.Background()
 	owner := mustCreateUser(t, integrationEntClient, &service.User{Email: fmt.Sprintf("key-mapping-%d@example.com", time.Now().UnixNano()), Concurrency: 1})
 	repo := NewAPIKeyRepository(integrationEntClient, integrationDB)
-	key := &service.APIKey{UserID: owner.ID, Key: fmt.Sprintf("sk-key-mapping-%d", time.Now().UnixNano()), Name: "mapping fixture", Status: service.StatusActive, ModelMapping: map[string]string{"alias": "target"}}
+	key := &service.APIKey{UserID: owner.ID, Key: fmt.Sprintf("sk-key-mapping-%d", time.Now().UnixNano()), Name: "mapping fixture", Status: service.StatusActive, ModelMapping: map[string]string{"alias": "target"}, PromptPolicy: map[string]string{"*": "custom:fixture"}}
 	require.NoError(t, repo.Create(ctx, key))
 	t.Cleanup(func() {
 		_, err := integrationDB.ExecContext(ctx, "DELETE FROM api_keys WHERE id = $1", key.ID)
@@ -27,9 +27,16 @@ func TestAPIKeyModelMappingPersistenceAndAuthProjection(t *testing.T) {
 	got, err := repo.GetByKeyForAuth(ctx, key.Key)
 	require.NoError(t, err)
 	require.Equal(t, key.ModelMapping, got.ModelMapping)
+	require.Equal(t, key.PromptPolicy, got.PromptPolicy)
 	key.ModelMapping = map[string]string{}
 	require.NoError(t, repo.Update(ctx, key, service.APIKeyUpdateFields{ModelMapping: true}))
 	got, err = repo.GetByID(ctx, key.ID)
 	require.NoError(t, err)
 	require.Empty(t, got.ModelMapping)
+	require.Equal(t, key.PromptPolicy, got.PromptPolicy, "unrelated edits must preserve prompt policy")
+	key.PromptPolicy = map[string]string{}
+	require.NoError(t, repo.Update(ctx, key, service.APIKeyUpdateFields{PromptPolicy: true}))
+	got, err = repo.GetByKeyForAuth(ctx, key.Key)
+	require.NoError(t, err)
+	require.Empty(t, got.PromptPolicy)
 }

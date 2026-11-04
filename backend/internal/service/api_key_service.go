@@ -78,6 +78,7 @@ type APIKeyUpdateFields struct {
 	RateLimitUsage bool
 	// IPRules 覆盖 ip_whitelist 与 ip_blacklist。
 	IPRules      bool
+	PromptPolicy bool
 	ModelMapping bool
 }
 
@@ -215,6 +216,7 @@ type APIKeyAuthCacheInvalidator interface {
 
 // CreateAPIKeyRequest 创建API Key请求
 type CreateAPIKeyRequest struct {
+	PromptPolicy map[string]string `json:"prompt_policy"`
 	ModelMapping map[string]string `json:"model_mapping"`
 	Name         string            `json:"name"`
 	GroupID      *int64            `json:"group_id"`
@@ -234,6 +236,7 @@ type CreateAPIKeyRequest struct {
 
 // UpdateAPIKeyRequest 更新API Key请求
 type UpdateAPIKeyRequest struct {
+	PromptPolicy *map[string]string `json:"prompt_policy"`
 	ModelMapping *map[string]string `json:"model_mapping"` // nil preserves, {} clears
 	Name         *string            `json:"name"`
 	GroupID      *int64             `json:"group_id"`
@@ -262,6 +265,9 @@ func validateAPIKeyLimit(v float64) error {
 }
 
 func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
+	if err := ValidateAPIKeyPromptPolicy(req.PromptPolicy); err != nil {
+		return err
+	}
 	if err := ValidateAPIKeyModelMapping(req.ModelMapping); err != nil {
 		return err
 	}
@@ -277,6 +283,11 @@ func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
 }
 
 func validateUpdateAPIKeyRequest(req UpdateAPIKeyRequest) error {
+	if req.PromptPolicy != nil {
+		if err := ValidateAPIKeyPromptPolicy(*req.PromptPolicy); err != nil {
+			return err
+		}
+	}
 	if req.ModelMapping != nil {
 		if err := ValidateAPIKeyModelMapping(*req.ModelMapping); err != nil {
 			return err
@@ -587,6 +598,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		Status:       StatusActive,
 		IPWhitelist:  req.IPWhitelist,
 		IPBlacklist:  req.IPBlacklist,
+		PromptPolicy: req.PromptPolicy,
 		ModelMapping: req.ModelMapping,
 		Quota:        req.Quota,
 		QuotaUsed:    0,
@@ -836,6 +848,10 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	// fields 只登记本次请求真正要改的列。quota_used 与 usage_5h/1d/7d 由计费热路径
 	// 原子递增，除非用户显式点了"重置"，否则这里不用快照把它们写回去。
 	var fields APIKeyUpdateFields
+	if req.PromptPolicy != nil {
+		apiKey.PromptPolicy = *req.PromptPolicy
+		fields.PromptPolicy = true
+	}
 	if req.ModelMapping != nil {
 		apiKey.ModelMapping = *req.ModelMapping
 		fields.ModelMapping = true

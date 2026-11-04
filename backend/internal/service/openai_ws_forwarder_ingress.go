@@ -269,6 +269,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				nil,
 			)
 		}
+		if key := getAPIKeyFromContext(c); key != nil && len(key.PromptPolicy) > 0 {
+			var policyErr error
+			normalized, policyErr = ApplyAPIKeyPromptPolicy(normalized, "/v1/responses", key.PromptPolicy)
+			if policyErr != nil {
+				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid prompt policy request", policyErr)
+			}
+		}
 		requestedReasoningEffort := CanonicalRequestedReasoningEffort(normalized, strings.TrimSpace(values[1].String()))
 		if next, policyErr := applyOpenAIWSReasoningEffortPolicy(normalized, hooks); policyErr != nil {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, policyErr.Error(), policyErr)

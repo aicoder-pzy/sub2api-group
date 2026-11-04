@@ -63,6 +63,9 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 	if len(key.IPBlacklist) > 0 {
 		builder.SetIPBlacklist(key.IPBlacklist)
 	}
+	if len(key.PromptPolicy) > 0 {
+		builder.SetPromptPolicy(key.PromptPolicy)
+	}
 	if len(key.ModelMapping) > 0 {
 		builder.SetModelMapping(key.ModelMapping)
 	}
@@ -141,6 +144,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldStatus,
 			apikey.FieldIPWhitelist,
 			apikey.FieldIPBlacklist,
+			apikey.FieldPromptPolicy,
 			apikey.FieldModelMapping,
 			apikey.FieldQuota,
 			apikey.FieldQuotaUsed,
@@ -337,6 +341,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 		}
 	}
 
+	if fields.PromptPolicy {
+		builder.SetPromptPolicy(key.PromptPolicy)
+	}
 	if fields.ModelMapping {
 		builder.SetModelMapping(key.ModelMapping)
 	}
@@ -901,6 +908,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		Status:        m.Status,
 		IPWhitelist:   m.IPWhitelist,
 		IPBlacklist:   m.IPBlacklist,
+		PromptPolicy:  m.PromptPolicy,
 		ModelMapping:  m.ModelMapping,
 		LastUsedAt:    m.LastUsedAt,
 		CreatedAt:     m.CreatedAt,

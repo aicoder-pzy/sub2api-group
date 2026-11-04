@@ -58,6 +58,18 @@ func (_u *APIKeyUpdate) ClearDeletedAt() *APIKeyUpdate {
 	return _u
 }
 
+// SetPromptPolicy sets the "prompt_policy" field.
+func (_u *APIKeyUpdate) SetPromptPolicy(v map[string]string) *APIKeyUpdate {
+	_u.mutation.SetPromptPolicy(v)
+	return _u
+}
+
+// ClearPromptPolicy clears the value of the "prompt_policy" field.
+func (_u *APIKeyUpdate) ClearPromptPolicy() *APIKeyUpdate {
+	_u.mutation.ClearPromptPolicy()
+	return _u
+}
+
 // SetUserID sets the "user_id" field.
 func (_u *APIKeyUpdate) SetUserID(v int64) *APIKeyUpdate {
 	_u.mutation.SetUserID(v)
@@ -599,6 +611,12 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(apikey.FieldDeletedAt, field.TypeTime)
 	}
+	if value, ok := _u.mutation.PromptPolicy(); ok {
+		_spec.SetField(apikey.FieldPromptPolicy, field.TypeJSON, value)
+	}
+	if _u.mutation.PromptPolicyCleared() {
+		_spec.ClearField(apikey.FieldPromptPolicy, field.TypeJSON)
+	}
 	if value, ok := _u.mutation.Key(); ok {
 		_spec.SetField(apikey.FieldKey, field.TypeString, value)
 	}
@@ -860,6 +878,18 @@ func (_u *APIKeyUpdateOne) SetNillableDeletedAt(v *time.Time) *APIKeyUpdateOne {
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (_u *APIKeyUpdateOne) ClearDeletedAt() *APIKeyUpdateOne {
 	_u.mutation.ClearDeletedAt()
+	return _u
+}
+
+// SetPromptPolicy sets the "prompt_policy" field.
+func (_u *APIKeyUpdateOne) SetPromptPolicy(v map[string]string) *APIKeyUpdateOne {
+	_u.mutation.SetPromptPolicy(v)
+	return _u
+}
+
+// ClearPromptPolicy clears the value of the "prompt_policy" field.
+func (_u *APIKeyUpdateOne) ClearPromptPolicy() *APIKeyUpdateOne {
+	_u.mutation.ClearPromptPolicy()
 	return _u
 }
 
@@ -1433,6 +1463,12 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(apikey.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.PromptPolicy(); ok {
+		_spec.SetField(apikey.FieldPromptPolicy, field.TypeJSON, value)
+	}
+	if _u.mutation.PromptPolicyCleared() {
+		_spec.ClearField(apikey.FieldPromptPolicy, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.Key(); ok {
 		_spec.SetField(apikey.FieldKey, field.TypeString, value)

@@ -290,6 +290,16 @@ func DeletedAtNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldDeletedAt))
 }
 
+// PromptPolicyIsNil applies the IsNil predicate on the "prompt_policy" field.
+func PromptPolicyIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldPromptPolicy))
+}
+
+// PromptPolicyNotNil applies the NotNil predicate on the "prompt_policy" field.
+func PromptPolicyNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldPromptPolicy))
+}
+
 // UserIDEQ applies the EQ predicate on the "user_id" field.
 func UserIDEQ(v int64) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldUserID, v))

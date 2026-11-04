@@ -26,6 +26,8 @@ type APIKey struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// DeletedAt holds the value of the "deleted_at" field.
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	// PromptPolicy holds the value of the "prompt_policy" field.
+	PromptPolicy map[string]string `json:"prompt_policy,omitempty"`
 	// UserID holds the value of the "user_id" field.
 	UserID int64 `json:"user_id,omitempty"`
 	// Key holds the value of the "key" field.
@@ -123,7 +125,7 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case apikey.FieldIPWhitelist, apikey.FieldIPBlacklist, apikey.FieldModelMapping:
+		case apikey.FieldPromptPolicy, apikey.FieldIPWhitelist, apikey.FieldIPBlacklist, apikey.FieldModelMapping:
 			values[i] = new([]byte)
 		case apikey.FieldQuota, apikey.FieldQuotaUsed, apikey.FieldRateLimit5h, apikey.FieldRateLimit1d, apikey.FieldRateLimit7d, apikey.FieldUsage5h, apikey.FieldUsage1d, apikey.FieldUsage7d:
 			values[i] = new(sql.NullFloat64)
@@ -172,6 +174,14 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.DeletedAt = new(time.Time)
 				*_m.DeletedAt = value.Time
+			}
+		case apikey.FieldPromptPolicy:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field prompt_policy", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.PromptPolicy); err != nil {
+					return fmt.Errorf("unmarshal field prompt_policy: %w", err)
+				}
 			}
 		case apikey.FieldUserID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -372,6 +382,9 @@ func (_m *APIKey) String() string {
 		builder.WriteString("deleted_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("prompt_policy=")
+	builder.WriteString(fmt.Sprintf("%v", _m.PromptPolicy))
 	builder.WriteString(", ")
 	builder.WriteString("user_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.UserID))

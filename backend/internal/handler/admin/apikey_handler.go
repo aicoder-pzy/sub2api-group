@@ -24,6 +24,7 @@ func NewAdminAPIKeyHandler(adminService service.AdminService) *AdminAPIKeyHandle
 
 // AdminUpdateAPIKeyGroupRequest represents the request to update an API key.
 type AdminUpdateAPIKeyGroupRequest struct {
+	PromptPolicy        *map[string]string `json:"prompt_policy"`
 	ModelMapping        *map[string]string `json:"model_mapping"`
 	GroupID             *int64             `json:"group_id"`               // nil=不修改, 0=解绑, >0=绑定到目标分组
 	ResetRateLimitUsage *bool              `json:"reset_rate_limit_usage"` // true=重置 5h/1d/7d 限速用量
@@ -44,6 +45,12 @@ func (h *AdminAPIKeyHandler) UpdateGroup(c *gin.Context) {
 		return
 	}
 
+	if req.PromptPolicy != nil {
+		if err := service.ValidateAPIKeyPromptPolicy(*req.PromptPolicy); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 	if req.ModelMapping != nil {
 		if err := service.ValidateAPIKeyModelMapping(*req.ModelMapping); err != nil {
 			response.ErrorFrom(c, err)
@@ -69,6 +76,14 @@ func (h *AdminAPIKeyHandler) UpdateGroup(c *gin.Context) {
 	}
 	if req.ModelMapping != nil {
 		result.APIKey, err = h.adminService.AdminUpdateAPIKeyModelMapping(c.Request.Context(), keyID, *req.ModelMapping)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
+
+	if req.PromptPolicy != nil {
+		result.APIKey, err = h.adminService.AdminUpdateAPIKeyPromptPolicy(c.Request.Context(), keyID, *req.PromptPolicy)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return

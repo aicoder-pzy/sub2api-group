@@ -582,6 +582,7 @@
 
         <!-- Custom Key Section (only for create) -->
         <KeyModelMappingEditor v-model="modelMappingEntries" />
+        <KeyPromptPolicyEditor v-model="promptPolicyEntries" />
 
         <div v-if="!showEditModal" class="space-y-3">
           <div class="flex items-center justify-between">
@@ -1213,6 +1214,8 @@ import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
+import KeyPromptPolicyEditor from '@/components/keys/KeyPromptPolicyEditor.vue'
+import { buildKeyPromptPolicy } from '@/utils/keyPromptPolicy'
 import KeyModelMappingEditor from '@/components/keys/KeyModelMappingEditor.vue'
 import { buildKeyModelMapping, keyModelMappingEntries, type KeyModelMappingEntry } from '@/utils/keyModelMapping'
 	import DataTable from '@/components/common/DataTable.vue'
@@ -1434,6 +1437,7 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 }
 
 const modelMappingEntries = ref<KeyModelMappingEntry[]>([])
+const promptPolicyEntries = ref<KeyModelMappingEntry[]>([])
 
 const formData = ref({
   name: '',
@@ -1701,6 +1705,7 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
 
 const editKey = (key: ApiKey) => {
   modelMappingEntries.value = keyModelMappingEntries(key.model_mapping)
+  promptPolicyEntries.value = keyModelMappingEntries(key.prompt_policy)
   selectedKey.value = key
   const hasIPRestriction = (key.ip_whitelist?.length > 0) || (key.ip_blacklist?.length > 0)
   const hasExpiration = !!key.expires_at
@@ -1805,6 +1810,8 @@ const confirmDelete = (key: ApiKey) => {
 }
 
 const handleSubmit = async () => {
+  let promptPolicy: Record<string, string>
+  try { promptPolicy = buildKeyPromptPolicy(promptPolicyEntries.value) } catch { appStore.showError(t('zakoFeatures.prompt.invalid')); return }
   let modelMapping: Record<string, string>
   try { modelMapping = buildKeyModelMapping(modelMappingEntries.value) } catch {
     appStore.showError(t('keys.modelMappingInvalid'))
@@ -1868,6 +1875,7 @@ const handleSubmit = async () => {
     if (showEditModal.value && selectedKey.value) {
       const updates: UpdateApiKeyRequest = {
         model_mapping: modelMapping,
+        prompt_policy: promptPolicy,
         name: formData.value.name,
         group_id: formData.value.group_id,
         ip_whitelist: ipWhitelist,
@@ -1894,7 +1902,8 @@ const handleSubmit = async () => {
         quota,
         expiresInDays,
         rateLimitData,
-        modelMapping
+        modelMapping,
+        promptPolicy
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -1935,6 +1944,7 @@ const handleDelete = async () => {
 
 const closeModals = () => {
   modelMappingEntries.value = []
+  promptPolicyEntries.value = []
   showCreateModal.value = false
   showEditModal.value = false
   selectedKey.value = null
