@@ -427,7 +427,7 @@ try {
     const settings = phone.getByTestId('chat-mobile-settings-dialog')
     await readable(theme, 'sync status', settings.locator('.chat-sync-bar > span'))
     await readable(theme, 'sync refresh', settings.locator('.chat-sync-bar > button'))
-    for (const [name, selector] of [['settings heading', 'h2'], ['settings label', '.chat-field > span'], ['settings hint', 'p'],
+    for (const [name, selector] of [['settings heading', 'h2'], ['settings label', '.chat-field > span'], ['settings hint', 'p:visible'],
       ['settings input', '.input'], ['settings action', '.btn-secondary'], ['delete action', '.text-red-600']]) {
       await readable(theme, name, settings.locator(selector).first())
     }
