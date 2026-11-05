@@ -55,6 +55,24 @@ async function readable(theme, name, locator, pseudo = null) {
   await writeFile(path.join(output, 'contrast.json'), JSON.stringify(contrastResults, null, 2))
   if (colors.ratio < 4.5) await locator.page().screenshot({ path: path.join(output, `phone-${theme}-contrast-failure.png`) })
 }
+async function openMenu(page) {
+  const menu = page.getByTestId('chat-mobile-settings-dialog')
+  if (!await menu.isVisible()) await page.getByTestId('chat-mobile-menu').click()
+  return menu
+}
+async function closeMenu(page) {
+  await page.getByTestId('chat-mobile-settings-dialog').getByRole('button', { name: '关闭', exact: true }).click()
+}
+async function synced(page, refresh = false) {
+  await openMenu(page)
+  if (refresh) await page.getByTestId('chat-sync').click()
+  await page.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
+  await closeMenu(page)
+}
+async function openHistory(page) {
+  await openMenu(page)
+  await page.getByTestId('chat-mobile-history').click()
+}
 async function phoneLayout(page, minimum) {
   // Device metrics may update before resize events and Vue's next render have run.
   await page.waitForFunction(() => {
@@ -128,6 +146,11 @@ try {
   page.on('pageerror', error => errors.push(error.message))
   await page.goto('http://127.0.0.1:4173/chat')
   await page.getByTestId('chat-task-reconcile').waitFor()
+  await page.waitForFunction(() => !document.querySelector('[data-testid="chat-file-input"]').disabled)
+  const compact = await page.evaluate(() => ({ top: document.querySelector('[role="log"]').getBoundingClientRect().top,
+    height: document.querySelector('[role="log"]').clientHeight, input: document.querySelector('[data-testid="chat-input"]').clientHeight }))
+  assert.equal(compact.top, 0, JSON.stringify(compact))
+  assert.ok(compact.height >= 800 && compact.input <= 48, JSON.stringify(compact))
   await page.screenshot({ path: path.join(output, 'desktop-start.png') })
   await page.getByTestId('chat-task-reconcile').click()
   const sourceBook = XLSX.utils.book_new(), sourceSheet = XLSX.utils.aoa_to_sheet([['单号', '金额'], [12, -120.5]])
@@ -240,13 +263,13 @@ try {
   mobile.on('pageerror', error => errors.push(error.message))
   await mobile.goto('http://127.0.0.1:4173/chat')
   await mobile.getByTestId('chat-input').waitFor()
-  await mobile.waitForFunction(() => !document.querySelector('[data-testid="chat-photo"]').disabled)
-  await mobile.getByTestId('chat-mobile-history').click()
+  await mobile.waitForFunction(() => !document.querySelector('[data-testid="chat-file-input"]').disabled)
+  await openHistory(mobile)
   await mobile.getByTestId('chat-mobile-history-dialog').getByRole('button', { name: /新对话/ }).click()
   await phoneLayout(mobile, 650)
   await mobile.getByTestId('chat-mobile-menu').click()
-  await mobile.getByTestId('chat-mobile-model').waitFor({ state: 'visible' })
-  assert.equal(await mobile.getByTestId('chat-mobile-model').inputValue(), 'gpt-6.1-sol')
+  await mobile.getByTestId('chat-model').waitFor({ state: 'visible' })
+  assert.equal(await mobile.getByTestId('chat-model').inputValue(), 'gpt-6.1-sol')
   await mobile.screenshot({ path: path.join(output, 'mobile-settings.png') })
   await mobile.getByTestId('chat-mobile-settings-dialog').getByRole('button', { name: '关闭', exact: true }).click()
   await mobile.getByTestId('chat-mobile-plus').click()
@@ -293,8 +316,8 @@ try {
   // Finish the earlier same-browser camera scenario before testing a separate device.
   await mobile.close()
   await page.locator('aside.chat-history').getByRole('button', { name: /新对话/ }).click()
-  await page.getByTestId('chat-sync').click()
-  await page.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
+  await synced(page, true)
+  await openMenu(page)
   await page.getByTestId('chat-share').click()
   await page.getByTestId('chat-share-qr').waitFor()
   assert.ok((await page.getByTestId('chat-share-qr').getAttribute('src')).startsWith('data:image/png;base64,'))
@@ -306,15 +329,15 @@ try {
   await phoneContext.route('**/*', handleRoute)
   const phone = await phoneContext.newPage(); phone.on('pageerror', error => errors.push(error.message))
   await phone.goto(sharedURL)
-  await phone.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
-  await phone.waitForFunction(() => !document.querySelector('[data-testid="chat-photo"]').disabled)
+  await synced(phone)
+  await phone.waitForFunction(() => !document.querySelector('[data-testid="chat-file-input"]').disabled)
   assert.equal(await phone.getByTestId('chat-input').inputValue(), await page.getByTestId('chat-input').inputValue())
   assert.equal(await phone.locator('article img').count(), await page.locator('article img').count())
   await page.getByRole('button', { name: '关闭预览', exact: true }).last().click()
   await page.getByTestId('chat-input').fill('电脑继续核对这张手机票据')
   await phone.getByTestId('chat-camera-input').setInputFiles({ name: 'phone-shared.jpg', mimeType: 'image/jpeg', buffer: cameraJPEG })
   await phone.getByRole('button', { name: '放大查看 phone-shared.jpg', exact: true }).waitFor()
-  await phone.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
+  await synced(phone)
   await page.getByRole('button', { name: '放大查看 phone-shared.jpg', exact: true }).waitFor({ timeout: 15000 })
   assert.equal(await page.getByTestId('chat-input').inputValue(), '电脑继续核对这张手机票据')
   assert.equal(requests.length, 4, 'Phone photo transfer must not call a model')
@@ -332,7 +355,7 @@ try {
     role: index % 2 ? 'assistant' : 'user', content: '票据核对记录 ' + index + '\n请保留单号与金额用于复核。', status: 'complete', reasoning: '', attachments: [], images: [] })))
   Object.assign(record.conversation.messages.at(-1), { content: '票据核对记录 29\n\n| 单号 | 金额 |\n| --- | --- |\n| 0012 | -120.50 |\n\n> 请复核原始凭证\n\n[凭证说明](https://example.invalid)与 `0012`。', reasoning: '依据原始凭证核对金额。' })
   record.revision++
-  await phone.getByTestId('chat-sync').click()
+  await synced(phone, true)
   await phone.getByText('票据核对记录 29', { exact: false }).waitFor()
   await phone.locator('[role="log"]').evaluate(log => { log.scrollTop = 0 })
   await phone.locator('[role="log"]').hover()
@@ -369,8 +392,7 @@ try {
   await phone.screenshot({ path: path.join(output, 'phone-four-photo-draft.png') })
   assert.equal(requests.length, 5)
   for (let index = 0; index < 4; index++) await phone.getByRole('button', { name: '移除文件 receipt-' + index + '.jpg', exact: true }).click()
-  await phone.getByTestId('chat-sync').click()
-  await phone.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
+  await synced(phone, true)
   assert.equal(cloud.get(sharedId).conversation.draftImages.length, 0)
   // Verify saved light preference and automatic OS dark preference through the real app boot.
   for (const theme of ['light', 'dark']) {
@@ -382,7 +404,6 @@ try {
     await phoneLayout(phone, 650)
     await phone.locator('.chat-assistant details summary').last().click()
     for (const [name, selector] of [
-      ['header', '.chat-mobile-header h1'], ['sync status', '.chat-sync-bar > span'], ['sync refresh', '.chat-sync-bar > button'],
       ['user message', '.chat-user-bubble'], ['assistant body', '.chat-markdown'], ['assistant table', '.chat-markdown td'],
       ['assistant sender', '.chat-assistant .chat-sender'], ['user sender', '.chat-user .chat-sender'],
       ['reasoning label', '.chat-assistant details summary'], ['reasoning body', '.chat-assistant details p'],
@@ -404,14 +425,16 @@ try {
     await phone.screenshot({ path: path.join(output, `phone-${theme}-tray.png`) })
     await phone.getByTestId('chat-mobile-menu').click()
     const settings = phone.getByTestId('chat-mobile-settings-dialog')
+    await readable(theme, 'sync status', settings.locator('.chat-sync-bar > span'))
+    await readable(theme, 'sync refresh', settings.locator('.chat-sync-bar > button'))
     for (const [name, selector] of [['settings heading', 'h2'], ['settings label', '.chat-field > span'], ['settings hint', 'p'],
       ['settings input', '.input'], ['settings action', '.btn-secondary'], ['delete action', '.text-red-600']]) {
       await readable(theme, name, settings.locator(selector).first())
     }
-    await readable(theme, 'model placeholder', phone.getByTestId('chat-mobile-model'), '::placeholder')
+    await readable(theme, 'model placeholder', phone.getByTestId('chat-model'), '::placeholder')
     await phone.screenshot({ path: path.join(output, `phone-${theme}-settings.png`) })
     await settings.locator('.chat-mobile-button').click()
-    await phone.getByTestId('chat-mobile-history').click()
+    await openHistory(phone)
     const history = phone.getByTestId('chat-mobile-history-dialog')
     await readable(theme, 'new conversation', history.locator('.btn-primary'))
     await readable(theme, 'history item', history.locator('.chat-history-item').first())
@@ -420,8 +443,7 @@ try {
     await phone.screenshot({ path: path.join(output, `phone-${theme}-history.png`) })
     await history.locator('.chat-mobile-button').click()
     await phone.getByTestId('chat-input').fill('')
-    await phone.getByTestId('chat-sync').click()
-    await phone.getByTestId('chat-sync-status').filter({ hasText: '已同步' }).waitFor()
+    await synced(phone, true)
   }
   assert.equal(requests.length, 5, 'Theme verification must not call a model')
   assert.deepEqual(contrastResults.filter(result => result.ratio < 4.5), [], 'All mobile text must meet 4.5:1 contrast')

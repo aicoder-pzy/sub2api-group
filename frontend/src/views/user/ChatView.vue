@@ -24,55 +24,6 @@
       <ResizeHandle v-if="!layout.historyHidden" class="hidden lg:block" :model-value="historyWidth" :min="180" :max="historyMax" :label="t('chat.layout.resizeHistory')" aria-controls="chat-desktop-history" data-testid="chat-resize-history" @update:model-value="layout.historyWidth = $event" @dblclick="layout.historyWidth = 240" />
 
       <section class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header class="chat-mobile-header sm:hidden">
-          <button type="button" class="chat-mobile-button" :aria-label="t('chat.conversations')" data-testid="chat-mobile-history" @click="openMobileDialog(historyDialog)"><Icon name="chevronLeft" size="lg" /></button>
-          <h1 class="min-w-0 flex-1 truncate text-center text-base font-semibold">{{ current?.title || t('chat.untitled') }}</h1>
-          <button type="button" class="chat-mobile-button" :aria-label="t('chat.mobile.menu')" data-testid="chat-mobile-menu" @click="openMobileDialog(settingsDialog)"><Icon name="more" size="lg" /></button>
-        </header>
-        <header class="chat-toolbar hidden sm:block">
-          <div class="mb-3 hidden flex-wrap items-center gap-2 lg:flex">
-            <button type="button" class="chat-layout-button" :aria-expanded="!layout.navigationHidden" data-testid="chat-toggle-navigation" @click="layout.navigationHidden = !layout.navigationHidden"><Icon name="menu" size="sm" />{{ t(layout.navigationHidden ? 'chat.layout.showNavigation' : 'chat.layout.hideNavigation') }}</button>
-            <button type="button" class="chat-layout-button" :aria-expanded="!layout.historyHidden" aria-controls="chat-desktop-history" data-testid="chat-toggle-history" @click="layout.historyHidden = !layout.historyHidden"><Icon name="chat" size="sm" />{{ t(layout.historyHidden ? 'chat.layout.showHistory' : 'chat.layout.hideHistory') }}</button>
-            <button type="button" class="chat-layout-button ml-auto" data-testid="chat-reset-layout" @click="resetLayout"><Icon name="refresh" size="sm" />{{ t('chat.layout.reset') }}</button>
-          </div>
-          <div class="mb-4 flex items-center justify-between gap-2 lg:hidden">
-            <select v-model="selectedId" class="input min-w-0 flex-1" :aria-label="t('chat.conversations')" :disabled="busy"><option v-for="chat in sortedChats" :key="chat.id" :value="chat.id">{{ chat.title || t('chat.untitled') }}</option></select>
-            <button class="btn btn-secondary shrink-0" :disabled="busy || !historyReady" @click="newChat">+ {{ t('chat.newChat') }}</button>
-          </div>
-          <div v-if="current" class="flex flex-wrap items-center gap-3">
-            <div class="chat-conversation-title">
-              <input v-model="current.title" class="w-full truncate bg-transparent text-lg font-semibold text-gray-900 outline-none focus:underline dark:text-white" :placeholder="t('chat.workspaceTitle')" :aria-label="t('chat.rename')" maxlength="80" :disabled="busy" @change="persist" />
-              <p class="mt-1 hidden text-xs text-gray-500 sm:block">{{ t('chat.workspaceHint') }}</p>
-            </div>
-            <label class="chat-field chat-key-field"><span>{{ t('chat.key') }}</span>
-              <select v-model="current.keyId" class="input" data-testid="chat-key" :disabled="busy || keysLoading" @change="current.model = ''; current.effort = ''">
-                <option :value="null">{{ keysLoading ? t('chat.loading') : t('chat.selectKey') }}</option>
-                <option v-for="key in keys" :key="key.id" :value="key.id">{{ key.group?.name || '#' + key.group_id }} · {{ key.name }}</option>
-              </select>
-            </label>
-            <button class="btn btn-secondary text-xs" :disabled="busy || !historyReady" data-testid="chat-share" @click="shareChat">{{ t('chat.continuePhone') }}</button>
-            <button class="btn btn-secondary text-xs" :disabled="!current.messages.length || busy" data-testid="chat-export" @click="exportConversation">{{ t('chat.exportChat') }}</button>
-            <button class="chat-icon-button" :disabled="busy" :title="t('chat.deleteChat')" :aria-label="t('chat.deleteChat')" @click="deleteChat">×</button>
-          </div>
-          <details v-if="current" class="mt-3 text-xs text-gray-500">
-            <summary class="w-fit cursor-pointer" data-testid="chat-settings">{{ t('chat.settings') }} · {{ current.model || t('chat.selectModel') }}</summary>
-            <div class="mt-3 flex flex-wrap items-end gap-3">
-            <label class="chat-field min-w-48 flex-1"><span>{{ t('chat.model') }}</span>
-              <input v-model.trim="current.model" class="input" list="chat-models" :placeholder="modelsLoading ? t('chat.loading') : t('chat.selectModel')" :disabled="busy || !current.keyId" maxlength="200" autocomplete="off" data-testid="chat-model" />
-              <datalist id="chat-models"><option v-for="model in models" :key="model" :value="model" /></datalist>
-            </label>
-            <label class="chat-field w-32"><span>{{ t('chat.effort') }}</span>
-              <select v-model="current.effort" class="input" :disabled="busy"><option value="">{{ t('chat.default') }}</option><option v-for="effort in ['low', 'medium', 'high', 'xhigh']" :key="effort" :value="effort">{{ t('chat.efforts.' + effort) }}</option></select>
-            </label>
-            <label class="chat-field w-36"><span>{{ t('chat.outputLength') }}</span><select v-model="current.maxOutputTokens" class="input" :disabled="busy"><option :value="4096">{{ t('chat.outputShort') }}</option><option :value="8192">{{ t('chat.outputStandard') }}</option><option :value="16384">{{ t('chat.outputLong') }}</option></select></label>
-            <label class="mb-2 flex items-center gap-2"><input v-model="current.financeMode" type="checkbox" :disabled="busy" data-testid="chat-finance-mode" />{{ t('chat.financeMode') }}</label>
-            <button class="chat-icon-button" :disabled="busy || keysLoading" :title="t('chat.reload')" :aria-label="t('chat.reload')" @click="loadKeys">↻</button>
-            </div>
-          </details>
-        </header>
-          <div class="chat-sync-bar flex items-center justify-center gap-2 px-4 py-1 text-xs text-gray-500 sm:justify-start" role="status" data-testid="chat-sync-status">
-            <span>{{ t('chat.sync.' + syncStatus) }}</span><button type="button" class="text-primary-600" :disabled="syncStatus === 'syncing' || busy || filesLoading" data-testid="chat-sync" @click="chatSync?.sync()">{{ t('chat.sync.refresh') }}</button>
-          </div>
           <p v-if="syncConflict" class="px-4 py-1 text-xs text-amber-600" role="alert">{{ t('chat.sync.conflict') }}</p>
           <p v-if="!keysLoading && !keys.length && !keysError" class="px-4 py-1 text-sm text-gray-500">{{ t('chat.noKeys') }} <RouterLink to="/keys" class="text-primary-600 underline">{{ t('chat.manageKeys') }}</RouterLink></p>
           <p v-if="keysError || modelsError" role="alert" class="px-4 py-1 text-sm text-amber-600">{{ t(keysError ? 'chat.keysError' : 'chat.modelsError') }}</p>
@@ -119,18 +70,11 @@
           </div>
         </div>
 
-        <ResizeHandle class="hidden sm:block" orientation="horizontal" reverse :model-value="composerHeight" :min="80" :max="composerMax" :label="t('chat.layout.resizeComposer')" aria-controls="chat-desktop-input" data-testid="chat-resize-composer" @update:model-value="layout.composerHeight = $event" @dblclick="layout.composerHeight = 80" />
-        <div class="chat-footer mx-auto w-full shrink-0 px-4 pb-4 pt-2 md:px-8">
+        <ResizeHandle class="hidden sm:block" orientation="horizontal" reverse :model-value="composerHeight" :min="44" :max="composerMax" :label="t('chat.layout.resizeComposer')" aria-controls="chat-desktop-input" data-testid="chat-resize-composer" @update:model-value="layout.composerHeight = $event" @dblclick="layout.composerHeight = 44" />
+        <div class="chat-footer mx-auto w-full shrink-0">
           <p v-if="error" role="alert" class="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{{ error }}</p>
           <p v-if="storageError" role="status" class="mb-2 text-xs text-amber-600">{{ t('chat.storageError') }}</p>
           <p v-if="historyError" role="alert" class="mb-2 text-xs text-red-600">{{ t('chat.historyError') }}</p>
-          <div class="mb-2 hidden items-start gap-4 sm:flex">
-          <button v-if="current?.messages.at(-1)?.role === 'assistant' && !busy" class="shrink-0 text-xs font-medium text-gray-500 hover:text-primary-600" :disabled="!canSend" data-testid="chat-retry" @click="send(true)">↻ {{ t('chat.retry') }}</button>
-          <details class="text-xs text-gray-500">
-            <summary class="cursor-pointer">{{ t('chat.quickTasks') }}</summary>
-            <div class="mt-2 flex flex-wrap items-center gap-2"><button v-for="task in tasks" :key="task" class="rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-dark-800" :disabled="busy" @click="useTask(task)">{{ t('chat.tasks.' + task + '.title') }}</button></div>
-          </details>
-          </div>
           <form class="chat-composer" :class="{ 'ring-2 ring-primary-400': dragging }" @submit.prevent="send(false)" @paste="pasteImages" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dropFiles">
             <div v-if="draftImages.length || draftFiles.length" class="chat-draft-attachments">
             <div v-if="draftImages.length" class="chat-draft-images flex flex-wrap gap-3 px-4 pt-3">
@@ -151,23 +95,18 @@
             </div>
             </div>
             <div class="chat-input-row">
-            <button type="button" class="chat-mobile-button chat-plus sm:hidden" :aria-label="t('chat.mobile.add')" :aria-expanded="mobileTray" aria-controls="chat-mobile-tray" data-testid="chat-mobile-plus" @click="toggleMobileTray"><Icon :name="mobileTray ? 'x' : 'plus'" size="lg" /></button>
-            <textarea id="chat-desktop-input" ref="composer" v-model="draft" :placeholder="t(mobileScreen ? 'chat.mobile.placeholder' : 'chat.placeholder')" :aria-label="t('chat.placeholder')" class="min-h-20 w-full resize-none bg-transparent px-4 pt-4 text-sm leading-6 text-gray-900 outline-none dark:text-gray-100" rows="1" maxlength="100000" data-testid="chat-input" @keydown="onKeydown" @focus="mobileTray = false"></textarea>
-            <div class="chat-send-row flex items-center justify-between gap-2 px-3 pb-3 pt-1">
-              <div class="hidden flex-wrap items-center gap-3 sm:flex">
-                <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading || !historyReady" data-testid="chat-attach" @click="fileInput?.click()">{{ filesLoading ? t('chat.readingFiles') : t('chat.attach') }}</button>
-                <input ref="fileInput" type="file" class="sr-only" accept=".xlsx,.xls,.csv,.tsv,.txt,.md,.png,.jpg,.jpeg,.webp" multiple :aria-label="t('chat.attach')" :disabled="busy || filesLoading || !historyReady" data-testid="chat-file-input" @change="chooseFiles" />
-                <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading || !historyReady" data-testid="chat-photo" @click="imageInput?.click()">{{ t('chat.photo') }}</button>
-                <input ref="imageInput" type="file" class="sr-only" accept="image/png,image/jpeg,image/webp" multiple :aria-label="t('chat.photo')" data-testid="chat-image-input" @change="chooseFiles" />
-                <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading || !historyReady" data-testid="chat-camera" @click="cameraInput?.click()">{{ t('chat.camera') }}</button>
-                <input ref="cameraInput" type="file" class="sr-only" accept="image/jpeg,image/png,image/webp" capture="environment" :aria-label="t('chat.camera')" data-testid="chat-camera-input" @change="chooseFiles" />
-                <span class="hidden text-xs text-gray-400 xl:block">{{ t('chat.keyboardHint') }}</span>
+              <button type="button" class="chat-mobile-button chat-menu" :aria-label="t('chat.mobile.menu')" data-testid="chat-mobile-menu" @click="openMobileDialog(settingsDialog)"><Icon name="more" size="lg" /></button>
+              <button type="button" class="chat-mobile-button chat-plus" :aria-label="t('chat.mobile.add')" :aria-expanded="mobileTray" aria-controls="chat-mobile-tray" data-testid="chat-mobile-plus" @click="toggleMobileTray"><Icon :name="mobileTray ? 'x' : 'plus'" size="lg" /></button>
+              <textarea id="chat-desktop-input" ref="composer" v-model="draft" :placeholder="t('chat.mobile.placeholder')" :aria-label="t('chat.placeholder')" rows="1" maxlength="100000" data-testid="chat-input" @keydown="onKeydown" @focus="mobileTray = false"></textarea>
+              <div class="chat-send-row">
+                <button v-if="busy" type="button" class="btn btn-secondary text-sm" data-testid="chat-stop" @click="stop">{{ t('chat.stop') }}</button>
+                <button v-else type="submit" class="btn btn-primary text-sm" :disabled="!canSend || !(draft.trim() || draftImages.length || draftFiles.length)" data-testid="chat-send">{{ t('chat.send') }}</button>
               </div>
-              <button v-if="busy" type="button" class="btn btn-secondary text-sm" data-testid="chat-stop" @click="stop">■ {{ t('chat.stop') }}</button>
-              <button v-else type="submit" class="btn btn-primary text-sm" :disabled="!canSend || !(draft.trim() || draftImages.length || draftFiles.length)" data-testid="chat-send">{{ t('chat.send') }} ↑</button>
             </div>
-            </div>
-            <div v-if="mobileTray" id="chat-mobile-tray" class="chat-mobile-tray sm:hidden">
+            <input ref="fileInput" type="file" class="sr-only" accept=".xlsx,.xls,.csv,.tsv,.txt,.md,.png,.jpg,.jpeg,.webp" multiple :aria-label="t('chat.attach')" :disabled="busy || filesLoading || !historyReady" data-testid="chat-file-input" @change="chooseFiles" />
+            <input ref="imageInput" type="file" class="sr-only" accept="image/png,image/jpeg,image/webp" multiple :aria-label="t('chat.photo')" data-testid="chat-image-input" @change="chooseFiles" />
+            <input ref="cameraInput" type="file" class="sr-only" accept="image/jpeg,image/png,image/webp" capture="environment" :aria-label="t('chat.camera')" data-testid="chat-camera-input" @change="chooseFiles" />
+            <div v-if="mobileTray" id="chat-mobile-tray" class="chat-mobile-tray">
               <div class="grid grid-cols-3 gap-3">
                 <button type="button" class="chat-tray-action" :disabled="busy || filesLoading || !historyReady" data-testid="chat-mobile-camera" @click="cameraInput?.click()"><span aria-hidden="true"><Icon name="camera" size="lg" /></span>{{ t('chat.camera') }}</button>
                 <button type="button" class="chat-tray-action" :disabled="busy || filesLoading || !historyReady" data-testid="chat-mobile-photo" @click="imageInput?.click()"><span aria-hidden="true"><Icon name="photo" size="lg" /></span>{{ t('chat.photo') }}</button>
@@ -177,14 +116,7 @@
               <p class="mt-3 text-xs text-gray-500">{{ t('chat.mobile.photoHint') }}</p>
             </div>
           </form>
-          <p v-if="filesLoading" class="pt-1 text-xs text-gray-500 sm:hidden" role="status">{{ t('chat.readingFiles') }}</p>
-          <details class="mt-2 hidden text-[11px] leading-5 text-gray-400 sm:block">
-            <summary class="cursor-pointer">{{ t('chat.attachmentHelp') }}</summary>
-            <p class="mt-1">{{ t('chat.fileHint') }}</p>
-            <p class="mt-1">{{ t('chat.imageHint') }}</p>
-          </details>
-          <p v-if="current?.financeMode" class="mt-1 hidden text-[11px] leading-5 text-gray-400 sm:block">{{ t('chat.reviewHint') }}</p>
-          <p class="mt-2 hidden text-center text-[11px] leading-5 text-gray-400 sm:block">{{ t('chat.chargingHint') }}</p>
+          <p v-if="filesLoading" class="pt-1 text-xs text-gray-500" role="status">{{ t('chat.readingFiles') }}</p>
         </div>
       </section>
       <dialog ref="historyDialog" class="chat-mobile-sheet" :aria-label="t('chat.conversations')" data-testid="chat-mobile-history-dialog" @click.self="historyDialog?.close()">
@@ -196,21 +128,34 @@
       </dialog>
       <dialog ref="settingsDialog" class="chat-mobile-sheet" :aria-label="t('chat.mobile.menu')" data-testid="chat-mobile-settings-dialog" @click.self="settingsDialog?.close()">
         <div class="mb-4 flex items-center justify-between"><h2 class="font-semibold">{{ t('chat.mobile.menu') }}</h2><button type="button" class="chat-mobile-button" :aria-label="t('chat.mobile.close')" @click="settingsDialog?.close()"><Icon name="x" /></button></div>
+        <div class="mb-4 grid grid-cols-2 gap-2">
+          <button type="button" class="btn btn-secondary text-xs" data-testid="chat-mobile-history" @click="settingsDialog?.close(); openMobileDialog(historyDialog)">{{ t('chat.conversations') }}</button>
+          <button type="button" class="btn btn-secondary text-xs" :disabled="busy || !historyReady" @click="newChat(); settingsDialog?.close()">+ {{ t('chat.newChat') }}</button>
+        </div>
+        <div class="mb-4 hidden flex-wrap gap-2 lg:flex">
+          <button type="button" class="chat-layout-button" :aria-expanded="!layout.navigationHidden" data-testid="chat-toggle-navigation" @click="layout.navigationHidden = !layout.navigationHidden"><Icon name="menu" size="sm" />{{ t(layout.navigationHidden ? 'chat.layout.showNavigation' : 'chat.layout.hideNavigation') }}</button>
+          <button type="button" class="chat-layout-button" :aria-expanded="!layout.historyHidden" aria-controls="chat-desktop-history" data-testid="chat-toggle-history" @click="layout.historyHidden = !layout.historyHidden"><Icon name="chat" size="sm" />{{ t(layout.historyHidden ? 'chat.layout.showHistory' : 'chat.layout.hideHistory') }}</button>
+          <button type="button" class="chat-layout-button" data-testid="chat-reset-layout" @click="resetLayout"><Icon name="refresh" size="sm" />{{ t('chat.layout.reset') }}</button>
+        </div>
+        <div class="chat-sync-bar mb-4 flex flex-wrap items-center gap-2 text-xs text-gray-500" role="status" data-testid="chat-sync-status">
+          <span>{{ t('chat.sync.' + syncStatus) }}</span><button type="button" class="text-primary-600" :disabled="syncStatus === 'syncing' || busy || filesLoading" data-testid="chat-sync" @click="chatSync?.sync()">{{ t('chat.sync.refresh') }}</button>
+        </div>
         <div v-if="current" class="space-y-4">
           <label class="chat-field"><span>{{ t('chat.rename') }}</span><input v-model="current.title" class="input" maxlength="80" :disabled="busy" @change="persist" /></label>
-          <label class="chat-field"><span>{{ t('chat.key') }}</span><select v-model="current.keyId" class="input" :disabled="busy || keysLoading" data-testid="chat-mobile-key" @change="current.model = ''; current.effort = ''"><option :value="null">{{ t('chat.selectKey') }}</option><option v-for="key in keys" :key="key.id" :value="key.id">{{ key.group?.name || '#' + key.group_id }} · {{ key.name }}</option></select></label>
-          <label class="chat-field"><span>{{ t('chat.model') }}</span><input v-model.trim="current.model" class="input" list="chat-models" :placeholder="t('chat.selectModel')" :disabled="busy || !current.keyId" maxlength="200" data-testid="chat-mobile-model" /></label>
+          <label class="chat-field"><span>{{ t('chat.key') }}</span><select v-model="current.keyId" class="input" :disabled="busy || keysLoading" data-testid="chat-key" @change="current.model = ''; current.effort = ''"><option :value="null">{{ t('chat.selectKey') }}</option><option v-for="key in keys" :key="key.id" :value="key.id">{{ key.group?.name || '#' + key.group_id }} · {{ key.name }}</option></select></label>
+          <label class="chat-field"><span>{{ t('chat.model') }}</span><input v-model.trim="current.model" class="input" list="chat-models" :placeholder="t('chat.selectModel')" :disabled="busy || !current.keyId" maxlength="200" autocomplete="off" data-testid="chat-model" /><datalist id="chat-models"><option v-for="model in models" :key="model" :value="model" /></datalist></label>
           <div class="grid grid-cols-2 gap-3">
             <label class="chat-field"><span>{{ t('chat.effort') }}</span><select v-model="current.effort" class="input" :disabled="busy"><option value="">{{ t('chat.default') }}</option><option v-for="effort in ['low', 'medium', 'high', 'xhigh']" :key="effort" :value="effort">{{ t('chat.efforts.' + effort) }}</option></select></label>
             <label class="chat-field"><span>{{ t('chat.outputLength') }}</span><select v-model="current.maxOutputTokens" class="input" :disabled="busy"><option :value="4096">{{ t('chat.outputShort') }}</option><option :value="8192">{{ t('chat.outputStandard') }}</option><option :value="16384">{{ t('chat.outputLong') }}</option></select></label>
           </div>
-          <label class="flex items-center gap-2 text-sm"><input v-model="current.financeMode" type="checkbox" :disabled="busy" />{{ t('chat.financeMode') }}</label>
+          <label class="flex items-center gap-2 text-sm"><input v-model="current.financeMode" type="checkbox" :disabled="busy" data-testid="chat-finance-mode" />{{ t('chat.financeMode') }}</label>
           <div class="grid grid-cols-2 gap-2">
             <button type="button" class="btn btn-secondary text-xs" :disabled="busy || keysLoading" @click="loadKeys">{{ t('chat.reload') }}</button>
-            <button type="button" class="btn btn-secondary text-xs" :disabled="!current.messages.length || busy" @click="exportConversation">{{ t('chat.exportChat') }}</button>
-            <button type="button" class="btn btn-secondary text-xs" :disabled="busy || !historyReady" @click="settingsDialog?.close(); shareChat()">{{ t('chat.copyLink') }}</button>
-            <button v-if="current.messages.at(-1)?.role === 'assistant'" type="button" class="btn btn-secondary text-xs" :disabled="!canSend" @click="settingsDialog?.close(); send(true)">{{ t('chat.retry') }}</button>
+            <button type="button" class="btn btn-secondary text-xs" :disabled="!current.messages.length || busy" data-testid="chat-export" @click="exportConversation">{{ t('chat.exportChat') }}</button>
+            <button type="button" class="btn btn-secondary text-xs" :disabled="busy || !historyReady" data-testid="chat-share" @click="settingsDialog?.close(); shareChat()">{{ t('chat.continuePhone') }}</button>
+            <button v-if="current.messages.at(-1)?.role === 'assistant'" type="button" class="btn btn-secondary text-xs" :disabled="!canSend" data-testid="chat-retry" @click="settingsDialog?.close(); send(true)">{{ t('chat.retry') }}</button>
           </div>
+          <p class="hidden text-xs text-gray-500 sm:block">{{ t('chat.keyboardHint') }}</p>
           <p class="text-xs leading-5 text-gray-500">{{ t('chat.fileHint') }} {{ t('chat.imageHint') }}</p>
           <p class="text-xs text-gray-500">{{ t('chat.reviewHint') }} {{ t('chat.chargingHint') }}</p>
           <button type="button" class="w-full py-3 text-sm text-red-600" :disabled="busy" @click="settingsDialog?.close(); deleteChat()">{{ t('chat.deleteChat') }}</button>
@@ -250,16 +195,17 @@ import { CHAT_MAX_FILES, CHAT_MAX_INPUT, chatMarkdown, chatTables, chatTranscrip
 import type { ChatAttachment, ChatImage } from '@/api/chat'
 
 const { t } = useI18n(), auth = useAuthStore(), app = useAppStore()
-const defaultLayout = { navigationWidth: 256, historyWidth: 240, composerHeight: 80, navigationHidden: false, historyHidden: false }
-const layout = useStorage('sub2api-chat-layout:v1', { ...defaultLayout }, undefined, { mergeDefaults: true })
+const defaultLayout = { navigationWidth: 256, historyWidth: 240, composerHeight: 44, navigationHidden: false, historyHidden: false, compactComposer: true }
+const layout = useStorage('sub2api-chat-layout:v1', { ...defaultLayout, compactComposer: false }, undefined, { mergeDefaults: true })
+if (!layout.value.compactComposer) { layout.value.composerHeight = 44; layout.value.compactComposer = true }
 const viewportSize = ref({ width: window.innerWidth, height: window.innerHeight })
 const navigationMax = computed(() => Math.max(200, Math.min(360, Math.floor(viewportSize.value.width * 0.28))))
 const navigationWidth = computed(() => app.sidebarCollapsed ? 72 : Math.max(200, Math.min(layout.value.navigationWidth, navigationMax.value)))
 const historyMax = computed(() => Math.max(180, Math.min(420, viewportSize.value.width - (layout.value.navigationHidden ? 0 : navigationWidth.value) - 560)))
 const historyWidth = computed(() => Math.max(180, Math.min(layout.value.historyWidth, historyMax.value)))
 const composerRoom = ref(400)
-const composerMax = computed(() => Math.max(80, Math.min(composerRoom.value, Math.floor((viewportSize.value.height - 160) * 0.4))))
-const composerHeight = computed(() => Math.max(80, Math.min(layout.value.composerHeight, composerMax.value)))
+const composerMax = computed(() => Math.max(44, Math.min(composerRoom.value, Math.floor((viewportSize.value.height - 160) * 0.4))))
+const composerHeight = computed(() => Math.max(44, Math.min(layout.value.composerHeight, composerMax.value)))
 function resetLayout() {
   layout.value = { ...defaultLayout }
   app.setSidebarCollapsed(false)
@@ -285,7 +231,7 @@ const visibleChats = computed(() => sortedChats.value.filter(chat => chat.title.
 const composer = ref<HTMLTextAreaElement>(), fileInput = ref<HTMLInputElement>()
 useResizeObserver([messagePane, composer], () => {
   if (!mobileScreen.value && messagePane.value && composer.value) {
-    composerRoom.value = Math.max(80, Math.min(400, messagePane.value.clientHeight + composer.value.clientHeight - 120))
+    composerRoom.value = Math.max(44, Math.min(400, messagePane.value.clientHeight + composer.value.clientHeight - 120))
   }
 })
 const imageInput = ref<HTMLInputElement>(), cameraInput = ref<HTMLInputElement>(), imageDialog = ref<HTMLDialogElement>(), previewImage = ref<ChatImage>()
@@ -451,19 +397,16 @@ function onKeydown(event: KeyboardEvent) {
 function resizeComposer() {
   const input = composer.value
   if (!input) return
-  input.style.height = ''
-  if (window.innerWidth < 640 && draft.value) {
-    input.style.height = 'auto'
-    input.style.height = Math.min(input.scrollHeight, 104) + 'px'
-  }
+  input.style.height = 'auto'
+  input.style.height = Math.max(mobileScreen.value ? 44 : composerHeight.value, Math.min(input.scrollHeight, 104)) + 'px'
 }
+watch(composerHeight, () => { void nextTick(resizeComposer) })
 function updateMobileViewport() {
   viewportSize.value = { width: window.innerWidth, height: window.innerHeight }
   mobileScreen.value = window.innerWidth < 640
   const viewport = window.visualViewport
   if (viewport && viewport.scale === 1) mobileViewport.value = { '--chat-mobile-height': viewport.height + 'px', '--chat-mobile-top': viewport.offsetTop + 'px' }
   void nextTick(resizeComposer)
-  if (window.innerWidth >= 640) { historyDialog.value?.close?.(); settingsDialog.value?.close?.(); mobileTray.value = false }
   scrollToEnd()
 }
 function toggleMobileTray() {
@@ -590,24 +533,27 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.chat-shell { @apply flex overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-900; height: calc(100dvh - 10rem); min-height: 0; }
+.chat-shell { @apply flex overflow-hidden bg-white text-gray-900 dark:bg-dark-900 dark:text-gray-100; height: 100dvh; min-height: 0; }
 .chat-history { @apply min-w-0 shrink-0 flex-col border-r border-gray-100 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-950/40; width: var(--chat-history-width, 240px); }
 .chat-navigation-resize { position: fixed; top: 0; bottom: 0; z-index: 41; }
 .chat-layout-button { @apply inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-800; }
 .chat-layout-icon { @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-dark-800; }
 .chat-layout-button:focus-visible, .chat-layout-icon:focus-visible { @apply outline outline-2 outline-primary-500; }
-.chat-conversation-title { min-width: 0; flex: 1 1 200px; }
-.chat-key-field { min-width: 0; max-width: 240px; flex: 1 1 160px; }
-.chat-send-row > .btn { flex-shrink: 0; white-space: nowrap; }
-@media (min-width: 640px) {
-  .chat-composer textarea { height: var(--chat-composer-height, 80px); }
-}
+.chat-footer { padding: 6px 12px max(6px, env(safe-area-inset-bottom)); max-height: 50%; overflow-y: auto; }
+.chat-input-row { display: flex; align-items: flex-end; gap: 6px; padding: 4px; }
+.chat-mobile-button { @apply inline-flex shrink-0 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:text-gray-300 dark:hover:bg-dark-800; width: 44px; height: 44px; touch-action: manipulation; }
+.chat-menu, .chat-plus { width: 36px; }
+.chat-composer textarea { @apply bg-transparent text-gray-900 outline-none dark:text-gray-100; min-width: 0; flex: 1; height: var(--chat-composer-height, 44px); min-height: 44px; resize: none; overflow-y: auto; padding: 10px 4px; font-size: 14px; line-height: 24px; }
+.chat-send-row { flex-shrink: 0; }
+.chat-send-row .btn { min-height: 44px; padding: 8px 12px; white-space: nowrap; }
+.chat-mobile-tray { max-height: min(260px, 35dvh); overflow-y: auto; padding: 12px; overscroll-behavior: contain; }
+.chat-tray-action { @apply flex min-w-0 flex-col items-center gap-2 text-xs text-gray-600 disabled:opacity-40 dark:text-gray-300; }
+.chat-tray-action > span { @apply flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 dark:bg-dark-800; }
+.chat-draft-attachments { max-height: min(140px, 22dvh); overflow-y: auto; overscroll-behavior: contain; }
 .chat-history-item { @apply w-full rounded-lg px-3 py-3 text-left text-sm text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-dark-800; }
 .chat-history-active { @apply bg-white font-medium text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300; }
-.chat-toolbar { @apply border-b border-gray-100 px-4 py-3 dark:border-dark-700 md:px-6; }
 .chat-field { @apply flex flex-col gap-1.5 text-xs font-medium text-gray-500; }
 .chat-field .input { @apply text-sm font-normal; }
-.chat-icon-button { @apply mb-0.5 flex h-10 w-8 shrink-0 items-center justify-center rounded-lg text-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-dark-800 dark:hover:text-gray-200; }
 .chat-composer { @apply overflow-hidden rounded-2xl border border-gray-200 bg-gray-50/40 shadow-sm transition-shadow focus-within:border-primary-400 focus-within:ring-2 focus-within:ring-primary-100 dark:border-dark-600 dark:bg-dark-950/30 dark:focus-within:ring-primary-900/40; }
 .chat-task { @apply rounded-xl border border-gray-200 bg-gray-50/50 p-4 text-left transition-colors hover:border-primary-300 hover:bg-primary-50/50 dark:border-dark-600 dark:bg-dark-800/40 dark:hover:border-primary-600; }
 .chat-source { @apply rounded-lg border border-gray-200 bg-white/70 p-3 dark:border-dark-600 dark:bg-dark-800/60; }
@@ -627,13 +573,8 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
 .chat-markdown :deep(h2) { @apply text-lg; }
 .chat-markdown :deep(table) { @apply my-3 block max-w-full overflow-x-auto border-collapse; }
 .chat-markdown :deep(th), .chat-markdown :deep(td) { @apply border border-gray-200 px-3 py-2 text-left dark:border-dark-600; }
-@media (min-width: 640px) and (max-height: 700px) {
-  .chat-toolbar { max-height: 30%; flex-shrink: 0; overflow-y: auto; }
-  .chat-footer { max-height: 45%; overflow-y: auto; }
-}
 @media (max-width: 639px) {
   .chat-shell { @apply text-gray-900 dark:text-gray-100; position: fixed; z-index: 20; inset: 0; top: var(--chat-mobile-top, 0px); height: var(--chat-mobile-height, 100dvh); min-height: 0; border: 0; border-radius: 0; box-shadow: none; color-scheme: light; }
-  .chat-mobile-header { @apply items-center gap-1 px-2 text-gray-900 dark:text-gray-100; display: flex; flex-shrink: 0; padding-top: env(safe-area-inset-top); background: #ededed; }
   .chat-mobile-button { @apply inline-flex shrink-0 items-center justify-center rounded-lg disabled:opacity-40; width: 44px; height: 44px; touch-action: manipulation; }
   .chat-sync-bar { flex-shrink: 0; min-height: 22px; padding-top: 0; padding-bottom: 4px; background: #ededed; color: #526071; font-size: 12px; }
   .chat-sync-bar > span { min-width: 0; overflow-wrap: anywhere; }
@@ -654,8 +595,8 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
   .chat-footer > [role="alert"] { max-height: 64px; overflow-y: auto; margin-bottom: 4px; font-size: 12px; }
   .chat-composer { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
   .chat-composer:focus-within { box-shadow: none; }
-  .chat-input-row { display: flex; align-items: flex-end; gap: 6px; }
-  .chat-composer textarea { min-width: 0; flex: 1; height: 40px; min-height: 40px; max-height: 104px; resize: none; overflow-y: auto; border-radius: 5px; background: white; padding: 8px 10px; font-size: 16px; line-height: 24px; }
+  .chat-input-row { padding: 0; }
+  .chat-composer textarea { min-width: 0; flex: 1; height: 44px; min-height: 44px; max-height: 104px; resize: none; overflow-y: auto; border-radius: 5px; background: white; padding: 8px 10px; font-size: 16px; line-height: 24px; }
   .chat-composer textarea::placeholder { color: #64748b; opacity: 1; }
   .chat-send-row { flex-shrink: 0; padding: 0; }
   .chat-send-row .btn { min-height: 44px; padding: 8px 12px; border-radius: 5px; white-space: nowrap; }
@@ -681,7 +622,7 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
   .chat-mobile-sheet .text-red-600 { color: #b91c1c; }
   /* Keep the complete ancestor selector inside :global so Vue preserves its target. */
   :global(.dark .chat-shell) { color-scheme: dark; }
-  :global(.dark .chat-shell .chat-mobile-header), :global(.dark .chat-shell .chat-sync-bar), :global(.dark .chat-shell .chat-messages) { background: #111; }
+  :global(.dark .chat-shell .chat-sync-bar), :global(.dark .chat-shell .chat-messages) { background: #111; }
   :global(.dark .chat-shell .chat-assistant), :global(.dark .chat-shell .chat-composer textarea) { background: #262626; color: #f3f4f6; }
   :global(.dark .chat-shell .chat-user-bubble) { background: #95ec69; color: #172016; }
   :global(.dark .chat-shell .chat-footer) { background: #191919; border-color: #444; }
@@ -698,4 +639,7 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
 }
 .chat-mobile-sheet { @apply bg-white text-gray-900 dark:bg-dark-900 dark:text-gray-100; position: fixed; inset: auto 0 0; width: 100%; max-width: 480px; max-height: 85dvh; margin: 0 auto; padding: 12px 20px max(20px, env(safe-area-inset-bottom)); border: 0; border-radius: 18px 18px 0 0; overflow-y: auto; overscroll-behavior: contain; }
 .chat-mobile-sheet .input { min-height: 44px; font-size: 16px; }
+@media (min-width: 640px) {
+  .chat-mobile-sheet { inset: 0; margin: auto; border-radius: 16px; }
+}
 </style>
