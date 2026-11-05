@@ -1,5 +1,6 @@
 export default {
   chat: {
+    layout: { hideNavigation: '隐藏导航', showNavigation: '显示导航', hideHistory: '隐藏历史对话', showHistory: '显示历史对话', reset: '重置布局', resizeNavigation: '拖动调整导航宽度，双击恢复默认；方向键微调', resizeHistory: '拖动调整历史对话宽度，双击恢复默认；方向键微调', resizeComposer: '上下拖动调整输入区高度，双击恢复默认；方向键微调' },
     mobile: { menu: '会话设置', close: '关闭', back: '返回工作台', add: '添加照片、文件或任务', placeholder: '输入消息…', photoHint: '拍照后会同步到电脑；点“发送”才提交给模型。' },
     title: '在线聊天', description: '选择分组与模型，开始对话。', newChat: '新对话',
     conversations: '历史对话', untitled: '新对话', deleteChat: '删除当前对话', deleteConfirm: '删除这段对话？删除后无法恢复。',

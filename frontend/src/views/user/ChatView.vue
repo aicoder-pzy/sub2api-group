@@ -1,10 +1,14 @@
 <template>
-  <AppLayout mobile-chat>
-    <div class="chat-shell" :style="mobileViewport">
-      <aside class="chat-history hidden lg:flex">
+  <AppLayout mobile-chat :sidebar-width="navigationWidth" :sidebar-hidden="layout.navigationHidden">
+    <template #sidebar-resize>
+      <ResizeHandle v-if="!layout.navigationHidden && !app.sidebarCollapsed" class="chat-navigation-resize hidden lg:block" :style="{ left: (navigationWidth - 4) + 'px' }" :model-value="navigationWidth" :min="200" :max="navigationMax" :label="t('chat.layout.resizeNavigation')" data-testid="chat-resize-navigation" @update:model-value="layout.navigationWidth = $event" @dblclick="layout.navigationWidth = 256" />
+    </template>
+    <div class="chat-shell" :style="{ ...mobileViewport, '--chat-history-width': historyWidth + 'px', '--chat-composer-height': composerHeight + 'px' }">
+      <aside v-show="!layout.historyHidden" id="chat-desktop-history" class="chat-history hidden lg:flex">
         <div class="flex items-center gap-2 px-2 py-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
           <Icon name="chat" size="md" class="text-primary-500" aria-hidden="true" />
-          {{ t('chat.title') }}
+          <span class="min-w-0 flex-1 truncate">{{ t('chat.title') }}</span>
+          <button type="button" class="chat-layout-icon" :aria-label="t('chat.layout.hideHistory')" :title="t('chat.layout.hideHistory')" @click="layout.historyHidden = true"><Icon name="chevronLeft" size="sm" /></button>
         </div>
         <button class="btn btn-primary w-full" :disabled="busy || !historyReady" @click="newChat">+ {{ t('chat.newChat') }}</button>
         <input v-model="historySearch" class="input mt-3 text-sm" type="search" :placeholder="t('chat.searchHistory')" :aria-label="t('chat.searchHistory')" />
@@ -17,6 +21,7 @@
         </nav>
         <p class="px-2 pt-4 text-xs leading-5 text-gray-400">{{ t('chat.historyHint') }}</p>
       </aside>
+      <ResizeHandle v-if="!layout.historyHidden" class="hidden lg:block" :model-value="historyWidth" :min="180" :max="historyMax" :label="t('chat.layout.resizeHistory')" aria-controls="chat-desktop-history" data-testid="chat-resize-history" @update:model-value="layout.historyWidth = $event" @dblclick="layout.historyWidth = 240" />
 
       <section class="flex min-h-0 min-w-0 flex-1 flex-col">
         <header class="chat-mobile-header sm:hidden">
@@ -25,16 +30,21 @@
           <button type="button" class="chat-mobile-button" :aria-label="t('chat.mobile.menu')" data-testid="chat-mobile-menu" @click="openMobileDialog(settingsDialog)"><Icon name="more" size="lg" /></button>
         </header>
         <header class="chat-toolbar hidden sm:block">
+          <div class="mb-3 hidden flex-wrap items-center gap-2 lg:flex">
+            <button type="button" class="chat-layout-button" :aria-expanded="!layout.navigationHidden" data-testid="chat-toggle-navigation" @click="layout.navigationHidden = !layout.navigationHidden"><Icon name="menu" size="sm" />{{ t(layout.navigationHidden ? 'chat.layout.showNavigation' : 'chat.layout.hideNavigation') }}</button>
+            <button type="button" class="chat-layout-button" :aria-expanded="!layout.historyHidden" aria-controls="chat-desktop-history" data-testid="chat-toggle-history" @click="layout.historyHidden = !layout.historyHidden"><Icon name="chat" size="sm" />{{ t(layout.historyHidden ? 'chat.layout.showHistory' : 'chat.layout.hideHistory') }}</button>
+            <button type="button" class="chat-layout-button ml-auto" data-testid="chat-reset-layout" @click="resetLayout"><Icon name="refresh" size="sm" />{{ t('chat.layout.reset') }}</button>
+          </div>
           <div class="mb-4 flex items-center justify-between gap-2 lg:hidden">
             <select v-model="selectedId" class="input min-w-0 flex-1" :aria-label="t('chat.conversations')" :disabled="busy"><option v-for="chat in sortedChats" :key="chat.id" :value="chat.id">{{ chat.title || t('chat.untitled') }}</option></select>
             <button class="btn btn-secondary shrink-0" :disabled="busy || !historyReady" @click="newChat">+ {{ t('chat.newChat') }}</button>
           </div>
           <div v-if="current" class="flex flex-wrap items-center gap-3">
-            <div class="min-w-0 flex-1 basis-full sm:basis-0">
+            <div class="chat-conversation-title">
               <input v-model="current.title" class="w-full truncate bg-transparent text-lg font-semibold text-gray-900 outline-none focus:underline dark:text-white" :placeholder="t('chat.workspaceTitle')" :aria-label="t('chat.rename')" maxlength="80" :disabled="busy" @change="persist" />
               <p class="mt-1 hidden text-xs text-gray-500 sm:block">{{ t('chat.workspaceHint') }}</p>
             </div>
-            <label class="chat-field min-w-0 flex-1 sm:w-60 sm:flex-none"><span>{{ t('chat.key') }}</span>
+            <label class="chat-field chat-key-field"><span>{{ t('chat.key') }}</span>
               <select v-model="current.keyId" class="input" data-testid="chat-key" :disabled="busy || keysLoading" @change="current.model = ''; current.effort = ''">
                 <option :value="null">{{ keysLoading ? t('chat.loading') : t('chat.selectKey') }}</option>
                 <option v-for="key in keys" :key="key.id" :value="key.id">{{ key.group?.name || '#' + key.group_id }} · {{ key.name }}</option>
@@ -79,7 +89,7 @@
               </button>
             </div>
           </div>
-          <div v-else class="chat-message-list mx-auto max-w-4xl space-y-7 px-4 py-8 md:px-8">
+          <div v-else class="chat-message-list mx-auto w-full space-y-7 px-4 py-8 md:px-8">
             <article v-for="message in current.messages" :key="message.id" :class="message.role === 'user' ? 'chat-user ml-auto max-w-[90%]' : 'chat-assistant mr-auto w-full'">
               <div class="chat-sender mb-2 text-xs font-medium text-gray-400" :class="{ 'text-right': message.role === 'user' }">{{ t(message.role === 'user' ? 'chat.you' : 'chat.assistant') }}</div>
               <template v-if="message.role === 'user'">
@@ -109,15 +119,18 @@
           </div>
         </div>
 
-        <div class="chat-footer mx-auto w-full max-w-4xl shrink-0 px-4 pb-4 pt-2 md:px-8">
+        <ResizeHandle class="hidden sm:block" orientation="horizontal" reverse :model-value="composerHeight" :min="80" :max="composerMax" :label="t('chat.layout.resizeComposer')" aria-controls="chat-desktop-input" data-testid="chat-resize-composer" @update:model-value="layout.composerHeight = $event" @dblclick="layout.composerHeight = 80" />
+        <div class="chat-footer mx-auto w-full shrink-0 px-4 pb-4 pt-2 md:px-8">
           <p v-if="error" role="alert" class="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{{ error }}</p>
           <p v-if="storageError" role="status" class="mb-2 text-xs text-amber-600">{{ t('chat.storageError') }}</p>
           <p v-if="historyError" role="alert" class="mb-2 text-xs text-red-600">{{ t('chat.historyError') }}</p>
-          <button v-if="current?.messages.at(-1)?.role === 'assistant' && !busy" class="mb-3 hidden text-xs font-medium text-gray-500 hover:text-primary-600 sm:block" :disabled="!canSend" data-testid="chat-retry" @click="send(true)">↻ {{ t('chat.retry') }}</button>
-          <details class="mb-2 hidden text-xs text-gray-500 sm:block">
+          <div class="mb-2 hidden items-start gap-4 sm:flex">
+          <button v-if="current?.messages.at(-1)?.role === 'assistant' && !busy" class="shrink-0 text-xs font-medium text-gray-500 hover:text-primary-600" :disabled="!canSend" data-testid="chat-retry" @click="send(true)">↻ {{ t('chat.retry') }}</button>
+          <details class="text-xs text-gray-500">
             <summary class="cursor-pointer">{{ t('chat.quickTasks') }}</summary>
             <div class="mt-2 flex flex-wrap items-center gap-2"><button v-for="task in tasks" :key="task" class="rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-dark-800" :disabled="busy" @click="useTask(task)">{{ t('chat.tasks.' + task + '.title') }}</button></div>
           </details>
+          </div>
           <form class="chat-composer" :class="{ 'ring-2 ring-primary-400': dragging }" @submit.prevent="send(false)" @paste="pasteImages" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dropFiles">
             <div v-if="draftImages.length || draftFiles.length" class="chat-draft-attachments">
             <div v-if="draftImages.length" class="chat-draft-images flex flex-wrap gap-3 px-4 pt-3">
@@ -139,7 +152,7 @@
             </div>
             <div class="chat-input-row">
             <button type="button" class="chat-mobile-button chat-plus sm:hidden" :aria-label="t('chat.mobile.add')" :aria-expanded="mobileTray" aria-controls="chat-mobile-tray" data-testid="chat-mobile-plus" @click="toggleMobileTray"><Icon :name="mobileTray ? 'x' : 'plus'" size="lg" /></button>
-            <textarea ref="composer" v-model="draft" :placeholder="t(mobileScreen ? 'chat.mobile.placeholder' : 'chat.placeholder')" :aria-label="t('chat.placeholder')" class="max-h-48 min-h-20 w-full resize-y bg-transparent px-4 pt-4 text-sm leading-6 text-gray-900 outline-none dark:text-gray-100" rows="1" maxlength="100000" data-testid="chat-input" @keydown="onKeydown" @focus="mobileTray = false"></textarea>
+            <textarea id="chat-desktop-input" ref="composer" v-model="draft" :placeholder="t(mobileScreen ? 'chat.mobile.placeholder' : 'chat.placeholder')" :aria-label="t('chat.placeholder')" class="min-h-20 w-full resize-none bg-transparent px-4 pt-4 text-sm leading-6 text-gray-900 outline-none dark:text-gray-100" rows="1" maxlength="100000" data-testid="chat-input" @keydown="onKeydown" @focus="mobileTray = false"></textarea>
             <div class="chat-send-row flex items-center justify-between gap-2 px-3 pb-3 pt-1">
               <div class="hidden flex-wrap items-center gap-3 sm:flex">
                 <button type="button" class="text-xs font-medium text-primary-600" :disabled="busy || filesLoading || !historyReady" data-testid="chat-attach" @click="fileInput?.click()">{{ filesLoading ? t('chat.readingFiles') : t('chat.attach') }}</button>
@@ -220,10 +233,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useResizeObserver, useStorage } from '@vueuse/core'
 import QRCode from 'qrcode'
 import { ChatSync, type ChatSyncStatus } from '@/api/chatSync'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import ResizeHandle from '@/components/common/ResizeHandle.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import * as keysAPI from '@/api/keys'
@@ -235,6 +250,20 @@ import { CHAT_MAX_FILES, CHAT_MAX_INPUT, chatMarkdown, chatTables, chatTranscrip
 import type { ChatAttachment, ChatImage } from '@/api/chat'
 
 const { t } = useI18n(), auth = useAuthStore(), app = useAppStore()
+const defaultLayout = { navigationWidth: 256, historyWidth: 240, composerHeight: 80, navigationHidden: false, historyHidden: false }
+const layout = useStorage('sub2api-chat-layout:v1', { ...defaultLayout }, undefined, { mergeDefaults: true })
+const viewportSize = ref({ width: window.innerWidth, height: window.innerHeight })
+const navigationMax = computed(() => Math.max(200, Math.min(360, Math.floor(viewportSize.value.width * 0.28))))
+const navigationWidth = computed(() => app.sidebarCollapsed ? 72 : Math.max(200, Math.min(layout.value.navigationWidth, navigationMax.value)))
+const historyMax = computed(() => Math.max(180, Math.min(420, viewportSize.value.width - (layout.value.navigationHidden ? 0 : navigationWidth.value) - 560)))
+const historyWidth = computed(() => Math.max(180, Math.min(layout.value.historyWidth, historyMax.value)))
+const composerRoom = ref(400)
+const composerMax = computed(() => Math.max(80, Math.min(composerRoom.value, Math.floor((viewportSize.value.height - 160) * 0.4))))
+const composerHeight = computed(() => Math.max(80, Math.min(layout.value.composerHeight, composerMax.value)))
+function resetLayout() {
+  layout.value = { ...defaultLayout }
+  app.setSidebarCollapsed(false)
+}
 type KeyChoice = Pick<ApiKey, 'id' | 'user_id' | 'name' | 'group_id' | 'group' | 'status' | 'quota' | 'quota_used' | 'expires_at'>
 const conversations = ref<ChatConversation[]>([]), selectedId = ref(''), keys = ref<KeyChoice[]>([])
 const models = ref<string[]>([]), busy = ref(false), error = ref(''), historySearch = ref('')
@@ -254,6 +283,11 @@ const draftImages = computed({ get: () => current.value?.draftImages || [], set:
 const sortedChats = computed(() => [...conversations.value].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
 const visibleChats = computed(() => sortedChats.value.filter(chat => chat.title.toLocaleLowerCase().includes(historySearch.value.toLocaleLowerCase())))
 const composer = ref<HTMLTextAreaElement>(), fileInput = ref<HTMLInputElement>()
+useResizeObserver([messagePane, composer], () => {
+  if (!mobileScreen.value && messagePane.value && composer.value) {
+    composerRoom.value = Math.max(80, Math.min(400, messagePane.value.clientHeight + composer.value.clientHeight - 120))
+  }
+})
 const imageInput = ref<HTMLInputElement>(), cameraInput = ref<HTMLInputElement>(), imageDialog = ref<HTMLDialogElement>(), previewImage = ref<ChatImage>()
 const filesLoading = ref(false), dragging = ref(false), exporting = ref(false)
 const tasks = ['reconcile', 'variance', 'statement', 'report'] as const
@@ -424,6 +458,7 @@ function resizeComposer() {
   }
 }
 function updateMobileViewport() {
+  viewportSize.value = { width: window.innerWidth, height: window.innerHeight }
   mobileScreen.value = window.innerWidth < 640
   const viewport = window.visualViewport
   if (viewport && viewport.scale === 1) mobileViewport.value = { '--chat-mobile-height': viewport.height + 'px', '--chat-mobile-top': viewport.offsetTop + 'px' }
@@ -555,11 +590,21 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.chat-shell { @apply flex overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-900; height: calc(100dvh - 10rem); min-height: 620px; }
-.chat-history { @apply w-60 shrink-0 flex-col border-r border-gray-100 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-950/40; }
+.chat-shell { @apply flex overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-900; height: calc(100dvh - 10rem); min-height: 0; }
+.chat-history { @apply min-w-0 shrink-0 flex-col border-r border-gray-100 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-950/40; width: var(--chat-history-width, 240px); }
+.chat-navigation-resize { position: fixed; top: 0; bottom: 0; z-index: 41; }
+.chat-layout-button { @apply inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-800; }
+.chat-layout-icon { @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-dark-800; }
+.chat-layout-button:focus-visible, .chat-layout-icon:focus-visible { @apply outline outline-2 outline-primary-500; }
+.chat-conversation-title { min-width: 0; flex: 1 1 200px; }
+.chat-key-field { min-width: 0; max-width: 240px; flex: 1 1 160px; }
+.chat-send-row > .btn { flex-shrink: 0; white-space: nowrap; }
+@media (min-width: 640px) {
+  .chat-composer textarea { height: var(--chat-composer-height, 80px); }
+}
 .chat-history-item { @apply w-full rounded-lg px-3 py-3 text-left text-sm text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-dark-800; }
 .chat-history-active { @apply bg-white font-medium text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300; }
-.chat-toolbar { @apply border-b border-gray-100 px-4 py-4 dark:border-dark-700 md:px-6; }
+.chat-toolbar { @apply border-b border-gray-100 px-4 py-3 dark:border-dark-700 md:px-6; }
 .chat-field { @apply flex flex-col gap-1.5 text-xs font-medium text-gray-500; }
 .chat-field .input { @apply text-sm font-normal; }
 .chat-icon-button { @apply mb-0.5 flex h-10 w-8 shrink-0 items-center justify-center rounded-lg text-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-dark-800 dark:hover:text-gray-200; }
@@ -582,6 +627,10 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
 .chat-markdown :deep(h2) { @apply text-lg; }
 .chat-markdown :deep(table) { @apply my-3 block max-w-full overflow-x-auto border-collapse; }
 .chat-markdown :deep(th), .chat-markdown :deep(td) { @apply border border-gray-200 px-3 py-2 text-left dark:border-dark-600; }
+@media (min-width: 640px) and (max-height: 700px) {
+  .chat-toolbar { max-height: 30%; flex-shrink: 0; overflow-y: auto; }
+  .chat-footer { max-height: 45%; overflow-y: auto; }
+}
 @media (max-width: 639px) {
   .chat-shell { @apply text-gray-900 dark:text-gray-100; position: fixed; z-index: 20; inset: 0; top: var(--chat-mobile-top, 0px); height: var(--chat-mobile-height, 100dvh); min-height: 0; border: 0; border-radius: 0; box-shadow: none; color-scheme: light; }
   .chat-mobile-header { @apply items-center gap-1 px-2 text-gray-900 dark:text-gray-100; display: flex; flex-shrink: 0; padding-top: env(safe-area-inset-top); background: #ededed; }

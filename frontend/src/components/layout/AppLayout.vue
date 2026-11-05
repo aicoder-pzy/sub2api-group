@@ -1,10 +1,11 @@
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-dark-950" :class="{ 'mobile-chat-layout': mobileChat }">
+  <div class="min-h-screen bg-gray-50 dark:bg-dark-950" :class="{ 'mobile-chat-layout': mobileChat, 'custom-sidebar': sidebarWidth !== undefined, 'sidebar-hidden': sidebarHidden }" :style="sidebarWidth !== undefined ? { '--layout-sidebar-width': (sidebarHidden ? 0 : sidebarWidth) + 'px' } : undefined">
     <!-- Background Decoration -->
     <div class="pointer-events-none fixed inset-0 bg-mesh-gradient"></div>
 
     <!-- Sidebar -->
     <div class="contents" :class="{ 'mobile-chat-navigation': mobileChat }"><AppSidebar /></div>
+    <slot name="sidebar-resize" />
 
     <!-- Main Content Area -->
     <div
@@ -32,7 +33,7 @@ import { useOnboardingStore } from '@/stores/onboarding'
 import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
 
-defineProps<{ mobileChat?: boolean }>()
+defineProps<{ mobileChat?: boolean; sidebarWidth?: number; sidebarHidden?: boolean }>()
 
 const appStore = useAppStore()
 const authStore = useAuthStore()
@@ -54,6 +55,11 @@ defineExpose({ replayTour })
 </script>
 
 <style scoped>
+@media (min-width: 1024px) {
+  .custom-sidebar :deep(.sidebar) { width: var(--layout-sidebar-width); transition-property: transform; }
+  .custom-sidebar > .relative { margin-left: var(--layout-sidebar-width); transition: none; }
+  .sidebar-hidden :deep(.sidebar) { display: none; }
+}
 @media (max-width: 639px) {
   .mobile-chat-navigation { display: none; }
   .mobile-chat-layout, .mobile-chat-layout > .relative { min-height: 0; }

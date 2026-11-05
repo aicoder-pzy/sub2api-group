@@ -1,5 +1,6 @@
 export default {
   chat: {
+    layout: { hideNavigation: 'Hide navigation', showNavigation: 'Show navigation', hideHistory: 'Hide conversations', showHistory: 'Show conversations', reset: 'Reset layout', resizeNavigation: 'Drag to resize navigation; double-click to reset; use arrow keys to adjust', resizeHistory: 'Drag to resize conversations; double-click to reset; use arrow keys to adjust', resizeComposer: 'Drag up or down to resize the input; double-click to reset; use arrow keys to adjust' },
     mobile: { menu: 'Conversation settings', close: 'Close', back: 'Back to dashboard', add: 'Add photos, files or tasks', placeholder: 'Message…', photoHint: 'Photos sync to your computer. Tap Send to submit them to the model.' },
     title: 'Chat', description: 'Choose a group and model to start a conversation.', newChat: 'New chat',
     conversations: 'Conversations', untitled: 'New chat', deleteChat: 'Delete conversation', deleteConfirm: 'Delete this conversation? This cannot be undone.',
