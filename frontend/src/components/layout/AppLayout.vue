@@ -13,7 +13,7 @@
       :class="[sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-64']"
     >
       <!-- Header -->
-      <AppHeader :class="{ 'mobile-chat-navigation': mobileChat }" />
+      <AppHeader v-if="!mobileChat" />
 
       <!-- Main Content -->
       <main class="p-4 md:p-6 lg:p-8" :class="{ 'mobile-chat-main': mobileChat }">
@@ -60,9 +60,9 @@ defineExpose({ replayTour })
   .custom-sidebar > .relative { margin-left: var(--layout-sidebar-width); transition: none; }
   .sidebar-hidden :deep(.sidebar) { display: none; }
 }
+.mobile-chat-layout, .mobile-chat-layout > .relative { min-height: 0; }
+.mobile-chat-main { padding: 0; }
 @media (max-width: 639px) {
   .mobile-chat-navigation { display: none; }
-  .mobile-chat-layout, .mobile-chat-layout > .relative { min-height: 0; }
-  .mobile-chat-main { padding: 0; }
 }
 </style>
