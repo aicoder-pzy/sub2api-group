@@ -198,6 +198,7 @@
             :html="previewBody.html"
             :quality="preview.item.quality_verdict"
             :reason="preview.item.quality_reason"
+            :creative="!!preview.item.creative_round"
             :mode="previewMode"
             :title="previewTitle"
           />

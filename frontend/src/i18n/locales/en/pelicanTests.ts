@@ -1,5 +1,6 @@
 export default {
   creative: {
+    verificationProvider: 'Reasoning check',
     questionMode: 'Question mode',
     fixed: 'Fixed question',
     mode: 'Random creative',

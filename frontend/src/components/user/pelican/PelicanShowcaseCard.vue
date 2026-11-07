@@ -10,6 +10,7 @@
         :html="body.html"
         :quality="item.quality_verdict"
         :reason="item.quality_reason"
+        :creative="!!item.creative_round"
         :interactive="false"
         :title="label"
       />

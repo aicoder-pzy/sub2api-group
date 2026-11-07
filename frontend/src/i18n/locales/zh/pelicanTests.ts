@@ -1,5 +1,6 @@
 export default {
   creative: {
+    verificationProvider: '推理核验',
     questionMode: '出题方式',
     fixed: '固定题目',
     mode: '随机创作',

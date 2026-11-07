@@ -332,7 +332,7 @@
         <PelicanCreativeDetails v-if="preview.result.pelican_config?.creative_round" :round="preview.result.pelican_config.creative_round" />
         <PelicanAssessment v-else-if="preview.status === 'ready'" :output="preview.result.response_text || ''" />
         <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-900">
-          <PelicanArtworkPreview v-if="preview.status === 'ready'" :html="preview.html" :title="previewTitle" />
+          <PelicanArtworkPreview v-if="preview.status === 'ready'" :html="preview.html" :title="previewTitle" :creative="preview.result.pelican_config?.prompt_mode === 'random_creative'" :quality="preview.result.quality_verdict" :reason="preview.result.quality_reason" />
           <div v-else class="flex h-full items-center justify-center p-6 text-sm text-gray-500">
             <span v-if="preview.status === 'loading'" class="animate-pulse">{{ t('pelicanTests.history.previewLoading') }}</span>
             <span v-else-if="preview.status === 'invalid'">{{ t('pelicanTests.history.invalidHtml') }}</span>

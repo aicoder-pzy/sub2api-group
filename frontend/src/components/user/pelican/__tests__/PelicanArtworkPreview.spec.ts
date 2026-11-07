@@ -17,6 +17,14 @@ function mountPreview(mode: 'fit' | 'actual' = 'fit', ancestorScale = 1) {
 }
 
 describe('PelicanArtworkPreview', () => {
+  it('shows reasoning provenance for creative checks and hides an assessment that did not run', async () => {
+    const preview = mountPreview()
+    await preview.setProps({ creative: true, quality: 'unknown' })
+    expect(preview.find('[data-testid="pelican-quality-badge"]').exists()).toBe(false)
+    await preview.setProps({ quality: 'normal', reason: 'Objective checks passed' })
+    expect(preview.get('[data-testid="pelican-quality-badge"]').text()).toBe('pelicanTests.creative.verificationProvider · pelicanTests.assessment.normal')
+  })
+
   it('uses the same geometry for raw API code fences and the site preview', async () => {
     const preview = mountPreview()
     const container = document.createElement('div')
