@@ -20,16 +20,21 @@ import (
 )
 
 type UpstreamSite struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	BaseURL     string `json:"base_url"`
-	UserID      int64  `json:"user_id"`
-	ProxyID     *int64 `json:"proxy_id"`
-	Revision    int64  `json:"revision"`
-	AccessToken string `json:"access_token,omitempty"`
-	Proxy       *Proxy `json:"-"`
-	cipher      string
+	ID           string                         `json:"id"`
+	Name         string                         `json:"name"`
+	Kind         string                         `json:"kind"`
+	BaseURL      string                         `json:"base_url"`
+	InferenceURL string                         `json:"inference_url"`
+	PurchaseNote string                         `json:"purchase_note"`
+	Inventory    *UpstreamSiteInventory         `json:"inventory,omitempty"`
+	Catalogs     map[string]UpstreamSiteCatalog `json:"catalogs,omitempty"`
+	AccountCount int                            `json:"account_count"`
+	UserID       int64                          `json:"user_id"`
+	ProxyID      *int64                         `json:"proxy_id"`
+	Revision     int64                          `json:"revision"`
+	AccessToken  string                         `json:"access_token,omitempty"`
+	Proxy        *Proxy                         `json:"-"`
+	cipher       string
 }
 
 var ErrUpstreamKeyAlreadyImported = infraerrors.Conflict("UPSTREAM_KEY_ALREADY_IMPORTED", "This upstream key has already been imported for this platform")
@@ -41,12 +46,14 @@ type UpstreamSiteGroup struct {
 }
 
 type UpstreamSiteKey struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	GroupID   string `json:"group_id"`
-	GroupName string `json:"group_name"`
-	Available bool   `json:"available"`
-	Status    string `json:"status"`
+	ID        string                 `json:"id"`
+	Name      string                 `json:"name"`
+	GroupID   string                 `json:"group_id"`
+	GroupName string                 `json:"group_name"`
+	Available bool                   `json:"available"`
+	Status    string                 `json:"status"`
+	Suffix    string                 `json:"suffix,omitempty"`
+	Quota     *UpstreamBalanceAmount `json:"quota,omitempty"`
 	secret    string
 }
 
@@ -58,7 +65,10 @@ func (s *UpstreamBillingProbeService) ListUpstreamSites(ctx context.Context) ([]
 	if s == nil || s.db == nil {
 		return nil, ErrUpstreamBillingProbeUnavailable
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT id,name,kind,base_url,user_id,proxy_id,revision FROM upstream_sites ORDER BY created_at,id")
+	rows, err := s.db.QueryContext(ctx, `SELECT id,name,kind,base_url,user_id,proxy_id,revision,inference_url,purchase_note,inventory,model_catalogs,
+		(SELECT COUNT(*) FROM accounts a WHERE a.deleted_at IS NULL AND
+		(a.extra->'upstream_import'->>'site_id'=upstream_sites.id::text OR a.extra->'upstream_site_link'->>'site_id'=upstream_sites.id::text))
+		FROM upstream_sites ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +76,11 @@ func (s *UpstreamBillingProbeService) ListUpstreamSites(ctx context.Context) ([]
 	out := []UpstreamSite{}
 	for rows.Next() {
 		var site UpstreamSite
-		if err = rows.Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision); err != nil {
+		var inventory, catalogs []byte
+		if err = rows.Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.InferenceURL, &site.PurchaseNote, &inventory, &catalogs, &site.AccountCount); err != nil {
+			return nil, err
+		}
+		if err = decodeUpstreamSiteCache(&site, inventory, catalogs); err != nil {
 			return nil, err
 		}
 		out = append(out, site)
@@ -82,9 +96,13 @@ func (s *UpstreamBillingProbeService) GetUpstreamSite(ctx context.Context, id st
 		return nil, upstreamSiteError("Invalid site ID")
 	}
 	var site UpstreamSite
-	err := s.db.QueryRowContext(ctx, "SELECT id,name,kind,base_url,user_id,proxy_id,revision,token_cipher FROM upstream_sites WHERE id=$1", id).Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.cipher)
+	var inventory, catalogs []byte
+	err := s.db.QueryRowContext(ctx, "SELECT id,name,kind,base_url,user_id,proxy_id,revision,token_cipher,inference_url,purchase_note,inventory,model_catalogs FROM upstream_sites WHERE id=$1", id).Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.cipher, &site.InferenceURL, &site.PurchaseNote, &inventory, &catalogs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, infraerrors.NotFound("UPSTREAM_SITE_NOT_FOUND", "Upstream site not found")
+	}
+	if err == nil {
+		err = decodeUpstreamSiteCache(&site, inventory, catalogs)
 	}
 	return &site, err
 }
@@ -185,6 +203,22 @@ func (s *UpstreamBillingProbeService) SaveUpstreamSite(ctx context.Context, inpu
 		return nil, err
 	}
 	input.BaseURL = base
+	if s.accountTestService == nil {
+		return nil, ErrUpstreamBillingProbeUnavailable
+	}
+	if input.InferenceURL == "" {
+		input.InferenceURL = base
+	}
+	input.InferenceURL, err = CanonicalNewAPISite(input.InferenceURL)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = s.accountTestService.validateUpstreamBaseURL(input.InferenceURL); err != nil {
+		return nil, upstreamSiteError("Invalid or disallowed inference URL")
+	}
+	if len(input.PurchaseNote) > 2000 {
+		return nil, upstreamSiteError("Purchase note is too long")
+	}
 	if input.ID != "" {
 		old, loadErr := s.GetUpstreamSite(ctx, input.ID)
 		if loadErr != nil {
@@ -230,9 +264,9 @@ func (s *UpstreamBillingProbeService) SaveUpstreamSite(ctx context.Context, inpu
 	if input.ID == "" {
 		input.ID = uuid.NewString()
 		input.Revision = 1
-		err = s.db.QueryRowContext(ctx, "INSERT INTO upstream_sites(id,name,kind,base_url,user_id,token_cipher,proxy_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING revision", input.ID, input.Name, input.Kind, input.BaseURL, input.UserID, input.cipher, input.ProxyID).Scan(&input.Revision)
+		err = s.db.QueryRowContext(ctx, "INSERT INTO upstream_sites(id,name,kind,base_url,user_id,token_cipher,proxy_id,inference_url,purchase_note) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING revision", input.ID, input.Name, input.Kind, input.BaseURL, input.UserID, input.cipher, input.ProxyID, input.InferenceURL, input.PurchaseNote).Scan(&input.Revision)
 	} else {
-		err = s.db.QueryRowContext(ctx, "UPDATE upstream_sites SET name=$2,kind=$3,base_url=$4,user_id=$5,token_cipher=$6,proxy_id=$7,revision=revision+1,updated_at=NOW() WHERE id=$1 AND revision=$8 RETURNING revision", input.ID, input.Name, input.Kind, input.BaseURL, input.UserID, input.cipher, input.ProxyID, input.Revision).Scan(&input.Revision)
+		err = s.db.QueryRowContext(ctx, "UPDATE upstream_sites SET name=$2,kind=$3,base_url=$4,user_id=$5,token_cipher=$6,proxy_id=$7,inference_url=$9,purchase_note=$10,inventory='{}',inventory_at=NULL,model_catalogs='{}',revision=revision+1,updated_at=NOW() WHERE id=$1 AND revision=$8 RETURNING revision", input.ID, input.Name, input.Kind, input.BaseURL, input.UserID, input.cipher, input.ProxyID, input.Revision, input.InferenceURL, input.PurchaseNote).Scan(&input.Revision)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUpstreamBillingProbeIdentityChanged
 		}
@@ -240,6 +274,9 @@ func (s *UpstreamBillingProbeService) SaveUpstreamSite(ctx context.Context, inpu
 	input.AccessToken = ""
 	input.cipher = ""
 	input.Proxy = nil
+	input.Inventory = nil
+	input.Catalogs = nil
+	input.AccountCount = 0
 	return &input, err
 }
 
@@ -247,8 +284,23 @@ func (s *UpstreamBillingProbeService) DeleteUpstreamSite(ctx context.Context, id
 	if _, err := s.GetUpstreamSite(ctx, id); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, "DELETE FROM upstream_sites WHERE id=$1", id)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.ExecContext(ctx, "DELETE FROM upstream_sites WHERE id=$1", id); err != nil {
+		return err
+	}
+	// Remove manual relationships so retained accounts can be associated again.
+	// The original import provenance and every account credential remain intact.
+	if _, err = tx.ExecContext(ctx, `WITH unlinked AS (
+		UPDATE accounts SET extra=extra-'upstream_site_link',updated_at=NOW()
+		WHERE extra->'upstream_site_link'->>'site_id'=$1 AND deleted_at IS NULL RETURNING id
+	) INSERT INTO scheduler_outbox(event_type,account_id) SELECT $2,id FROM unlinked`, id, SchedulerOutboxEventAccountChanged); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func upstreamRows(raw []byte) ([]gjson.Result, error) {
@@ -307,6 +359,13 @@ func parseUpstreamSiteKey(row gjson.Result, kind string, now time.Time) Upstream
 	key := UpstreamSiteKey{ID: row.Get("id").String(), Name: row.Get("name").String(), secret: row.Get("key").String()}
 	status := row.Get("status").String()
 	key.Available = status == "active" || status == "enabled" || status == "1"
+	key.Status = "disabled"
+	if key.Available {
+		key.Status = "active"
+	}
+	if len(key.secret) >= 8 {
+		key.Suffix = key.secret[len(key.secret)-4:]
+	}
 	key.GroupID = row.Get("group_id").String()
 	key.GroupName = row.Get("group.name").String()
 	if kind == "newapi" {
@@ -314,11 +373,13 @@ func parseUpstreamSiteKey(row gjson.Result, kind string, now time.Time) Upstream
 		key.GroupName = key.GroupID
 		if expires := row.Get("expired_time"); expires.Exists() && expires.Int() > 0 && expires.Int() <= now.Unix() {
 			key.Available = false
+			key.Status = "expired"
 		}
 		if unlimited := row.Get("unlimited_quota"); unlimited.Exists() && !unlimited.Bool() {
 			remain := row.Get("remain_quota")
 			if !remain.Exists() || remain.Float() <= 0 {
 				key.Available = false
+				key.Status = "quota_exhausted"
 			}
 		}
 	} else {
@@ -326,16 +387,15 @@ func parseUpstreamSiteKey(row gjson.Result, kind string, now time.Time) Upstream
 			t, e := time.Parse(time.RFC3339, expires.String())
 			if e != nil || !t.After(now) {
 				key.Available = false
+				key.Status = "expired"
 			}
 		}
 		if limit := row.Get("quota").Float(); limit > 0 && row.Get("quota_used").Float() >= limit {
 			key.Available = false
+			key.Status = "quota_exhausted"
 		}
 	}
-	key.Status = "inactive"
-	if key.Available {
-		key.Status = "active"
-	}
+	key.Quota = upstreamSiteKeyQuota(row, kind)
 	return key
 }
 
@@ -480,6 +540,9 @@ func (s *UpstreamBillingProbeService) upstreamSiteModels(ctx context.Context, si
 	// Model discovery uses the selected relay key, never the management token.
 	modelSite := *site
 	modelSite.Kind = "sub2api"
+	if site.InferenceURL != "" {
+		modelSite.BaseURL = site.InferenceURL
+	}
 	modelSite.AccessToken = key.secret
 	data, err := s.upstreamSiteRequest(ctx, &modelSite, http.MethodGet, "/v1/models", nil)
 	if err != nil {
@@ -512,7 +575,18 @@ func (s *UpstreamBillingProbeService) UpstreamSiteModels(ctx context.Context, si
 	if err != nil {
 		return nil, err
 	}
-	return s.upstreamSiteModels(ctx, site, key)
+	started := time.Now().UTC()
+	models, err := s.upstreamSiteModels(ctx, site, key)
+	if err != nil {
+		return nil, err
+	}
+	if len(models) == 0 {
+		return nil, upstreamSiteError("Upstream returned an empty model catalog; existing model selection was kept")
+	}
+	if err = s.storeUpstreamSiteCatalog(ctx, site, keyID, models, started); err != nil {
+		return nil, err
+	}
+	return models, nil
 }
 
 func (s *UpstreamBillingProbeService) UpstreamSiteImportCredentials(ctx context.Context, site *UpstreamSite, keyID string, selectedModels []string) (map[string]any, map[string]any, error) {
@@ -542,7 +616,11 @@ func (s *UpstreamBillingProbeService) UpstreamSiteImportCredentials(ctx context.
 	if current.Revision != site.Revision {
 		return nil, nil, ErrUpstreamBillingProbeIdentityChanged
 	}
-	credentials := map[string]any{"base_url": site.BaseURL, "api_key": key.secret, "model_mapping": mapping}
+	baseURL := site.InferenceURL
+	if baseURL == "" {
+		baseURL = site.BaseURL
+	}
+	credentials := map[string]any{"base_url": baseURL, "api_key": key.secret, "model_mapping": mapping}
 	extra := map[string]any{"upstream_import": map[string]any{"site_id": site.ID, "key_id": key.ID, "group_id": key.GroupID, "revision": site.Revision}}
 	return credentials, extra, nil
 }

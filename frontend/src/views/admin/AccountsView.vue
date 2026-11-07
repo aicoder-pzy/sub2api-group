@@ -16,7 +16,7 @@
             @refresh="handleManualRefresh"
             @create="showCreate = true"
           >
-            <template #beforeCreate><button type="button" class="btn btn-secondary" @click="showUpstreamSites = true">{{ t('zakoFeatures.sites.title') }}</button></template>
+            <template #beforeCreate><RouterLink to="/admin/upstream-sites" class="btn btn-secondary">{{ t('upstreamSites.title') }}</RouterLink></template>
             <template #after>
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
@@ -486,7 +486,6 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
-    <UpstreamSitesDialog :show="showUpstreamSites" :groups="groups" :proxies="proxies" @close="showUpstreamSites = false" @imported="reload" />
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
@@ -545,7 +544,6 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
-import UpstreamSitesDialog from '@/components/admin/account/UpstreamSitesDialog.vue'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
@@ -644,7 +642,6 @@ const selTypes = computed<AccountType[]>(() => {
   return [...types]
 })
 const showCreate = ref(false)
-const showUpstreamSites = ref(false)
 const showEdit = ref(false)
 const showSync = ref(false)
 const showImportData = ref(false)
@@ -2676,6 +2673,13 @@ onMounted(async () => {
     console.error('Failed to load groups:', groupsResult.reason)
   }
   window.addEventListener('scroll', handleScroll, true)
+  const requestedAccount = Number(new URLSearchParams(window.location.search).get('account_id'))
+  if (Number.isSafeInteger(requestedAccount) && requestedAccount > 0) {
+    try {
+      edAcc.value = await adminAPI.accounts.getById(requestedAccount)
+      showEdit.value = true
+    } catch { appStore.showError(t('common.error')) }
+  }
   window.addEventListener('resize', handleViewportResize)
   document.addEventListener('click', handleClickOutside)
 
