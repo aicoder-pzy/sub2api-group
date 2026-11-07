@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"html"
 	"image"
 	"image/jpeg"
 	_ "image/png"
@@ -67,8 +66,10 @@ func renderPelicanCreative(ctx context.Context, output string) (*pelicanCreative
 	defer func() { _ = os.RemoveAll(work) }()
 	// An opaque sandbox and inherited CSP deny network, local files, popups,
 	// navigation and parent access. Only the generated drawing runs in the frame.
-	policy := `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src about:; object-src 'none'; base-uri 'none'; form-action 'none'`
-	document := `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="` + policy + `"><style>html,body,iframe{margin:0;border:0;width:100%;height:100%;overflow:hidden}iframe{display:block}</style></head><body><iframe sandbox="allow-scripts" srcdoc="` + html.EscapeString(source) + `"></iframe></body></html>`
+	policy := `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src data:; object-src 'none'; base-uri 'none'; form-action 'none'`
+	// A data URL keeps the frame opaque and inherits this CSP. Chromium can
+	// suppress implicit SVG SMIL attributes in srcdoc, despite a running timeline.
+	document := `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="` + policy + `"><style>html,body,iframe{margin:0;border:0;width:100%;height:100%;overflow:hidden}iframe{display:block}</style></head><body><iframe sandbox="allow-scripts" src="data:text/html;charset=utf-8;base64,` + base64.StdEncoding.EncodeToString([]byte(source)) + `"></iframe></body></html>`
 	file := filepath.Join(work, "drawing.html")
 	if err := os.WriteFile(file, []byte(document), 0600); err != nil {
 		return nil, err
