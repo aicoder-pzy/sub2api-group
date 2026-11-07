@@ -107,9 +107,6 @@ func renderPelicanCreative(ctx context.Context, output string) (*pelicanCreative
 		return nil, err
 	}
 	cdp.session = session.SessionID
-	if err := cdp.call(ctx, "Page.bringToFront", nil, nil); err != nil {
-		return nil, err
-	}
 	if err := cdp.call(ctx, "Page.enable", nil, nil); err != nil {
 		return nil, err
 	}
@@ -130,6 +127,11 @@ func renderPelicanCreative(ctx context.Context, output string) (*pelicanCreative
 		if _, err := cdp.read(ctx); err != nil {
 			return nil, err
 		}
+	}
+	// Activating after navigation is required for SVG SMIL timelines in the
+	// sandboxed frame; activating the blank page can leave them suspended.
+	if err := cdp.call(ctx, "Page.bringToFront", nil, nil); err != nil {
+		return nil, err
 	}
 	started := time.Now()
 	frames := &pelicanCreativeFrames{}
