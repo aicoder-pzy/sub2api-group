@@ -31,22 +31,23 @@ const (
 	pelicanPublicMaxEntries = 64
 )
 
-// The public projection deliberately contains no account, prompt, cost, or
-// admin-history fields. HTML/SVG is returned as data in JSON, never executed.
+// The public projection contains no account, cost, or admin-history fields.
+// Only creative questions from gallery snapshots are public. HTML/SVG is data.
 type pelicanPublicItem struct {
-	ID              int64     `json:"id"`
-	GroupID         int64     `json:"group_id"`
-	ModelID         string    `json:"model_id"`
-	ReasoningEffort string    `json:"reasoning_effort"`
-	Status          string    `json:"status"`
-	LatencyMs       int64     `json:"latency_ms"`
-	GeneratedAt     time.Time `json:"generated_at"`
-	ContentURL      string    `json:"content_url"`
-	ResponseText    *string   `json:"response_text,omitempty"`
-	QualityVerdict  string    `json:"quality_verdict"`
-	QualityLabel    string    `json:"quality_label"`
-	QualityReason   string    `json:"quality_reason"`
-	PreviewHTML     string    `json:"preview_html,omitempty"`
+	CreativeRound   *service.PelicanCreativeRound `json:"creative_round,omitempty"`
+	ID              int64                         `json:"id"`
+	GroupID         int64                         `json:"group_id"`
+	ModelID         string                        `json:"model_id"`
+	ReasoningEffort string                        `json:"reasoning_effort"`
+	Status          string                        `json:"status"`
+	LatencyMs       int64                         `json:"latency_ms"`
+	GeneratedAt     time.Time                     `json:"generated_at"`
+	ContentURL      string                        `json:"content_url"`
+	ResponseText    *string                       `json:"response_text,omitempty"`
+	QualityVerdict  string                        `json:"quality_verdict"`
+	QualityLabel    string                        `json:"quality_label"`
+	QualityReason   string                        `json:"quality_reason"`
+	PreviewHTML     string                        `json:"preview_html,omitempty"`
 }
 
 type pelicanPublicGroup struct {
@@ -74,7 +75,8 @@ func publicPelicanItem(item *service.PelicanShowcaseItem) pelicanPublicItem {
 		verdict = "unknown"
 	}
 	return pelicanPublicItem{
-		ID: item.ID, GroupID: item.GroupID, ModelID: item.ModelID,
+		CreativeRound: item.CreativeRound,
+		ID:            item.ID, GroupID: item.GroupID, ModelID: item.ModelID,
 		ReasoningEffort: item.ReasoningEffort, Status: "success",
 		LatencyMs: item.LatencyMs, GeneratedAt: item.GeneratedAt,
 		ContentURL:     pelicanPublicPath + "/items/" + strconv.FormatInt(item.ID, 10),

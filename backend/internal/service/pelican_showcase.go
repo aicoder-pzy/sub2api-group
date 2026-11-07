@@ -13,14 +13,15 @@ var ErrPelicanShowcaseItemNotFound = infraerrors.NotFound("PELICAN_SHOWCASE_ITEM
 // PelicanShowcaseItem is one gallery snapshot. It deliberately carries no account
 // identity: users only see the group, model, reasoning effort and timing.
 type PelicanShowcaseItem struct {
-	ID              int64     `json:"id"`
-	GroupID         int64     `json:"group_id"`
-	ModelID         string    `json:"model_id"`
-	ReasoningEffort string    `json:"reasoning_effort"`
-	LatencyMs       int64     `json:"latency_ms"`
-	GeneratedAt     time.Time `json:"generated_at"`
-	QualityVerdict  string    `json:"quality_verdict"`
-	QualityReason   string    `json:"quality_reason"`
+	CreativeRound   *PelicanCreativeRound `json:"creative_round,omitempty"`
+	ID              int64                 `json:"id"`
+	GroupID         int64                 `json:"group_id"`
+	ModelID         string                `json:"model_id"`
+	ReasoningEffort string                `json:"reasoning_effort"`
+	LatencyMs       int64                 `json:"latency_ms"`
+	GeneratedAt     time.Time             `json:"generated_at"`
+	QualityVerdict  string                `json:"quality_verdict"`
+	QualityReason   string                `json:"quality_reason"`
 	// ResponseText is the raw model output; only the single-item read fills it.
 	ResponseText string `json:"response_text,omitempty"`
 }
@@ -66,6 +67,7 @@ type PelicanShowcaseView struct {
 
 // PelicanShowcaseSnapshot is one group test output copied into the gallery.
 type PelicanShowcaseSnapshot struct {
+	CreativeRound   *PelicanCreativeRound
 	GroupID         int64
 	SourceResultID  int64
 	ModelID         string
@@ -139,6 +141,7 @@ func (s *PelicanShowcaseService) PublishGroupResult(ctx context.Context, groupID
 	}
 	if cfg := result.PelicanConfig; cfg != nil {
 		snapshot.ModelID, snapshot.ReasoningEffort = cfg.ModelID, cfg.ReasoningEffort
+		snapshot.CreativeRound = cfg.CreativeRound
 	}
 	if snapshot.GeneratedAt.IsZero() {
 		snapshot.GeneratedAt = result.CreatedAt

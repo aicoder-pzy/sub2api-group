@@ -127,6 +127,7 @@ func (s *PelicanGroupTestService) runDegradationDue(ctx context.Context, now tim
 }
 
 func (s *PelicanGroupTestService) executeDegradation(plan *PelicanGroupTestPlan, work PelicanDegradationWork, until time.Time, repo pelicanDegradationRepository) {
+	plan = preparePelicanCreativePlan(plan, until.Add(-pelicanGroupTestLease))
 	ctx, cancel := context.WithTimeout(context.Background(), pelicanGroupTestRunTimeout)
 	defer cancel()
 	ctx = context.WithValue(ctx, pelicanDegradationRunKey{}, work)

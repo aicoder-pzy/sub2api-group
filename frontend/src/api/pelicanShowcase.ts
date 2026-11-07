@@ -4,8 +4,10 @@
  */
 
 import { apiClient } from './client'
+import type { PelicanCreativeRound } from './pelicanCreative'
 
 export interface PelicanShowcaseItem {
+  creative_round?: PelicanCreativeRound
   id: number
   group_id: number
   model_id: string

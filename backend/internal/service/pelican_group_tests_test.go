@@ -218,6 +218,7 @@ func TestPelicanGroupTestPlanInputValidation(t *testing.T) {
 		"no model":          {GroupID: 4, Prompt: "p", ReasoningEffort: "high"},
 		"long model":        {GroupID: 4, ModelID: strings.Repeat("m", 101), Prompt: "p", ReasoningEffort: "high"},
 		"no prompt":         {GroupID: 4, ModelID: "m", Prompt: "  ", ReasoningEffort: "high"},
+		"unknown mode":      {GroupID: 4, ModelID: "m", Prompt: "p", ReasoningEffort: "high", PromptMode: "invalid"},
 		"long prompt":       {GroupID: 4, ModelID: "m", Prompt: strings.Repeat("p", 32001), ReasoningEffort: "high"},
 		"unknown effort":    {GroupID: 4, ModelID: "m", Prompt: "p", ReasoningEffort: "extreme"},
 		"too many parallel": {GroupID: 4, ModelID: "m", Prompt: "p", ReasoningEffort: "high", ParallelCount: 9},
@@ -236,6 +237,13 @@ func TestPelicanGroupTestPlanInputValidation(t *testing.T) {
 	require.True(t, plan.Enabled)
 	require.Equal(t, &PelicanTestConfig{QuestionKind: "pelican", Prompt: "draw a pelican", ReasoningEffort: "high", ParallelCount: 1, ModelID: "gpt-6-astra"}, plan.PelicanConfig)
 	require.Equal(t, groupTestNow.Add(30*time.Minute), *plan.NextRunAt)
+
+	creative := valid
+	creative.Prompt, creative.PromptMode = "", pelicanRandomCreative
+	randomPlan, err := svc.CreatePlan(ctx, creative)
+	require.NoError(t, err, "random questions do not require a fixed prompt")
+	require.Equal(t, pelicanRandomCreative, randomPlan.PelicanConfig.PromptMode)
+	require.Nil(t, randomPlan.PelicanConfig.CreativeRound, "only execution snapshots a round")
 
 	// An edit keeps the plan's group: moving it would mix two groups' history.
 	updated, err := svc.UpdatePlan(ctx, plan.ID, PelicanGroupTestPlanInput{GroupID: 99, ModelID: "claude-opus-5-5", Prompt: "p", ReasoningEffort: "low", CronExpression: "0 * * * *", ParallelCount: 3})
