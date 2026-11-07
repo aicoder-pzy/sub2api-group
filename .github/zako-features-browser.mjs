@@ -102,7 +102,9 @@ try {
   await drawer.getByRole('button', { name: '关闭', exact: true }).click()
   for (const width of [1440, 375, 320]) {
     await page.setViewportSize({ width, height: 1000 })
-    await page.screenshot({ path: path.join(output, `sites-${width}.png`) })
+    // The shared app shell animates its sidebar and main margin across breakpoints.
+    await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 2)
+    await page.screenshot({ path: path.join(output, `sites-${width}.png`), animations: 'disabled' })
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), true, `Page overflow at ${width}`)
   }
   await page.setViewportSize({ width: 1440, height: 1000 })
