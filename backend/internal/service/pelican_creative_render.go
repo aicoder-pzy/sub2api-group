@@ -80,7 +80,7 @@ func renderPelicanCreative(ctx context.Context, output string) (*pelicanCreative
 		"--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
 		"--no-first-run", "--no-default-browser-check", "--hide-scrollbars", "--window-size=960,720",
 		"--host-resolver-rules=MAP * ~NOTFOUND", "--proxy-server=http://127.0.0.1:9", "--proxy-bypass-list=<-loopback>",
-		"--run-all-compositor-stages-before-draw", "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0",
+		"--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0",
 		"--user-data-dir="+profile, "about:blank")
 	cmd.WaitDelay = 2 * time.Second
 	configureCreativeCommand(cmd)
@@ -107,6 +107,9 @@ func renderPelicanCreative(ctx context.Context, output string) (*pelicanCreative
 		return nil, err
 	}
 	cdp.session = session.SessionID
+	if err := cdp.call(ctx, "Page.bringToFront", nil, nil); err != nil {
+		return nil, err
+	}
 	if err := cdp.call(ctx, "Page.enable", nil, nil); err != nil {
 		return nil, err
 	}
