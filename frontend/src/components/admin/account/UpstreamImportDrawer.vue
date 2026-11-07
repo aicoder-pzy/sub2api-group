@@ -17,7 +17,7 @@
       <section v-for="row in rows" :key="row.key.id" class="min-w-0 rounded-xl border border-gray-200 p-4 dark:border-dark-600" :data-import-key="row.key.id">
         <div class="mb-3 flex items-center justify-between gap-3">
           <div class="min-w-0"><h4 class="truncate text-sm font-medium">{{ row.key.name }}</h4><p class="text-xs text-gray-500">{{ row.key.group_name || row.key.group_id }} · #{{ row.key.id }}</p></div>
-          <button v-if="!frozen" type="button" class="text-xs text-gray-500" :disabled="working" @click="rows = rows.filter(item => item !== row)">{{ tr('delete') }}</button>
+          <button v-if="!frozen" type="button" class="text-xs text-gray-500" :disabled="working" @click="rows = rows.filter(item => item !== row)">{{ tr('remove') }}</button>
         </div>
         <p v-if="duplicate(row.key.id)" class="text-sm text-gray-500">{{ tr('duplicate') }}</p>
         <template v-else>

@@ -27,5 +27,5 @@ export default {
   frozen: 'This draft is locked. Retries reuse its original settings and skip successful items.', batchSafety: 'Keys and models are checked again before import. Review each result before closing.',
   selectRequired: 'Select a local group and at least one model for every key.', syncNotice: 'Sync complete', syncPartial: 'Sync complete; some information needs attention',
   readOnlyHint: 'Sync reads site information. Confirm before updating local model scope.', loading: 'Loading…', relationFailed: 'Could not load associated accounts. Please retry.', refresh: 'Refresh',
-  noCatalog: 'Load the model catalog first', failedPreview: 'Could not load models. You can retry.', connectionErrors: 'Connection details', newDraft: 'Start a new import draft',
+  noCatalog: 'Load the model catalog first', failedPreview: 'Could not load models. You can retry.', connectionErrors: 'Connection details', newDraft: 'Start a new import draft', remove: 'Remove',
 }

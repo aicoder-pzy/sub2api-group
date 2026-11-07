@@ -232,11 +232,11 @@ onMounted(() => { void run(async () => { const results = await Promise.allSettle
 .console-notice { @apply mb-4 rounded-xl bg-primary-50 p-4 text-sm text-primary-800 dark:bg-primary-950/30 dark:text-primary-300; }
 .console-panel { @apply min-w-0 rounded-2xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900; }
 .console-summary { @apply mb-6 grid grid-cols-2 gap-y-5 rounded-xl border border-gray-200 bg-white px-5 py-5 dark:border-dark-700 dark:bg-dark-900 md:grid-cols-4; }
-.console-summary > div { @apply flex min-w-0 items-center gap-3 md:justify-center; }
+.console-summary > div { @apply flex min-w-0 items-center gap-2 md:justify-center md:gap-3; }
 .console-summary > div + div { @apply md:border-l md:border-gray-100 md:dark:border-dark-700; }
 .console-summary span:not(.stat-symbol) { @apply text-xs text-gray-500 dark:text-gray-400; }
 .console-summary strong { @apply mt-1 block text-2xl font-semibold tabular-nums; }
-.stat-symbol { @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-50 text-gray-500 dark:bg-dark-800 dark:text-gray-400; }
+.stat-symbol { @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gray-50 text-gray-500 dark:bg-dark-800 dark:text-gray-400 md:h-10 md:w-10; }
 .stat-symbol.green { @apply bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-400; }
 .stat-symbol.amber { @apply bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400; }
 .console-grid { @apply grid min-w-0 gap-5 xl:grid-cols-[252px_minmax(0,1fr)]; }
@@ -257,9 +257,11 @@ onMounted(() => { void run(async () => { const results = await Promise.allSettle
 .site-detail { @apply overflow-hidden; }
 .site-detail-heading { @apply flex flex-wrap items-center justify-between gap-4 p-5; }
 .site-detail-heading h2 { @apply text-lg font-semibold; }
-.site-metrics { @apply mx-5 mb-5 grid grid-cols-1 gap-4 rounded-xl border border-gray-100 bg-gray-50/70 px-5 py-5 dark:border-dark-700 dark:bg-dark-800/50 sm:grid-cols-[1.5fr_1fr_1fr]; }
+.site-metrics { @apply mx-5 mb-5 grid grid-cols-2 gap-4 rounded-xl border border-gray-100 bg-gray-50/70 px-5 py-5 dark:border-dark-700 dark:bg-dark-800/50 sm:grid-cols-[1.5fr_1fr_1fr]; }
 .site-metrics > div { @apply min-w-0; }
+.site-metrics > div:first-child { @apply col-span-2 sm:col-span-1; }
 .site-metrics > div + div { @apply border-t border-gray-200 pt-4 dark:border-dark-600 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0; }
+.site-metrics > div:nth-child(3) { @apply border-l pl-4; }
 .site-metrics span { @apply block text-xs text-gray-500 dark:text-gray-400; }
 .site-metrics strong { @apply my-2 block break-words text-2xl font-semibold tabular-nums; }
 .site-metrics small { @apply text-[11px] font-normal text-gray-400; }

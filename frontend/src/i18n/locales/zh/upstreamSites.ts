@@ -27,5 +27,5 @@ export default {
   frozen: '本次配置已锁定，重试会沿用原配置；成功项自动跳过。', batchSafety: '提交时重新核验密钥状态和模型范围。关闭窗口前可查看每项结果。',
   selectRequired: '请选择本地分组，并为每把 Key 至少选择一个模型。', syncNotice: '同步完成', syncPartial: '同步完成，部分信息需要关注',
   readOnlyHint: '同步读取站点信息；本地模型范围由你确认后更新', loading: '正在加载…', relationFailed: '关联账号未能加载，请重试', refresh: '刷新',
-  noCatalog: '请先读取模型目录', failedPreview: '模型读取失败，可重新读取', connectionErrors: '连接详情', newDraft: '新建导入配置',
+  noCatalog: '请先读取模型目录', failedPreview: '模型读取失败，可重新读取', connectionErrors: '连接详情', newDraft: '新建导入配置', remove: '移除',
 }
