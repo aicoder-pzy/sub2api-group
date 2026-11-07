@@ -95,7 +95,7 @@ func TestCreativeSyntaxChecksAreConservativeHints(t *testing.T) {
 	round := newPelicanCreativeRound(groupTestNow)
 	var labels strings.Builder
 	for _, material := range round.Materials {
-		labels.WriteString(material.Value)
+		_, _ = labels.WriteString(material.Value)
 	}
 	good := `<html><head><style>@keyframes move {to {transform:translateX(1px)}} svg {animation:move 1s infinite}</style></head><body><svg><desc>` + labels.String() + `</desc></svg></body></html>`
 	checks := checkPelicanCreative(good, round)
