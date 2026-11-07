@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"testing"
@@ -63,6 +64,13 @@ func TestUpstreamSiteModelPlanPreservesAliasesAndNeverOpensRouting(t *testing.T)
 	require.Equal(t, []string{"model-2"}, preview.Added)
 	require.Equal(t, []string{"gone"}, preview.Removed)
 	require.NotContains(t, preview.Version, "secret")
+	models := []string{"model-1"}
+	for i := 0; i < 150; i++ {
+		models = append(models, fmt.Sprintf("model-extra-%d", i))
+	}
+	preview, err = upstreamSiteModelPlan(account, models)
+	require.NoError(t, err)
+	require.Len(t, preview.Mapping, 152)
 	_, err = upstreamSiteModelPlan(account, nil)
 	require.Error(t, err)
 	account.Credentials["model_mapping"] = map[string]any{}

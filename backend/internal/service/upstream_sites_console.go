@@ -338,9 +338,8 @@ func upstreamSiteModelPlan(account *Account, models []string) (*UpstreamSiteMode
 	if len(preview.Mapping) == 0 {
 		return nil, upstreamSiteError("Synchronization would remove all model restrictions; account was kept unchanged")
 	}
-	if err = ValidateAPIKeyModelMapping(preview.Mapping); err != nil {
-		return nil, err
-	}
+	// Catalog IDs were validated during discovery. Existing account aliases may
+	// contain wildcards and must not be subjected to the user API Key alias limits.
 	sort.Strings(preview.Added)
 	sort.Strings(preview.Removed)
 	return preview, nil
