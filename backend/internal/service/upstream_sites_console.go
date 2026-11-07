@@ -125,17 +125,17 @@ func (s *UpstreamBillingProbeService) SyncUpstreamSite(ctx context.Context, site
 		}
 	}
 	if err != nil {
-		snapshot.Errors["wallet"] = err.Error()
+		snapshot.Errors["wallet"] = infraerrors.Message(err)
 	}
 	groups, err := s.UpstreamSiteGroups(ctx, site)
 	if err != nil {
-		snapshot.Errors["groups"] = err.Error()
+		snapshot.Errors["groups"] = infraerrors.Message(err)
 	} else {
 		snapshot.Groups = groups
 	}
 	keys, err := s.UpstreamSiteKeys(ctx, site)
 	if err != nil {
-		snapshot.Errors["keys"] = err.Error()
+		snapshot.Errors["keys"] = infraerrors.Message(err)
 	} else {
 		for i := range keys {
 			if keys[i].GroupName == "" {
