@@ -93,6 +93,9 @@ func TestUpstreamSiteSyncRetainsSuccessfulDataOnPermissionFailure(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, "attention", snapshot.Status)
 	require.Len(t, snapshot.Errors, 3)
+	for _, message := range snapshot.Errors {
+		require.Equal(t, "Management request failed; check site, proxy and token", message)
+	}
 	require.Equal(t, oldTime, *snapshot.ReceivedAt)
 	require.Equal(t, oldTime, *snapshot.WalletAt)
 	require.Equal(t, remaining, *snapshot.Wallet.Remaining)
