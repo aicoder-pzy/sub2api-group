@@ -106,6 +106,7 @@ describe('PelicanShowcaseView', () => {
     await settle()
     await wrapper.get('[data-testid="showcase-round"]').setValue('round-1')
     expect(wrapper.findAll('[data-testid="pelican-showcase-card"]')).toHaveLength(2)
+    expect(wrapper.get('[data-testid="showcase-groups"]').classes()).toContain('lg:grid-cols-2')
     await wrapper.get('[data-testid="pelican-showcase-card"] button').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="creative-details"]').text()).toContain('saved shared creative question')

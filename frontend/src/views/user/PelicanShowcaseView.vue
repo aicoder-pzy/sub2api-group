@@ -102,10 +102,11 @@
       />
 
       <!-- One section per showcased group -->
+      <div :class="activeRound ? 'grid gap-6 lg:grid-cols-2' : 'space-y-6'" data-testid="showcase-groups" :data-comparing="!!activeRound">
       <section
         v-for="group in shownGroups"
         :key="group.id"
-        class="space-y-4"
+        class="min-w-0 space-y-4"
         :data-testid="`showcase-group-${group.id}`"
       >
         <header class="flex min-w-0 items-center gap-3">
@@ -138,7 +139,7 @@
           <PelicanShowcaseCard
             v-for="item in group.items"
             :key="item.id"
-            :class="CARD_WIDTH"
+            :class="activeRound ? 'w-full shrink-0' : CARD_WIDTH"
             :item="item"
             :group-name="group.name"
             :body="bodies[item.id]"
@@ -147,6 +148,7 @@
           />
         </PelicanShowcaseRow>
       </section>
+      </div>
     </div>
 
     <PelicanShowcaseApiDialog
