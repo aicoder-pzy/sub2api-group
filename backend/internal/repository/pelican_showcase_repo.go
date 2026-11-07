@@ -27,7 +27,7 @@ func (r *pelicanShowcaseRepository) Publish(ctx context.Context, snapshot servic
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	var creativeJSON []byte
+	var creativeJSON any
 	if snapshot.CreativeRound != nil {
 		creativeJSON, err = json.Marshal(snapshot.CreativeRound)
 		if err != nil {
