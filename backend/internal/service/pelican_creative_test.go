@@ -109,3 +109,21 @@ func TestCreativeSyntaxChecksAreConservativeHints(t *testing.T) {
 	require.False(t, checks.Animated)
 	require.Len(t, checks.Missing, 4, "a copied prompt in a comment is not material text")
 }
+
+func TestCreativeRulesWithoutObjectiveChecksDoNotCreateSchedulingEvidence(t *testing.T) {
+	plan := groupTestPlan(1)
+	plan.PelicanConfig.PromptMode = pelicanRandomCreative
+	svc, _ := newGroupTestService(newGroupTestRepoFake(), &groupTestRouterFake{steps: []routeStep{{account: account(11, "a")}}}, func(context.Context, int64, string, *PelicanTestConfig) (*ScheduledTestResult, error) {
+		return &ScheduledTestResult{Status: "success", ResponseText: "<svg></svg>"}, nil
+	})
+	svc.assessOutput = func(context.Context, string) (string, *PelicanAssessment) {
+		t.Error("creative syntax must not reach the fixed-question classifier")
+		return "", &PelicanAssessment{Quality: "degraded"}
+	}
+	results := svc.runSamples(context.Background(), plan)
+	require.Len(t, results, 1)
+	require.Empty(t, results[0].QualityVerdict)
+	require.Empty(t, results[0].QualityReason)
+	require.False(t, results[0].PelicanConfig.CreativeRound.Checks.Complete)
+	require.Len(t, results[0].PelicanConfig.CreativeRound.Checks.Missing, 4)
+}

@@ -168,6 +168,18 @@ func TestPelicanPublicQualityAndPreview(t *testing.T) {
 		require.Contains(t, preview, "满血 AI · "+detail.Data.QualityLabel)
 	}
 
+	source.item.CreativeRound = &service.PelicanCreativeRound{ID: "creative-round", Prompt: "saved creative question"}
+	source.item.QualityVerdict, source.item.QualityReason = "normal", "objective checks passed"
+	creative := publicPelicanItem(source.item)
+	creative.ResponseText = &source.item.ResponseText
+	require.Equal(t, source.item.CreativeRound, creative.CreativeRound)
+	creativePreview := pelicanPreviewHTML(creative, `var Sub2APIPelican={};`)
+	require.Contains(t, creativePreview, "推理核验 · 正常")
+	require.NotContains(t, creativePreview, "满血 AI")
+	creative.QualityVerdict, creative.QualityReason = "unknown", ""
+	require.NotContains(t, pelicanPreviewHTML(creative, `var Sub2APIPelican={};`), `id="intelligence-verdict"`)
+	source.item.CreativeRound = nil
+
 	attack := `</script><img src=x onerror=alert(1)>`
 	item := publicPelicanItem(source.item)
 	item.ResponseText = &attack
