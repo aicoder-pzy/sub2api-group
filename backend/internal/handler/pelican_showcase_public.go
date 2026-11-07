@@ -31,22 +31,23 @@ const (
 	pelicanPublicMaxEntries = 64
 )
 
-// The public projection deliberately contains no account, prompt, cost, or
-// admin-history fields. HTML/SVG is returned as data in JSON, never executed.
+// The public projection contains no account, cost, or admin-history fields.
+// Only creative questions from gallery snapshots are public. HTML/SVG is data.
 type pelicanPublicItem struct {
-	ID              int64     `json:"id"`
-	GroupID         int64     `json:"group_id"`
-	ModelID         string    `json:"model_id"`
-	ReasoningEffort string    `json:"reasoning_effort"`
-	Status          string    `json:"status"`
-	LatencyMs       int64     `json:"latency_ms"`
-	GeneratedAt     time.Time `json:"generated_at"`
-	ContentURL      string    `json:"content_url"`
-	ResponseText    *string   `json:"response_text,omitempty"`
-	QualityVerdict  string    `json:"quality_verdict"`
-	QualityLabel    string    `json:"quality_label"`
-	QualityReason   string    `json:"quality_reason"`
-	PreviewHTML     string    `json:"preview_html,omitempty"`
+	CreativeRound   *service.PelicanCreativeRound `json:"creative_round,omitempty"`
+	ID              int64                         `json:"id"`
+	GroupID         int64                         `json:"group_id"`
+	ModelID         string                        `json:"model_id"`
+	ReasoningEffort string                        `json:"reasoning_effort"`
+	Status          string                        `json:"status"`
+	LatencyMs       int64                         `json:"latency_ms"`
+	GeneratedAt     time.Time                     `json:"generated_at"`
+	ContentURL      string                        `json:"content_url"`
+	ResponseText    *string                       `json:"response_text,omitempty"`
+	QualityVerdict  string                        `json:"quality_verdict"`
+	QualityLabel    string                        `json:"quality_label"`
+	QualityReason   string                        `json:"quality_reason"`
+	PreviewHTML     string                        `json:"preview_html,omitempty"`
 }
 
 type pelicanPublicGroup struct {
@@ -74,7 +75,8 @@ func publicPelicanItem(item *service.PelicanShowcaseItem) pelicanPublicItem {
 		verdict = "unknown"
 	}
 	return pelicanPublicItem{
-		ID: item.ID, GroupID: item.GroupID, ModelID: item.ModelID,
+		CreativeRound: item.CreativeRound,
+		ID:            item.ID, GroupID: item.GroupID, ModelID: item.ModelID,
 		ReasoningEffort: item.ReasoningEffort, Status: "success",
 		LatencyMs: item.LatencyMs, GeneratedAt: item.GeneratedAt,
 		ContentURL:     pelicanPublicPath + "/items/" + strconv.FormatInt(item.ID, 10),
@@ -102,8 +104,15 @@ func pelicanPreviewHTML(item pelicanPublicItem, renderer string) string {
 		return ""
 	}
 	colors := map[string][2]string{"normal": {"#d1fae5", "#065f46"}, "degraded": {"#fee2e2", "#991b1b"}, "unknown": {"#f1f5f9", "#475569"}}[item.QualityVerdict]
-	badge := fmt.Sprintf(`<aside id="intelligence-verdict" data-sub2api-quality="%s" title="%s" style="position:fixed;right:12px;top:12px;z-index:20;border-radius:999px;padding:6px 12px;font:600 12px/16px system-ui,sans-serif;background:%s;color:%s;box-shadow:0 1px 3px #0002;pointer-events:none;white-space:nowrap">满血 AI · %s</aside>`,
-		html.EscapeString(item.QualityVerdict), html.EscapeString(item.QualityReason), colors[0], colors[1], html.EscapeString(item.QualityLabel))
+	provider := "满血 AI"
+	if item.CreativeRound != nil {
+		provider = "推理核验"
+	}
+	badge := fmt.Sprintf(`<aside id="intelligence-verdict" data-sub2api-quality="%s" title="%s" style="position:fixed;right:12px;top:12px;z-index:20;border-radius:999px;padding:6px 12px;font:600 12px/16px system-ui,sans-serif;background:%s;color:%s;box-shadow:0 1px 3px #0002;pointer-events:none;white-space:nowrap">%s · %s</aside>`,
+		html.EscapeString(item.QualityVerdict), html.EscapeString(item.QualityReason), colors[0], colors[1], provider, html.EscapeString(item.QualityLabel))
+	if item.CreativeRound != nil && item.QualityReason == "" {
+		badge = ""
+	}
 	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src about:; object-src 'none'; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#artwork{margin:0;width:100%;height:100%}body{overflow:hidden}</style></head><body><div id="artwork"></div><script>` +
 		pelicanScriptEnd.ReplaceAllString(renderer, `<\/script`) +
 		`Sub2APIPelican.mountPelicanArtwork(document.getElementById('artwork'),` + string(options) + `);document.querySelector('[data-testid="pelican-quality-badge"]')?.remove();</script>` + badge + `</body></html>`

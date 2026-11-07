@@ -88,6 +88,11 @@ func TestPelicanGroupTestHandlerStatusCodes(t *testing.T) {
 	w := serveGroupTest(h.ListPlans, http.MethodGet, "/plans", "/plans", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), `"model_id":"gpt-6-astra"`)
+	w = serveGroupTest(h.CreativeMaterials, http.MethodGet, "/materials", "/materials", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), `"version":"creative-v1-20261107"`)
+	require.Contains(t, w.Body.String(), `"materials":`)
+	require.Contains(t, w.Body.String(), `"categories":`)
 
 	require.Equal(t, http.StatusBadRequest, serveGroupTest(h.CreatePlan, http.MethodPost, "/plans", "/plans", `{"group_id":`).Code)
 	w = serveGroupTest(h.CreatePlan, http.MethodPost, "/plans", "/plans", `{"group_id":99,"model_id":"m","prompt":"p","reasoning_effort":"high"}`)

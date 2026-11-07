@@ -5,8 +5,11 @@
 
 import { apiClient } from '../client'
 import type { PaginatedResponse } from '@/types'
+import type { PelicanCreativeMaterials, PelicanCreativeRound } from '../pelicanCreative'
 
 export interface PelicanGroupTestConfig {
+  prompt_mode?: 'fixed' | 'random_creative'
+  creative_round?: PelicanCreativeRound
 	verification_tasks?: boolean
   question_kind?: string
   prompt: string
@@ -82,6 +85,7 @@ export interface PelicanGroupTestPlan {
 
 /** What an admin edits. The group of an existing plan cannot change. */
 export interface PelicanGroupTestPlanInput {
+  prompt_mode?: 'fixed' | 'random_creative'
 	verification_tasks?: boolean
   group_id: number
   model_id: string
@@ -105,6 +109,11 @@ export interface PelicanShowcaseSettings {
 export async function listPlans(): Promise<PelicanGroupTestPlan[]> {
   const { data } = await apiClient.get<PelicanGroupTestPlan[]>('/admin/pelican-group-tests')
   return data ?? []
+}
+
+export async function getCreativeMaterials(): Promise<PelicanCreativeMaterials> {
+  const { data } = await apiClient.get<PelicanCreativeMaterials>('/admin/pelican-group-tests/creative-materials')
+  return data
 }
 
 export async function createPlan(input: PelicanGroupTestPlanInput): Promise<PelicanGroupTestPlan> {
@@ -156,6 +165,7 @@ export async function resetIntelligence(groupId: number): Promise<void> {
 }
 
 export const pelicanTestsAPI = {
+  getCreativeMaterials,
   listPlans,
   createPlan,
   updatePlan,

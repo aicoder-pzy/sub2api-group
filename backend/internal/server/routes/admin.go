@@ -47,6 +47,7 @@ func RegisterAdminRoutes(
 		registerAccountRoutes(admin, h, stepUpAuth)
 		admin.POST("/accounts/:id/modeltrace-test", h.Admin.Account.ModelTraceTest)
 		admin.GET("/pelican-group-tests", h.Admin.PelicanGroupTest.ListPlans)
+		admin.GET("/pelican-group-tests/creative-materials", h.Admin.PelicanGroupTest.CreativeMaterials)
 		admin.POST("/pelican-group-tests", h.Admin.PelicanGroupTest.CreatePlan)
 		admin.PUT("/pelican-group-tests/:id", h.Admin.PelicanGroupTest.UpdatePlan)
 		admin.DELETE("/pelican-group-tests/:id", h.Admin.PelicanGroupTest.DeletePlan)

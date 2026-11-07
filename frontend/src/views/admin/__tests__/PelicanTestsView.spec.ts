@@ -6,6 +6,7 @@ import PelicanScheduleWindow from '@/components/admin/PelicanScheduleWindow.vue'
 import type { PelicanGroupTestPlan, PelicanGroupTestResult } from '@/api/admin/pelicanTests'
 
 const api = vi.hoisted(() => ({
+  getCreativeMaterials: vi.fn(),
   listPlans: vi.fn(),
   createPlan: vi.fn(),
   updatePlan: vi.fn(),
@@ -100,6 +101,36 @@ afterEach(() => {
 })
 
 describe('PelicanTestsView', () => {
+  it('previews materials without running a model and preserves creative mode on save and pause', async () => {
+    const round = { id: 'round-1', seed: 'seed', pool_version: 'test', started_at: '2026-11-07T04:00:00Z', materials: [{ key: 'subject', label: '主体', value: '海獭' }], prompt: 'shared creative question' }
+    api.getCreativeMaterials.mockResolvedValue({ pool: { version: 'test', source: 'Public samples', categories: [{ key: 'subject', label: '主体', values: ['海獭'] }] }, round })
+    api.updatePlan.mockResolvedValue(plan())
+    wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="pelican-plan-edit-7"]').trigger('click')
+    await flushPromises()
+    const editor = wrapper.get('[data-testid="pelican-test-editor"]')
+    await editor.get('[data-testid="pelican-test-mode"]').setValue('random_creative')
+    await flushPromises()
+    expect(api.getCreativeMaterials).toHaveBeenCalledOnce()
+    expect(editor.get('[data-testid="creative-pool"]').text()).toContain('海獭')
+    expect(editor.get('[data-testid="creative-details"]').text()).toContain('shared creative question')
+    expect(editor.find('[data-testid="pelican-test-prompt"]').exists()).toBe(false)
+    expect(api.runPlan).not.toHaveBeenCalled()
+    await editor.trigger('submit')
+    await flushPromises()
+    expect(api.updatePlan).toHaveBeenCalledWith(7, expect.objectContaining({ prompt_mode: 'random_creative', prompt: 'draw a pelican' }))
+
+    api.listPlans.mockResolvedValue([plan({ pelican_config: { prompt_mode: 'random_creative', prompt: '', reasoning_effort: 'high', parallel_count: 1, verification_tasks: true } })])
+    await wrapper.get('[data-testid="pelican-plan-edit-7"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="pelican-test-editor"]').trigger('submit')
+    await flushPromises()
+    await wrapper.get('[data-testid="pelican-plan-toggle-7"]').trigger('click')
+    await flushPromises()
+    expect(api.updatePlan).toHaveBeenLastCalledWith(7, expect.objectContaining({ prompt_mode: 'random_creative', verification_tasks: true }))
+  })
+
   it('shows USD totals beside group names and preserves unknown, zero and partial costs', async () => {
     api.listPlans.mockResolvedValue([plan(), plan({ id: 8, today_cost_usd: 0, total_cost_usd: 0.4, total_cost_incomplete: true })])
     api.listResults.mockResolvedValue({ items: [result(), result({ id: 89, cost_usd: null }), result({ id: 88, cost_usd: 0 }), result({ id: 87, cost_usd: 0.0000001 }), result({ id: 86, cost_usd: 0.2, cost_incomplete: true })], total: 5 })
@@ -206,7 +237,7 @@ describe('PelicanTestsView', () => {
     expect(selects[0].findAll('option').map((option) => option.text())).toEqual(['GPT PRO号池 · OpenAI', 'Claude Max · Anthropic'])
     await selects[0].setValue('6')
     await editor.get('[data-testid="pelican-test-model"]').setValue('claude-opus-5-5')
-    await selects[2].setValue('0 * * * *')
+    await editor.get('[data-testid="pelican-test-schedule"]').setValue('0 * * * *')
     expect(editor.find('[data-testid="pelican-test-cron"]').exists()).toBe(false)
     wrapper.findComponent(PelicanScheduleWindow).vm.$emit('change', { daily_start: '06:00', daily_end: '01:00' })
     await editor.trigger('submit')
@@ -268,6 +299,7 @@ describe('PelicanTestsView', () => {
     await wrapper.get('[data-testid="pelican-plan-toggle-7"]').trigger('click')
     await flushPromises()
     expect(api.updatePlan).toHaveBeenCalledWith(7, {
+      prompt_mode: 'fixed',
       group_id: 4, model_id: 'gpt-6-astra', cron_expression: '*/30 * * * *', enabled: false,
       prompt: 'draw a pelican', reasoning_effort: 'high', parallel_count: 2,
       daily_start: '', daily_end: '',

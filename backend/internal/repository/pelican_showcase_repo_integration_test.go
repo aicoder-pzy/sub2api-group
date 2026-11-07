@@ -48,8 +48,13 @@ func TestPelicanShowcaseRepo_PublishListGetPrune(t *testing.T) {
 	publish := func(resultID, groupID int64, maxItems int) {
 		t.Helper()
 		verdict := []string{"unknown", "degraded", "normal"}[resultID%3]
+		var creative *service.PelicanCreativeRound
+		if resultID == 3 {
+			creative = &service.PelicanCreativeRound{ID: "test-round", PoolVersion: "test-pool", Seed: "seed", StartedAt: base, Prompt: "saved creative question", Materials: []service.PelicanCreativeMaterial{{Key: "subject", Label: "主体", Value: "海獭"}}}
+		}
 		require.NoError(t, repo.Publish(ctx, service.PelicanShowcaseSnapshot{
-			GroupID: groupID, SourceResultID: resultID, ModelID: "gpt-6-astra", ReasoningEffort: "high",
+			CreativeRound: creative,
+			GroupID:       groupID, SourceResultID: resultID, ModelID: "gpt-6-astra", ReasoningEffort: "high",
 			ResponseText: fmt.Sprintf(`<svg data-result="%d"></svg>`, resultID), LatencyMs: resultID * 100,
 			GeneratedAt:    base.Add(time.Duration(resultID) * time.Hour),
 			QualityVerdict: verdict, QualityReason: "saved " + verdict,
@@ -128,6 +133,13 @@ func TestPelicanShowcaseRepo_PublishListGetPrune(t *testing.T) {
 	require.Equal(t, `<svg data-result="3"></svg>`, item.ResponseText)
 	require.Equal(t, "unknown", item.QualityVerdict)
 	require.Equal(t, "saved unknown", item.QualityReason, "assessment survives independently of admin history")
+	require.NotNil(t, item.CreativeRound)
+	require.Equal(t, "saved creative question", item.CreativeRound.Prompt, "creative metadata survives without a source admin result")
+	listed, err := repo.ListItems(ctx, []int64{groupA.ID}, 3, time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, item.CreativeRound.ID, listed[2].CreativeRound.ID)
+	require.Equal(t, item.CreativeRound.Materials, listed[2].CreativeRound.Materials)
+	require.Empty(t, listed[2].CreativeRound.Prompt, "full questions are loaded on demand")
 	for _, hidden := range []struct {
 		id       int64
 		maxItems int

@@ -2,6 +2,7 @@ package service
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -21,8 +22,13 @@ func withPelicanQualityChecks(cfg *PelicanTestConfig) (*PelicanTestConfig, *peli
 		return cfg, nil, nil
 	}
 	var random [8]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return nil, nil, err
+	if cfg.PromptMode == pelicanRandomCreative && cfg.CreativeRound != nil {
+		seed := sha256.Sum256([]byte(cfg.CreativeRound.Seed + ":quality-checks"))
+		copy(random[:], seed[:8])
+	} else {
+		if _, err := rand.Read(random[:]); err != nil {
+			return nil, nil, err
+		}
 	}
 	n, k := int(random[0]%5)+4, int(random[1]%4)+2
 	paths := 1

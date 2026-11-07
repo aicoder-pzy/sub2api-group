@@ -95,6 +95,25 @@ afterEach(() => {
 })
 
 describe('PelicanShowcaseView', () => {
+  it('compares only the chosen creative round and loads its saved question with the artwork', async () => {
+    const round = { id: 'round-1', seed: 'seed', pool_version: 'test', started_at: '2026-11-07T04:00:00Z', materials: [{ key: 'subject', label: '主体', value: '海獭' }] }
+    const data = showcase()
+    data.groups[0].items[0].creative_round = round
+    data.groups[1].items[0].creative_round = round
+    getShowcase.mockResolvedValue(data)
+    getShowcaseItem.mockImplementation(async (id: number) => ({ ...item(id, 0), creative_round: id === 100 || id === 200 ? { ...round, prompt: 'saved shared creative question' } : undefined, response_text: '<svg></svg>' }))
+    wrapper = mountView()
+    await settle()
+    await wrapper.get('[data-testid="showcase-round"]').setValue('round-1')
+    expect(wrapper.findAll('[data-testid="pelican-showcase-card"]')).toHaveLength(2)
+    expect(wrapper.get('[data-testid="showcase-groups"]').classes()).toContain('lg:grid-cols-2')
+    await wrapper.get('[data-testid="pelican-showcase-card"] button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="creative-details"]').text()).toContain('saved shared creative question')
+    await wrapper.get('[data-testid="showcase-round"]').setValue('')
+    expect(wrapper.findAll('[data-testid="pelican-showcase-card"]')).toHaveLength(11)
+  })
+
   it('explains that the gallery is closed without asking for items', async () => {
     getShowcase.mockResolvedValue(showcase({ enabled: false, groups: [] }))
     wrapper = mountView()

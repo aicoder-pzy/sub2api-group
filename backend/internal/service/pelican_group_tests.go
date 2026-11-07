@@ -98,6 +98,7 @@ type PelicanGroupTestResult struct {
 
 // PelicanGroupTestPlanInput is what an admin edits; the question is always the HTML drawing kind.
 type PelicanGroupTestPlanInput struct {
+	PromptMode        string `json:"prompt_mode,omitempty"`
 	VerificationTasks bool   `json:"verification_tasks,omitempty"`
 	GroupID           int64  `json:"group_id"`
 	ModelID           string `json:"model_id"`
@@ -277,7 +278,11 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "model is required (maximum 100 bytes)")
 	}
 	prompt := strings.TrimSpace(input.Prompt)
-	if prompt == "" || len(prompt) > 32000 {
+	mode := strings.TrimSpace(input.PromptMode)
+	if mode != "" && mode != "fixed" && mode != pelicanRandomCreative {
+		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "invalid prompt mode")
+	}
+	if (prompt == "" && mode != pelicanRandomCreative) || len(prompt) > 32000 {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "prompt is required (maximum 32000 bytes)")
 	}
 	effort := normalizePelicanReasoningEffort(input.ReasoningEffort)
@@ -296,6 +301,7 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 		plan.CronExpression = pelicanGroupTestDefaultCron
 	}
 	plan.PelicanConfig = &PelicanTestConfig{VerificationTasks: input.VerificationTasks, QuestionKind: "pelican", Prompt: prompt, ReasoningEffort: effort, ParallelCount: parallel, ModelID: plan.ModelID, DailyStart: input.DailyStart, DailyEnd: input.DailyEnd}
+	plan.PelicanConfig.PromptMode = mode
 	next, err := computeNextPelicanRun(plan.CronExpression, s.now(), plan.PelicanConfig)
 	if err != nil {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", fmt.Sprintf("invalid schedule: %v", err))
@@ -397,6 +403,8 @@ func (s *PelicanGroupTestService) runScheduled(ctx context.Context, plan *Pelica
 // execute runs the plan's samples and stores them. It owns its contexts: a run started
 // from an admin request must outlive that request.
 func (s *PelicanGroupTestService) execute(plan *PelicanGroupTestPlan, until time.Time) {
+	// Use the scanner/claim time, even when earlier groups delayed this run.
+	plan = preparePelicanCreativePlan(plan, until.Add(-pelicanGroupTestLease))
 	runCtx, cancel := context.WithTimeout(context.Background(), pelicanGroupTestRunTimeout)
 	defer cancel()
 	results := s.runSamples(runCtx, plan)
@@ -421,6 +429,7 @@ func (s *PelicanGroupTestService) execute(plan *PelicanGroupTestPlan, until time
 }
 
 func (s *PelicanGroupTestService) runSamples(ctx context.Context, plan *PelicanGroupTestPlan) []*PelicanGroupTestResult {
+	plan = preparePelicanCreativePlan(plan, s.now())
 	group, err := s.groups.GetByID(ctx, plan.GroupID)
 	if err == nil && group != nil && group.Status != StatusActive {
 		err = fmt.Errorf("group is %s", group.Status)
@@ -485,6 +494,14 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 	excluded := make(map[int64]struct{})
 	attempts := []PelicanGroupTestAttempt{}
 	selectionChanges := 0
+	// Reuse the complete question on failover, including optional verification tasks.
+	generationConfig, checks, checkErr := withPelicanQualityChecks(plan.PelicanConfig)
+	if checkErr != nil {
+		return s.newResult(plan, started, s.now(), "quality_check_generation_failed")
+	}
+	copy := *plan
+	copy.PelicanConfig = generationConfig
+	plan = &copy
 	for {
 		route, err := s.router.route(ctx, group, plan.ModelID, excluded)
 		if err != nil {
@@ -528,11 +545,6 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			}
 		}
 		var sample *ScheduledTestResult
-		generationConfig, checks, checkErr := withPelicanQualityChecks(plan.PelicanConfig)
-		if checkErr != nil {
-			route.release()
-			return s.newResult(plan, started, s.now(), "quality_check_generation_failed")
-		}
 		attempted = true
 		usage := &pelicanTestUsageCollector{model: route.account.GetMappedModel(route.model),
 			group: group, channels: s.channels, pricingAt: s.now()}
@@ -567,12 +579,19 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			result.ResponseText = sample.ResponseText
 			// The channel's concurrency slot has already been released. Assessment
 			// never holds a generation slot or causes a switch to another account.
+			creative := generationConfig != nil && generationConfig.PromptMode == pelicanRandomCreative
+			if creative && result.PelicanConfig.CreativeRound != nil {
+				result.PelicanConfig.CreativeRound.Checks = checkPelicanCreative(sample.ResponseText, result.PelicanConfig.CreativeRound)
+			}
 			if sample.Status == "success" && (s.assessOutput != nil || checks != nil) {
 				var assessment *PelicanAssessment
-				if s.assessOutput != nil {
+				if !creative && s.assessOutput != nil {
 					result.ResponseText, assessment = s.assessOutput(ctx, sample.ResponseText)
 				}
 				if checks != nil {
+					if creative {
+						assessment = &PelicanAssessment{Quality: "normal", Reason: "附加路径计数与代码求值核验通过", Source: "sub2api:quality-checks"}
+					}
 					assessment = checks.assess(sample.ResponseText, assessment)
 					if assessment != nil {
 						result.ResponseText = decoratePelicanSource(extractPelicanSource(sample.ResponseText), assessment)
@@ -611,6 +630,11 @@ func (s *PelicanGroupTestService) newResult(plan *PelicanGroupTestPlan, started,
 	if plan.PelicanConfig != nil {
 		snapshot := *plan.PelicanConfig
 		snapshot.ModelID = plan.ModelID
+		if snapshot.CreativeRound != nil {
+			round := *snapshot.CreativeRound
+			round.Prompt = snapshot.Prompt
+			snapshot.CreativeRound = &round
+		}
 		result.PelicanConfig = &snapshot
 	}
 	return result

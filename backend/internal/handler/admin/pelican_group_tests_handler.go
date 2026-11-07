@@ -17,6 +17,12 @@ func NewPelicanGroupTestHandler(svc *service.PelicanGroupTestService) *PelicanGr
 	return &PelicanGroupTestHandler{svc: svc}
 }
 
+// CreativeMaterials reads local materials and previews a round without a model call.
+func (h *PelicanGroupTestHandler) CreativeMaterials(c *gin.Context) {
+	pool, round := h.svc.CreativeMaterials()
+	response.Success(c, gin.H{"pool": pool, "round": round})
+}
+
 // ListPlans GET /api/v1/admin/pelican-group-tests
 func (h *PelicanGroupTestHandler) ListPlans(c *gin.Context) {
 	plans, err := h.svc.ListPlans(c.Request.Context())

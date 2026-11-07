@@ -62,6 +62,14 @@
         </div>
       </section>
 
+      <div v-if="creativeRounds.length" class="flex flex-wrap items-center gap-3">
+        <label for="showcase-round" class="text-xs text-gray-500">{{ t('pelicanTests.creative.compare') }}</label>
+        <select id="showcase-round" v-model="activeRound" class="input max-w-full text-xs sm:max-w-xl" data-testid="showcase-round">
+          <option value="">{{ t('pelicanTests.creative.allRounds') }}</option>
+          <option v-for="round in creativeRounds" :key="round.id" :value="round.id">{{ formatDateTimeToMinute(round.started_at) }} · {{ round.materials.find(material => material.key === 'theme')?.value }}</option>
+        </select>
+      </div>
+
       <!-- First load -->
       <div v-if="loading && !view" class="space-y-6">
         <div v-for="row in 2" :key="row" class="flex gap-5 overflow-hidden">
@@ -94,10 +102,11 @@
       />
 
       <!-- One section per showcased group -->
+      <div :class="activeRound ? 'grid gap-6 lg:grid-cols-2' : 'space-y-6'" data-testid="showcase-groups" :data-comparing="!!activeRound">
       <section
         v-for="group in shownGroups"
         :key="group.id"
-        class="space-y-4"
+        class="min-w-0 space-y-4"
         :data-testid="`showcase-group-${group.id}`"
       >
         <header class="flex min-w-0 items-center gap-3">
@@ -130,7 +139,7 @@
           <PelicanShowcaseCard
             v-for="item in group.items"
             :key="item.id"
-            :class="CARD_WIDTH"
+            :class="activeRound ? 'w-full shrink-0' : CARD_WIDTH"
             :item="item"
             :group-name="group.name"
             :body="bodies[item.id]"
@@ -139,6 +148,7 @@
           />
         </PelicanShowcaseRow>
       </section>
+      </div>
     </div>
 
     <PelicanShowcaseApiDialog
@@ -158,6 +168,7 @@
       @close="closePreview"
     >
       <div v-if="preview" class="flex min-h-0 flex-1 flex-col gap-3" data-testid="showcase-preview">
+        <PelicanCreativeDetails v-if="preview.item.creative_round" :round="preview.item.creative_round" />
         <!-- Chips instead of "·" separators, so a wrapped line never starts with a dot on phones. -->
         <div class="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 text-xs text-gray-500 dark:text-gray-400">
           <span class="inline-flex items-center rounded-md px-1.5 py-0.5 font-medium" :class="platformBadgeLightClass(preview.group.platform)">
@@ -189,6 +200,7 @@
             :html="previewBody.html"
             :quality="preview.item.quality_verdict"
             :reason="preview.item.quality_reason"
+            :creative="!!preview.item.creative_round"
             :mode="previewMode"
             :title="previewTitle"
           />
@@ -240,6 +252,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
+import PelicanCreativeDetails from '@/components/user/pelican/PelicanCreativeDetails.vue'
 import PelicanShowcaseApiDialog from '@/components/user/pelican/PelicanShowcaseApiDialog.vue'
 import PelicanShowcaseCard from '@/components/user/pelican/PelicanShowcaseCard.vue'
 import PelicanShowcaseRow from '@/components/user/pelican/PelicanShowcaseRow.vue'
@@ -278,6 +291,7 @@ const isAdmin = computed(() => authStore.isAdmin)
 const view = ref<PelicanShowcaseView | null>(null)
 const loading = ref(false)
 const activeGroup = ref<TabKey>('all')
+const activeRound = ref('')
 const bodies = reactive<Record<number, PelicanBody>>({})
 const preview = ref<{ group: PelicanShowcaseGroup; item: PelicanShowcaseItem } | null>(null)
 const previewMode = ref<'fit' | 'actual'>('fit')
@@ -296,9 +310,11 @@ const tabs = computed(() => [
   { key: 'all' as TabKey, label: t('pelicanShowcase.allGroups'), count: undefined as number | undefined },
   ...groups.value.map((group) => ({ key: group.id as TabKey, label: group.name, count: group.items.length })),
 ])
-const shownGroups = computed(() =>
-  activeGroup.value === 'all' ? groups.value : groups.value.filter((group) => group.id === activeGroup.value)
-)
+const creativeRounds = computed(() => [...new Map(groups.value.flatMap(group => group.items.flatMap(item => item.creative_round ? [[item.creative_round.id, item.creative_round] as const] : []))).values()].sort((a, b) => b.started_at.localeCompare(a.started_at)))
+const shownGroups = computed(() => {
+  const selected = activeGroup.value === 'all' ? groups.value : groups.value.filter(group => group.id === activeGroup.value)
+  return activeRound.value ? selected.map(group => ({ ...group, items: group.items.filter(item => item.creative_round?.id === activeRound.value) })) : selected
+})
 const previewBody = computed(() => (preview.value ? bodies[preview.value.item.id] : undefined))
 const previewTitle = computed(() =>
   preview.value
@@ -310,6 +326,10 @@ const previewEffort = computed(() => (preview.value ? pelicanEffortLabel(t, prev
 // A removed group must not leave the filter pointing at nothing.
 watch(groups, (list) => {
   if (activeGroup.value !== 'all' && !list.some((group) => group.id === activeGroup.value)) activeGroup.value = 'all'
+})
+
+watch(creativeRounds, rounds => {
+  if (activeRound.value && !rounds.some(round => round.id === activeRound.value)) activeRound.value = ''
 })
 
 function requestBody(id: number) {
@@ -326,7 +346,11 @@ function pumpBodies() {
     getShowcaseItem(id)
       .then((item) => {
         const html = extractPelicanHtml(item.response_text || '')
-        if (alive) bodies[id] = html ? { status: 'ready', html } : { status: 'invalid', html: '' }
+        if (alive) {
+          bodies[id] = html ? { status: 'ready', html } : { status: 'invalid', html: '' }
+          const summary = groups.value.flatMap(group => group.items).find(candidate => candidate.id === id)
+          if (summary && item.creative_round) summary.creative_round = item.creative_round
+        }
       })
       .catch(() => {
         if (alive) bodies[id] = { status: 'error', html: '' }
@@ -387,7 +411,8 @@ async function removeItem() {
   removing.value = true
   try {
     await removeShowcaseItem(target.item.id)
-    target.group.items = target.group.items.filter((item) => item.id !== target.item.id)
+    const sourceGroup = groups.value.find(group => group.id === target.group.id)
+    if (sourceGroup) sourceGroup.items = sourceGroup.items.filter((item) => item.id !== target.item.id)
     delete bodies[target.item.id]
     closePreview()
     appStore.showSuccess(t('pelicanShowcase.removed'))

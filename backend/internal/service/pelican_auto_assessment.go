@@ -124,7 +124,11 @@ func decoratePelicanSource(source string, assessment *PelicanAssessment) string 
 	case "degraded":
 		quality, label, color, background = "degraded", "疑似降智", "#991b1b", "#fee2e2"
 	}
-	badge := fmt.Sprintf(`<!--sub2api:pelican-assessment:start--><aside data-sub2api-quality="%s" title="%s" style="all:initial!important;position:fixed!important;top:12px!important;right:12px!important;z-index:2147483647!important;padding:7px 12px!important;border-radius:999px!important;font:600 14px/1.4 system-ui,sans-serif!important;color:%s!important;background:%s!important;box-shadow:0 2px 8px #0002!important;pointer-events:none!important;white-space:nowrap!important">满血 AI · %s</aside><!--sub2api:pelican-assessment:end-->`, quality, html.EscapeString(assessment.Reason), color, background, label)
+	provider := "满血 AI"
+	if assessment.Source == "sub2api:quality-checks" {
+		provider = "推理核验"
+	}
+	badge := fmt.Sprintf(`<!--sub2api:pelican-assessment:start--><aside data-sub2api-quality="%s" title="%s" style="all:initial!important;position:fixed!important;top:12px!important;right:12px!important;z-index:2147483647!important;padding:7px 12px!important;border-radius:999px!important;font:600 14px/1.4 system-ui,sans-serif!important;color:%s!important;background:%s!important;box-shadow:0 2px 8px #0002!important;pointer-events:none!important;white-space:nowrap!important">%s · %s</aside><!--sub2api:pelican-assessment:end-->`, quality, html.EscapeString(assessment.Reason), color, background, provider, label)
 	if body := pelicanBodyTag.FindStringIndex(source); body != nil {
 		return source[:body[1]] + badge + source[body[1]:]
 	}

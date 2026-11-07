@@ -106,6 +106,7 @@
                     <span v-if="isRunning(plan)" class="state-chip state-running">{{ t('pelicanTests.plans.running') }}</span>
                   </p>
                   <p class="plan-meta">
+                    <template v-if="plan.pelican_config?.prompt_mode === 'random_creative'"><span class="text-primary-600 dark:text-primary-400">{{ t('pelicanTests.creative.mode') }}</span><span>·</span></template>
                     <code v-if="plan.model_id">{{ plan.model_id }}</code>
                     <span v-else class="text-amber-600 dark:text-amber-400">{{ t('pelicanTests.plans.modelMissing') }}</span>
                     <span>·</span><span>{{ effortLabel(plan.pelican_config?.reasoning_effort) }}</span>
@@ -247,6 +248,33 @@
           <p class="field-hint">{{ t('pelicanTests.editor.modelHint') }}</p>
         </div>
         <div>
+          <label class="field-label mt-0" for="pelican-test-mode">{{ t('pelicanTests.creative.questionMode') }}</label>
+          <select id="pelican-test-mode" v-model="editor.form.prompt_mode" class="input w-full" data-testid="pelican-test-mode">
+            <option value="fixed">{{ t('pelicanTests.creative.fixed') }}</option>
+            <option value="random_creative">{{ t('pelicanTests.creative.mode') }}</option>
+          </select>
+        </div>
+        <div v-if="editor.form.prompt_mode === 'random_creative'" class="space-y-3" data-testid="creative-editor">
+          <p class="field-hint">{{ t('pelicanTests.creative.hint') }}</p>
+          <p v-if="creativeLoading" class="field-hint">{{ t('pelicanTests.history.loading') }}</p>
+          <button v-else-if="creativeFailed" type="button" class="link-button" @click="loadCreativeMaterials">{{ t('pelicanTests.creative.retryPool') }}</button>
+          <template v-if="creativeData">
+            <details class="rounded-xl border border-gray-200 p-3 text-xs dark:border-dark-700" data-testid="creative-pool">
+              <summary class="cursor-pointer font-medium">{{ t('pelicanTests.creative.pool', { categories: creativeData.pool.categories.length, count: creativeMaterialCount }) }}</summary>
+              <p class="mt-2 leading-relaxed text-gray-400">{{ creativeData.pool.source }}</p>
+              <div class="mt-3 max-h-64 space-y-2 overflow-auto">
+                <details v-for="category in creativeData.pool.categories" :key="category.key" class="rounded-lg bg-gray-50 p-2 dark:bg-dark-800">
+                  <summary class="cursor-pointer">{{ category.label }} · {{ category.values.length }}</summary>
+                  <div class="mt-2 flex flex-wrap gap-1.5"><span v-for="value in category.values" :key="value" class="rounded bg-white px-2 py-1 text-gray-600 dark:bg-dark-700 dark:text-gray-300">{{ value }}</span></div>
+                </details>
+              </div>
+              <p class="mt-2 text-gray-400">{{ creativeData.pool.version }}</p>
+            </details>
+            <PelicanCreativeDetails :round="creativeData.round" />
+            <p class="field-hint">{{ t('pelicanTests.creative.previewHint') }}</p>
+          </template>
+        </div>
+        <div v-else>
           <div class="flex items-center justify-between">
             <label class="field-label mt-0" for="pelican-test-prompt">{{ t('pelicanTests.editor.prompt') }}</label>
             <button type="button" class="link-button text-xs" @click="editor.form.prompt = PELICAN_PROMPT">{{ t('pelicanTests.editor.resetPrompt') }}</button>
@@ -301,9 +329,10 @@
       @close="preview = null"
     >
       <div v-if="preview" class="flex min-h-0 flex-1 flex-col gap-3" data-testid="pelican-result-preview">
-        <PelicanAssessment v-if="preview.status === 'ready'" :output="preview.result.response_text || ''" />
+        <PelicanCreativeDetails v-if="preview.result.pelican_config?.creative_round" :round="preview.result.pelican_config.creative_round" />
+        <PelicanAssessment v-else-if="preview.status === 'ready'" :output="preview.result.response_text || ''" />
         <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-900">
-          <PelicanArtworkPreview v-if="preview.status === 'ready'" :html="preview.html" :title="previewTitle" />
+          <PelicanArtworkPreview v-if="preview.status === 'ready'" :html="preview.html" :title="previewTitle" :creative="preview.result.pelican_config?.prompt_mode === 'random_creative'" :quality="preview.result.quality_verdict" :reason="preview.result.quality_reason" />
           <div v-else class="flex h-full items-center justify-center p-6 text-sm text-gray-500">
             <span v-if="preview.status === 'loading'" class="animate-pulse">{{ t('pelicanTests.history.previewLoading') }}</span>
             <span v-else-if="preview.status === 'invalid'">{{ t('pelicanTests.history.invalidHtml') }}</span>
@@ -359,6 +388,7 @@ import Select from '@/components/common/Select.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
+import PelicanCreativeDetails from '@/components/user/pelican/PelicanCreativeDetails.vue'
 import PelicanAssessment from '@/components/admin/account/PelicanAssessment.vue'
 import PelicanScheduleWindow from '@/components/admin/PelicanScheduleWindow.vue'
 import PelicanShowcaseApiDialog from '@/components/user/pelican/PelicanShowcaseApiDialog.vue'
@@ -378,6 +408,7 @@ import type { AdminGroup, GroupPlatform } from '@/types'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTimeToMinute } from '@/utils/format'
 import { PELICAN_PROMPT } from '@/utils/intelligenceTest'
+import type { PelicanCreativeMaterials } from '@/api/pelicanCreative'
 import { extractPelicanHtml } from '@/utils/pelicanHtml'
 import { platformBadgeLightClass, platformLabel } from '@/utils/platformColors'
 
@@ -411,6 +442,10 @@ const loading = ref(false)
 const savingSettings = ref(false)
 const showApiInfo = ref(false)
 const savingPlan = ref(false)
+const creativeData = ref<PelicanCreativeMaterials | null>(null)
+const creativeLoading = ref(false)
+const creativeFailed = ref(false)
+const creativeMaterialCount = computed(() => creativeData.value?.pool.categories.reduce((sum, category) => sum + category.values.length, 0) || 0)
 const error = ref('')
 const notice = ref('')
 const pending = reactive<Record<number, string>>({})
@@ -448,6 +483,24 @@ const previewTitle = computed(() => (preview.value
 watch(() => editor.value?.schedule, (schedule) => {
   if (editor.value && schedule && schedule !== 'custom') editor.value.form.cron_expression = schedule
 })
+
+watch(() => editor.value?.form.prompt_mode, (mode) => {
+  if (mode === 'random_creative') void loadCreativeMaterials()
+})
+
+async function loadCreativeMaterials() {
+  if (creativeLoading.value) return
+  creativeLoading.value = true
+  creativeFailed.value = false
+  try {
+    const data = await pelicanTestsAPI.getCreativeMaterials()
+    if (alive) creativeData.value = data
+  } catch {
+    creativeFailed.value = true
+  } finally {
+    creativeLoading.value = false
+  }
+}
 
 function effortLabel(effort?: string) {
   return effort && EFFORTS.includes(effort) ? t(`pelicanShowcase.efforts.${effort}`) : '—'
@@ -609,6 +662,7 @@ async function loadGroups() {
 function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
   return {
     group_id: plan.group_id,
+    prompt_mode: plan.pelican_config?.prompt_mode || 'fixed',
     model_id: plan.model_id,
     cron_expression: plan.cron_expression,
     enabled: plan.enabled,
@@ -624,7 +678,7 @@ function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
 function openEditor(plan?: PelicanGroupTestPlan) {
   const form: PelicanGroupTestPlanInput = plan
     ? inputFrom(plan)
-    : { group_id: 0, model_id: '', cron_expression: SCHEDULES[1].cron, enabled: true, prompt: PELICAN_PROMPT, reasoning_effort: 'medium', parallel_count: 1 }
+    : { group_id: 0, prompt_mode: 'fixed', model_id: '', cron_expression: SCHEDULES[1].cron, enabled: true, prompt: PELICAN_PROMPT, reasoning_effort: 'medium', parallel_count: 1 }
   const schedule = SCHEDULES.some((preset) => preset.cron === form.cron_expression) ? form.cron_expression : 'custom'
   editor.value = { id: plan?.id ?? null, groupName: plan?.group_name ?? '', form, schedule }
   void loadGroups()
@@ -634,7 +688,7 @@ async function savePlan() {
   const current = editor.value
   if (!current || savingPlan.value) return
   const form = current.form
-  if (!form.group_id || !form.model_id.trim() || !form.prompt.trim() || !form.cron_expression.trim()) {
+  if (!form.group_id || !form.model_id.trim() || (form.prompt_mode !== 'random_creative' && !form.prompt.trim()) || !form.cron_expression.trim()) {
     fail(null, t('pelicanTests.editor.required'))
     return
   }

@@ -10,6 +10,7 @@
         :html="body.html"
         :quality="item.quality_verdict"
         :reason="item.quality_reason"
+        :creative="!!item.creative_round"
         :interactive="false"
         :title="label"
       />
@@ -26,6 +27,7 @@
           {{ item.model_id || '—' }}
         </p>
         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ formatDateTimeToMinute(item.generated_at) }}</p>
+        <p v-if="item.creative_round" class="mt-1 truncate text-xs text-primary-600 dark:text-primary-400" :title="item.creative_round.materials.find(material => material.key === 'theme')?.value">{{ t('pelicanTests.creative.mode') }} · {{ item.creative_round.materials.find(material => material.key === 'subject')?.value }}</p>
       </div>
       <div class="flex shrink-0 flex-col items-end gap-1 text-xs">
         <span
