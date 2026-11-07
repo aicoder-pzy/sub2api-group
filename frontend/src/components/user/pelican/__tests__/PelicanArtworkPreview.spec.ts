@@ -17,6 +17,15 @@ function mountPreview(mode: 'fit' | 'actual' = 'fit', ancestorScale = 1) {
 }
 
 describe('PelicanArtworkPreview', () => {
+  it('shows the persisted visual score instead of a fixed-question or reasoning badge', async () => {
+    const preview = mountPreview()
+    await preview.setProps({ creative: true, quality: 'normal', reason: 'legacy assessment', evaluation: { version: 'creative-vision-v1', status: 'failed', score: 42, confidence: 'high', reason: 'The required objects are missing', motion_detected: true, checked_at: '2026-11-07T10:00:00Z' } })
+    const badge = preview.get('[data-testid="pelican-quality-badge"]')
+    expect(badge.text()).toBe('pelicanTests.creative.visualProvider · 42/100 · pelicanTests.creative.failed')
+    expect(badge.attributes('title')).toBe('The required objects are missing')
+    await preview.setProps({ evaluation: { version: 'creative-vision-v1', status: 'unknown', reason: 'Renderer failed', motion_detected: false, checked_at: '2026-11-07T10:00:00Z' } })
+    expect(preview.get('[data-testid="pelican-quality-badge"]').text()).toBe('pelicanTests.creative.visualProvider · pelicanTests.creative.unknown')
+  })
   it('shows reasoning provenance for creative checks and hides an assessment that did not run', async () => {
     const preview = mountPreview()
     await preview.setProps({ creative: true, quality: 'unknown' })

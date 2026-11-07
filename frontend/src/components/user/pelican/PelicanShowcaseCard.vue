@@ -11,6 +11,7 @@
         :quality="item.quality_verdict"
         :reason="item.quality_reason"
         :creative="!!item.creative_round"
+        :evaluation="item.creative_round?.evaluation"
         :interactive="false"
         :title="label"
       />

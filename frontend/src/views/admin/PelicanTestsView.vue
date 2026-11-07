@@ -106,7 +106,7 @@
                     <span v-if="isRunning(plan)" class="state-chip state-running">{{ t('pelicanTests.plans.running') }}</span>
                   </p>
                   <p class="plan-meta">
-                    <template v-if="plan.pelican_config?.prompt_mode === 'random_creative'"><span class="text-primary-600 dark:text-primary-400">{{ t('pelicanTests.creative.mode') }}</span><span>·</span></template>
+                    <template v-if="plan.pelican_config?.prompt_mode === 'random_creative'"><span class="text-primary-600 dark:text-primary-400">{{ t('pelicanTests.creative.mode') }}</span><span v-if="!plan.pelican_config.creative_judge_group_id || !plan.pelican_config.creative_judge_model_id" class="text-amber-600">{{ t('pelicanTests.creative.awaitingJudge') }}</span><span>·</span></template>
                     <code v-if="plan.model_id">{{ plan.model_id }}</code>
                     <span v-else class="text-amber-600 dark:text-amber-400">{{ t('pelicanTests.plans.modelMissing') }}</span>
                     <span>·</span><span>{{ effortLabel(plan.pelican_config?.reasoning_effort) }}</span>
@@ -256,6 +256,20 @@
         </div>
         <div v-if="editor.form.prompt_mode === 'random_creative'" class="space-y-3" data-testid="creative-editor">
           <p class="field-hint">{{ t('pelicanTests.creative.hint') }}</p>
+          <div class="grid gap-3 sm:grid-cols-2" data-testid="creative-judge-fields">
+            <div>
+              <label class="field-label mt-0" for="creative-judge-group">{{ t('pelicanTests.creative.judgeGroup') }}</label>
+              <select id="creative-judge-group" v-model.number="editor.form.creative_judge_group_id" class="input w-full">
+                <option :value="0">{{ t('pelicanTests.creative.chooseJudge') }}</option>
+                <option v-for="group in groups.filter(group => group.platform === 'openai')" :key="group.id" :value="group.id">{{ group.name }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label mt-0" for="creative-judge-model">{{ t('pelicanTests.creative.judgeModel') }}</label>
+              <input id="creative-judge-model" v-model.trim="editor.form.creative_judge_model_id" maxlength="100" class="input w-full" placeholder="gpt-6-astra" />
+            </div>
+          </div>
+          <p class="field-hint">{{ t('pelicanTests.creative.judgeHint') }}</p>
           <p v-if="creativeLoading" class="field-hint">{{ t('pelicanTests.history.loading') }}</p>
           <button v-else-if="creativeFailed" type="button" class="link-button" @click="loadCreativeMaterials">{{ t('pelicanTests.creative.retryPool') }}</button>
           <template v-if="creativeData">
@@ -332,7 +346,7 @@
         <PelicanCreativeDetails v-if="preview.result.pelican_config?.creative_round" :round="preview.result.pelican_config.creative_round" />
         <PelicanAssessment v-else-if="preview.status === 'ready'" :output="preview.result.response_text || ''" />
         <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-900">
-          <PelicanArtworkPreview v-if="preview.status === 'ready'" :html="preview.html" :title="previewTitle" :creative="preview.result.pelican_config?.prompt_mode === 'random_creative'" :quality="preview.result.quality_verdict" :reason="preview.result.quality_reason" />
+          <PelicanArtworkPreview v-if="preview.status === 'ready'" :html="preview.html" :title="previewTitle" :creative="preview.result.pelican_config?.prompt_mode === 'random_creative'" :evaluation="preview.result.pelican_config?.creative_round?.evaluation" :quality="preview.result.quality_verdict" :reason="preview.result.quality_reason" />
           <div v-else class="flex h-full items-center justify-center p-6 text-sm text-gray-500">
             <span v-if="preview.status === 'loading'" class="animate-pulse">{{ t('pelicanTests.history.previewLoading') }}</span>
             <span v-else-if="preview.status === 'invalid'">{{ t('pelicanTests.history.invalidHtml') }}</span>
@@ -485,7 +499,13 @@ watch(() => editor.value?.schedule, (schedule) => {
 })
 
 watch(() => editor.value?.form.prompt_mode, (mode) => {
-  if (mode === 'random_creative') void loadCreativeMaterials()
+  if (mode === 'random_creative') {
+    if (editor.value) {
+      editor.value.form.creative_judge_group_id ??= 0
+      editor.value.form.creative_judge_model_id ??= ''
+    }
+    void loadCreativeMaterials()
+  }
 })
 
 async function loadCreativeMaterials() {
@@ -663,6 +683,7 @@ function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
   return {
     group_id: plan.group_id,
     prompt_mode: plan.pelican_config?.prompt_mode || 'fixed',
+    ...(plan.pelican_config?.creative_judge_group_id ? { creative_judge_group_id: plan.pelican_config.creative_judge_group_id, creative_judge_model_id: plan.pelican_config.creative_judge_model_id || '' } : {}),
     model_id: plan.model_id,
     cron_expression: plan.cron_expression,
     enabled: plan.enabled,
@@ -688,6 +709,10 @@ async function savePlan() {
   const current = editor.value
   if (!current || savingPlan.value) return
   const form = current.form
+  if (form.enabled && form.prompt_mode === 'random_creative' && (!form.creative_judge_group_id || !form.creative_judge_model_id?.trim())) {
+    fail(null, t('pelicanTests.creative.judgeRequired'))
+    return
+  }
   if (!form.group_id || !form.model_id.trim() || (form.prompt_mode !== 'random_creative' && !form.prompt.trim()) || !form.cron_expression.trim()) {
     fail(null, t('pelicanTests.editor.required'))
     return
@@ -713,7 +738,7 @@ async function savePlan() {
 
 async function toggle(plan: PelicanGroupTestPlan) {
   // A plan carried over without a model needs one before it can run.
-  if (!plan.enabled && !plan.model_id) {
+  if (!plan.enabled && (!plan.model_id || (plan.pelican_config?.prompt_mode === 'random_creative' && (!plan.pelican_config.creative_judge_group_id || !plan.pelican_config.creative_judge_model_id)))) {
     openEditor(plan)
     if (editor.value) editor.value.form.enabled = true
     return

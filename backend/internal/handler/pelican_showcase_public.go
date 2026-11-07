@@ -113,6 +113,21 @@ func pelicanPreviewHTML(item pelicanPublicItem, renderer string) string {
 	if item.CreativeRound != nil && item.QualityReason == "" {
 		badge = ""
 	}
+	if item.CreativeRound != nil && item.CreativeRound.Evaluation != nil {
+		evaluation := item.CreativeRound.Evaluation
+		label, quality := "待判断", "unknown"
+		if evaluation.Status == "passed" {
+			label, quality = "合格", "normal"
+		} else if evaluation.Status == "failed" {
+			label, quality = "未达标", "degraded"
+		}
+		score := ""
+		if evaluation.Score != nil {
+			score = fmt.Sprintf("%d/100 · ", *evaluation.Score)
+		}
+		gradeColors := map[string][2]string{"normal": {"#d1fae5", "#065f46"}, "degraded": {"#fee2e2", "#991b1b"}, "unknown": {"#f1f5f9", "#475569"}}[quality]
+		badge = fmt.Sprintf(`<aside id="creative-evaluation" title="%s" style="position:fixed;right:12px;top:12px;z-index:20;border-radius:999px;padding:6px 12px;font:600 12px/16px system-ui,sans-serif;background:%s;color:%s">视觉评分 · %s%s</aside>`, html.EscapeString(evaluation.Reason), gradeColors[0], gradeColors[1], score, label)
+	}
 	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src about:; object-src 'none'; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#artwork{margin:0;width:100%;height:100%}body{overflow:hidden}</style></head><body><div id="artwork"></div><script>` +
 		pelicanScriptEnd.ReplaceAllString(renderer, `<\/script`) +
 		`Sub2APIPelican.mountPelicanArtwork(document.getElementById('artwork'),` + string(options) + `);document.querySelector('[data-testid="pelican-quality-badge"]')?.remove();</script>` + badge + `</body></html>`

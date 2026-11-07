@@ -101,7 +101,7 @@ func (s *PelicanGroupTestService) runDegradationDue(ctx context.Context, now tim
 				continue
 			}
 			plan, err := s.repo.GetPlan(ctx, item.PlanID)
-			if err != nil || plan == nil || !plan.Enabled || strings.TrimSpace(plan.ModelID) == "" || !pelicanWindowAllows(plan.PelicanConfig, now) {
+			if err != nil || plan == nil || !plan.Enabled || strings.TrimSpace(plan.ModelID) == "" || creativeJudgeMissing(plan.PelicanConfig) || !pelicanWindowAllows(plan.PelicanConfig, now) {
 				continue
 			}
 			if !plan.UpdatedAt.Equal(item.PlanUpdatedAt) {

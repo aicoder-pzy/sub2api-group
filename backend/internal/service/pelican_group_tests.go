@@ -98,17 +98,19 @@ type PelicanGroupTestResult struct {
 
 // PelicanGroupTestPlanInput is what an admin edits; the question is always the HTML drawing kind.
 type PelicanGroupTestPlanInput struct {
-	PromptMode        string `json:"prompt_mode,omitempty"`
-	VerificationTasks bool   `json:"verification_tasks,omitempty"`
-	GroupID           int64  `json:"group_id"`
-	ModelID           string `json:"model_id"`
-	CronExpression    string `json:"cron_expression"`
-	Enabled           bool   `json:"enabled"`
-	Prompt            string `json:"prompt"`
-	ReasoningEffort   string `json:"reasoning_effort"`
-	ParallelCount     int    `json:"parallel_count"`
-	DailyStart        string `json:"daily_start,omitempty"`
-	DailyEnd          string `json:"daily_end,omitempty"`
+	CreativeJudgeGroupID int64  `json:"creative_judge_group_id,omitempty"`
+	CreativeJudgeModelID string `json:"creative_judge_model_id,omitempty"`
+	PromptMode           string `json:"prompt_mode,omitempty"`
+	VerificationTasks    bool   `json:"verification_tasks,omitempty"`
+	GroupID              int64  `json:"group_id"`
+	ModelID              string `json:"model_id"`
+	CronExpression       string `json:"cron_expression"`
+	Enabled              bool   `json:"enabled"`
+	Prompt               string `json:"prompt"`
+	ReasoningEffort      string `json:"reasoning_effort"`
+	ParallelCount        int    `json:"parallel_count"`
+	DailyStart           string `json:"daily_start,omitempty"`
+	DailyEnd             string `json:"daily_end,omitempty"`
 }
 
 type PelicanGroupTestRepository interface {
@@ -154,16 +156,18 @@ type pelicanGroupTestGroups interface {
 }
 
 type PelicanGroupTestService struct {
-	repo         PelicanGroupTestRepository
-	groups       pelicanGroupTestGroups
-	router       pelicanGroupRouter
-	runAccount   func(ctx context.Context, accountID int64, model string, cfg *PelicanTestConfig) (*ScheduledTestResult, error)
-	assessOutput func(context.Context, string) (string, *PelicanAssessment)
-	showcase     *PelicanShowcaseService
-	billing      *BillingService
-	channels     *ChannelService
-	settings     *SettingService
-	now          func() time.Time
+	repo           PelicanGroupTestRepository
+	groups         pelicanGroupTestGroups
+	router         pelicanGroupRouter
+	runAccount     func(ctx context.Context, accountID int64, model string, cfg *PelicanTestConfig) (*ScheduledTestResult, error)
+	assessOutput   func(context.Context, string) (string, *PelicanAssessment)
+	creativeJudge  *ScheduledTestQualityJudge
+	renderCreative func(context.Context, string) (*pelicanCreativeFrames, error)
+	showcase       *PelicanShowcaseService
+	billing        *BillingService
+	channels       *ChannelService
+	settings       *SettingService
+	now            func() time.Time
 	// runs tracks background runs so tests can wait for them.
 	runs        sync.WaitGroup
 	switchMu    sync.Mutex
@@ -183,9 +187,11 @@ func NewPelicanGroupTestService(
 	var assessment *PelicanAssessmentService
 	var settings *SettingService
 	var channels *ChannelService
+	var creativeJudge *ScheduledTestQualityJudge
 	if accountTest != nil {
 		assessment = accountTest.pelicanAssessment
 		settings = accountTest.settingService
+		creativeJudge = NewScheduledTestQualityJudge(accountTest.accountRepo, groupRepo, concurrency, accountTest)
 	}
 	if gateway != nil {
 		settings = gateway.settingService
@@ -195,16 +201,18 @@ func NewPelicanGroupTestService(
 		channels = openai.channelService
 	}
 	return &PelicanGroupTestService{
-		repo:         repo,
-		groups:       groupRepo,
-		router:       &gatewayPelicanGroupRouter{gateway: gateway, openai: openai, concurrency: concurrency, slotWait: pelicanGroupTestSlotWait},
-		runAccount:   accountTest.RunPelicanBackground,
-		assessOutput: assessment.AssessOutputWithQuality,
-		showcase:     showcase,
-		billing:      billing,
-		channels:     channels,
-		settings:     settings,
-		now:          time.Now,
+		repo:           repo,
+		groups:         groupRepo,
+		router:         &gatewayPelicanGroupRouter{gateway: gateway, openai: openai, concurrency: concurrency, slotWait: pelicanGroupTestSlotWait},
+		runAccount:     accountTest.RunPelicanBackground,
+		assessOutput:   assessment.AssessOutputWithQuality,
+		creativeJudge:  creativeJudge,
+		renderCreative: renderPelicanCreative,
+		showcase:       showcase,
+		billing:        billing,
+		channels:       channels,
+		settings:       settings,
+		now:            time.Now,
 	}
 }
 
@@ -302,6 +310,20 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	}
 	plan.PelicanConfig = &PelicanTestConfig{VerificationTasks: input.VerificationTasks, QuestionKind: "pelican", Prompt: prompt, ReasoningEffort: effort, ParallelCount: parallel, ModelID: plan.ModelID, DailyStart: input.DailyStart, DailyEnd: input.DailyEnd}
 	plan.PelicanConfig.PromptMode = mode
+	judgeModel := strings.TrimSpace(input.CreativeJudgeModelID)
+	if mode == pelicanRandomCreative && (input.CreativeJudgeGroupID != 0 || judgeModel != "") {
+		if input.CreativeJudgeGroupID <= 0 || len(judgeModel) == 0 || len(judgeModel) > 100 {
+			return nil, infraerrors.BadRequest("INVALID_CREATIVE_JUDGE", "choose a visual judge group and model")
+		}
+		judgeGroup, err := s.groups.GetByID(ctx, input.CreativeJudgeGroupID)
+		if err != nil || judgeGroup == nil || judgeGroup.Status != StatusActive || judgeGroup.Platform != PlatformOpenAI || !judgeGroup.ModelAllowlist.Allows(judgeModel) {
+			return nil, infraerrors.BadRequest("INVALID_CREATIVE_JUDGE", "visual judge must use an active OpenAI group and an allowed vision model")
+		}
+		if err := ValidateSchedulingProbeModel(judgeModel); err != nil {
+			return nil, infraerrors.BadRequest("INVALID_CREATIVE_JUDGE", "a text and vision judge model is required")
+		}
+		plan.PelicanConfig.CreativeJudgeGroupID, plan.PelicanConfig.CreativeJudgeModelID = input.CreativeJudgeGroupID, judgeModel
+	}
 	next, err := computeNextPelicanRun(plan.CronExpression, s.now(), plan.PelicanConfig)
 	if err != nil {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", fmt.Sprintf("invalid schedule: %v", err))
@@ -322,6 +344,9 @@ func (s *PelicanGroupTestService) RunNow(ctx context.Context, id int64) error {
 	}
 	if strings.TrimSpace(plan.ModelID) == "" {
 		return ErrPelicanGroupTestModelRequired
+	}
+	if creativeJudgeMissing(plan.PelicanConfig) {
+		return infraerrors.BadRequest("CREATIVE_JUDGE_REQUIRED", "configure a visual judge before running random creative tests")
 	}
 	now := s.now()
 	until := now.Add(pelicanGroupTestLease).Truncate(time.Microsecond)
@@ -373,6 +398,10 @@ func (s *PelicanGroupTestService) runScheduled(ctx context.Context, plan *Pelica
 	}()
 	if strings.TrimSpace(plan.ModelID) == "" {
 		logger.LegacyPrintf("service.pelican_group_test", "plan=%d skipped: no model", plan.ID)
+		return
+	}
+	if creativeJudgeMissing(plan.PelicanConfig) {
+		logger.LegacyPrintf("service.pelican_group_test", "plan=%d skipped: visual judge not configured", plan.ID)
 		return
 	}
 	next, err := computeNextPelicanRun(plan.CronExpression, now, plan.PelicanConfig)
@@ -583,15 +612,25 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			if creative && result.PelicanConfig.CreativeRound != nil {
 				result.PelicanConfig.CreativeRound.Checks = checkPelicanCreative(sample.ResponseText, result.PelicanConfig.CreativeRound)
 			}
-			if sample.Status == "success" && (s.assessOutput != nil || checks != nil) {
+			if sample.Status == "success" && (creative || s.assessOutput != nil || checks != nil) {
 				var assessment *PelicanAssessment
+				if creative {
+					evaluation, judgeCosts := s.assessCreative(ctx, route.account.ID, result.PelicanConfig, sample.ResponseText)
+					result.PelicanConfig.CreativeRound.Evaluation = evaluation
+					assessment = evaluation.assessment()
+					for _, detail := range judgeCosts {
+						costDetails = append(costDetails, detail)
+						incomplete = incomplete || detail.Incomplete || detail.CostUSD == nil
+						if detail.CostUSD != nil {
+							costUSD += *detail.CostUSD
+							priced = true
+						}
+					}
+				}
 				if !creative && s.assessOutput != nil {
 					result.ResponseText, assessment = s.assessOutput(ctx, sample.ResponseText)
 				}
 				if checks != nil {
-					if creative {
-						assessment = &PelicanAssessment{Quality: "normal", Reason: "附加路径计数与代码求值核验通过", Source: "sub2api:quality-checks"}
-					}
 					assessment = checks.assess(sample.ResponseText, assessment)
 					if assessment != nil {
 						result.ResponseText = decoratePelicanSource(extractPelicanSource(sample.ResponseText), assessment)
@@ -599,6 +638,9 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 				}
 				if assessment != nil {
 					result.QualityVerdict, result.QualityReason = assessment.Quality, assessment.Reason
+					if creative {
+						result.ResponseText = decoratePelicanSource(extractPelicanSource(sample.ResponseText), assessment)
+					}
 				}
 			}
 			result.LatencyMs = sample.LatencyMs
