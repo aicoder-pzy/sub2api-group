@@ -1,6 +1,8 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/api/admin/__tests__/upstreamSites.spec.ts \
+	src/views/admin/__tests__/UpstreamSitesView.spec.ts \
 	src/utils/__tests__/emailBroadcastImport.spec.ts \
 	src/views/admin/__tests__/EmailBroadcastsView.spec.ts \
 	src/api/__tests__/chat.spec.ts \

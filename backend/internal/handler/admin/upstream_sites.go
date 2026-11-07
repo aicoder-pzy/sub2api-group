@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"math"
+	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -81,17 +82,84 @@ func (h *AccountHandler) UpstreamSiteInventory(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	groups, err := h.upstreamBillingProbe.UpstreamSiteGroups(c.Request.Context(), site)
+	inventory, err := h.upstreamBillingProbe.SyncUpstreamSite(c.Request.Context(), site)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	keys, err := h.upstreamBillingProbe.UpstreamSiteKeys(c.Request.Context(), site)
+	response.Success(c, inventory)
+}
+
+func (h *AccountHandler) UpstreamSiteAccounts(c *gin.Context) {
+	site, err := h.loadUpstreamSite(c)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"revision": site.Revision, "groups": groups, "keys": keys})
+	accounts, err := h.upstreamBillingProbe.UpstreamSiteAccounts(c.Request.Context(), site.ID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, accounts)
+}
+
+func (h *AccountHandler) LinkUpstreamSiteAccount(c *gin.Context) {
+	var input struct {
+		AccountID int64  `json:"account_id"`
+		KeyID     string `json:"key_id"`
+		Revision  int64  `json:"revision"`
+		Unlink    bool   `json:"unlink"`
+	}
+	if c.ShouldBindJSON(&input) != nil {
+		response.BadRequest(c, "Invalid account association")
+		return
+	}
+	site, err := h.loadUpstreamSite(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if input.Revision != site.Revision {
+		response.ErrorFrom(c, service.ErrUpstreamBillingProbeIdentityChanged)
+		return
+	}
+	if err = h.upstreamBillingProbe.LinkUpstreamSiteAccount(c.Request.Context(), site, input.AccountID, input.KeyID, input.Unlink); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"saved": true})
+}
+
+func (h *AccountHandler) UpstreamSiteAccountModels(c *gin.Context) {
+	var input struct {
+		Revision int64                             `json:"revision"`
+		Apply    bool                              `json:"apply"`
+		Preview  *service.UpstreamSiteModelPreview `json:"preview"`
+	}
+	accountID, err := strconv.ParseInt(c.Param("account_id"), 10, 64)
+	if err != nil || accountID <= 0 || c.ShouldBindJSON(&input) != nil || (input.Apply && input.Preview == nil) {
+		response.BadRequest(c, "A model preview is required before applying changes")
+		return
+	}
+	site, err := h.loadUpstreamSite(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if input.Revision != site.Revision {
+		response.ErrorFrom(c, service.ErrUpstreamBillingProbeIdentityChanged)
+		return
+	}
+	if !input.Apply {
+		input.Preview = nil
+	}
+	preview, err := h.upstreamBillingProbe.UpstreamSiteAccountModels(c.Request.Context(), site, accountID, input.Preview)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, preview)
 }
 
 func (h *AccountHandler) UpstreamSiteModels(c *gin.Context) {

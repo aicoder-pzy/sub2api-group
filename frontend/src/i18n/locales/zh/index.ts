@@ -15,9 +15,11 @@ import modelTrace from './modelTrace'
 import emailBroadcast from './emailBroadcast'
 
 import zakoFeatures from './zakoFeatures'
+import upstreamSites from './upstreamSites'
 
 export default {
   zakoFeatures,
+  upstreamSites,
   channelOps,
   ...landing,
   ...common,
