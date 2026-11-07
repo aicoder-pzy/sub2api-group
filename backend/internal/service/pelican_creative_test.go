@@ -73,7 +73,8 @@ func TestCreativeGroupRunsShareQuestionAcrossSamplesFailoverAndGroups(t *testing
 	require.Len(t, gallery.published, 2)
 	require.Nil(t, plan.PelicanConfig.CreativeRound, "the stored plan is not mutated")
 	for _, result := range repo.results {
-		require.Equal(t, "normal", result.QualityVerdict, "artistic rule misses do not override objective checks")
+		require.Equal(t, "unknown", result.QualityVerdict, "passing objective checks cannot replace a missing visual judge")
+		require.Equal(t, "normal", result.PelicanConfig.CreativeRound.Verification.Quality)
 		require.Len(t, result.PelicanConfig.CreativeRound.Checks.Missing, 4)
 		require.Equal(t, newPelicanCreativeRound(claimedAt).ID, result.PelicanConfig.CreativeRound.ID)
 		require.Equal(t, result.PelicanConfig.Prompt, result.PelicanConfig.CreativeRound.Prompt)
@@ -122,8 +123,8 @@ func TestCreativeRulesWithoutObjectiveChecksDoNotCreateSchedulingEvidence(t *tes
 	}
 	results := svc.runSamples(context.Background(), plan)
 	require.Len(t, results, 1)
-	require.Empty(t, results[0].QualityVerdict)
-	require.Empty(t, results[0].QualityReason)
+	require.Equal(t, "unknown", results[0].QualityVerdict)
+	require.Equal(t, "unknown", results[0].PelicanConfig.CreativeRound.Evaluation.Status)
 	require.False(t, results[0].PelicanConfig.CreativeRound.Checks.Complete)
 	require.Len(t, results[0].PelicanConfig.CreativeRound.Checks.Missing, 4)
 }

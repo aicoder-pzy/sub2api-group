@@ -73,6 +73,7 @@ type AccountTestOptions struct {
 	Prompt          string
 	ReasoningEffort string
 	QualityCheck    bool
+	VisionImages    []string
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -941,6 +942,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt, reasoningEffort)
+	applyQualityVisionInput(ctx, payload, false)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
 		payload = createPelicanOpenAIPayload(upstreamTestModelID, isOAuth, options.prompt, options.reasoningEffort)
 	}
@@ -2191,6 +2193,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Flush()
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	applyQualityVisionInput(ctx, payload, true)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.reasoningEffort != "" {
 		payload["reasoning_effort"] = options.reasoningEffort
 	}
@@ -3438,6 +3441,9 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string, options ...AccountTestOptions) (*ScheduledTestResult, error) {
 	startedAt := time.Now()
 	testOpts := firstAccountTestOptions(options)
+	if testOpts.QualityCheck && len(testOpts.VisionImages) > 0 {
+		ctx = context.WithValue(ctx, qualityVisionInputKey{}, testOpts.VisionImages)
+	}
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)

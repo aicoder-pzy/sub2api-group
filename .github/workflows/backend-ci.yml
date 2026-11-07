@@ -79,6 +79,7 @@ jobs:
           node .github/finance-chat-browser.mjs
           node .github/email-broadcast-browser.mjs
           node .github/zako-features-browser.mjs
+          node .github/pelican-creative-browser.mjs
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -97,6 +98,13 @@ jobs:
         with:
           name: zako-feature-browser-results
           path: zako-feature-browser-results
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: pelican-creative-browser-results
+          path: pelican-creative-browser-results
           if-no-files-found: ignore
 
   golangci-lint:

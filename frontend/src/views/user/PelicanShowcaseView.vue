@@ -201,6 +201,7 @@
             :quality="preview.item.quality_verdict"
             :reason="preview.item.quality_reason"
             :creative="!!preview.item.creative_round"
+            :evaluation="preview.item.creative_round?.evaluation"
             :mode="previewMode"
             :title="previewTitle"
           />

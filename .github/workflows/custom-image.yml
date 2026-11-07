@@ -65,6 +65,7 @@ jobs:
           grep -F "$VERSION" /tmp/sub2api-version.txt
           docker run --rm "$IMAGE" pg_dump --version
           docker run --rm "$IMAGE" psql --version
+          docker run --rm "$IMAGE" chromium --version
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3

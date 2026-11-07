@@ -53,78 +53,88 @@ func (s *ScheduledTestQualityJudge) Judge(ctx context.Context, testedAccountID i
 		judgment.Reason = "test_empty_response"
 		return judgment
 	}
+	var parsed *ScheduledTestQualityJudgment
+	id, reason := s.runJudge(ctx, testedAccountID, plan.JudgeGroupID, plan.JudgeModelID, func(ctx context.Context, account *Account) string {
+		result, err := s.tests.RunTestBackground(ctx, account.ID, plan.JudgeModelID, AccountTestOptions{Prompt: scheduledQualityJudgePrompt(plan, answer), QualityCheck: true})
+		if err != nil || result == nil || result.Status != "success" {
+			return "judge_request_failed"
+		}
+		parsed, err = parseScheduledTestJudgment(result.ResponseText)
+		if err != nil {
+			return "judge_invalid_response"
+		}
+		return ""
+	})
+	if reason == "" {
+		parsed.AccountID = id
+		return parsed
+	}
+	judgment.AccountID, judgment.Reason = id, reason
+	return judgment
+}
+
+// Shared independent-account selection, credential-shadow exclusion, concurrency
+// and retries for reference-answer and visual creative judgments.
+func (s *ScheduledTestQualityJudge) runJudge(ctx context.Context, testedAccountID, groupID int64, model string, run func(context.Context, *Account) string) (int64, string) {
 	if s == nil || s.accounts == nil || s.groups == nil || s.slots == nil || s.tests == nil {
-		judgment.Reason = "judge_unavailable"
-		return judgment
+		return 0, "judge_unavailable"
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	testedAccount, err := s.accounts.GetByID(ctx, testedAccountID)
 	if err != nil || testedAccount == nil {
-		judgment.Reason = "tested_account_unavailable"
-		return judgment
+		return 0, "tested_account_unavailable"
 	}
-	group, err := s.groups.GetByID(ctx, plan.JudgeGroupID)
+	group, err := s.groups.GetByID(ctx, groupID)
 	if err != nil || group == nil || group.Status != StatusActive || group.Platform != PlatformOpenAI {
-		judgment.Reason = "judge_group_unavailable"
-		return judgment
+		return 0, "judge_group_unavailable"
 	}
-	if !group.ModelAllowlist.Allows(plan.JudgeModelID) {
-		judgment.Reason = "judge_model_not_allowed"
-		return judgment
+	if !group.ModelAllowlist.Allows(model) {
+		return 0, "judge_model_not_allowed"
 	}
-	accounts, err := s.accounts.ListSchedulableByGroupID(ctx, plan.JudgeGroupID)
+	accounts, err := s.accounts.ListSchedulableByGroupID(ctx, groupID)
 	if err != nil {
-		judgment.Reason = "judge_accounts_unavailable"
-		return judgment
+		return 0, "judge_accounts_unavailable"
 	}
 	sort.SliceStable(accounts, func(i, j int) bool { return accounts[i].Priority < accounts[j].Priority })
-	prompt := scheduledQualityJudgePrompt(plan, answer)
-	judgment.Reason = "judge_no_available_account"
+	reason := "judge_no_available_account"
+	var accountID int64
 	attempts := 0
 	for i := range accounts {
 		account := &accounts[i]
-		if scheduledQualityCredentialID(account) == scheduledQualityCredentialID(testedAccount) || !account.IsSchedulable() || !account.IsModelSupported(plan.JudgeModelID) || validateScheduledQualityAccount(account, plan.JudgeModelID) != nil {
+		if scheduledQualityCredentialID(account) == scheduledQualityCredentialID(testedAccount) || !account.IsSchedulable() || !account.IsModelSupported(model) || validateScheduledQualityAccount(account, model) != nil {
 			continue
 		}
 		// Unit tests and a few lightweight service constructions do not wire the
 		// optional group model-account restriction service. In that case there is
 		// no additional restriction to apply.
-		if s.tests.settingService != nil && !s.tests.settingService.IsModelAccountAllowed(ctx, &plan.JudgeGroupID, plan.JudgeModelID, account.ID, account) {
+		if s.tests.settingService != nil && !s.tests.settingService.IsModelAccountAllowed(ctx, &groupID, model, account.ID, account) {
 			continue
 		}
 		slot, err := s.slots.AcquireAccountSlot(ctx, account.ID, account.Concurrency)
 		if err != nil {
-			judgment.Reason = "judge_capacity_unavailable"
-			return judgment
+			return accountID, "judge_capacity_unavailable"
 		}
 		if slot == nil || !slot.Acquired {
 			continue
 		}
 		attempts++
-		result, requestErr := func() (*ScheduledTestResult, error) {
+		reason = func() string {
 			if slot.ReleaseFunc != nil {
 				defer slot.ReleaseFunc()
 			}
-			return s.tests.RunTestBackground(ctx, account.ID, plan.JudgeModelID, AccountTestOptions{Prompt: prompt, QualityCheck: true})
+			return run(ctx, account)
 		}()
-		judgment.AccountID = account.ID
-		if requestErr == nil && result != nil && result.Status == "success" {
-			parsed, parseErr := parseScheduledTestJudgment(result.ResponseText)
-			if parseErr == nil {
-				parsed.AccountID = account.ID
-				return parsed
-			}
-			judgment.Reason = "judge_invalid_response"
-		} else {
-			judgment.Reason = "judge_request_failed"
+		accountID = account.ID
+		if reason == "" {
+			return accountID, ""
 		}
 		if attempts >= 3 || ctx.Err() != nil {
 			break
 		}
 	}
-	return judgment
+	return accountID, reason
 }
 
 func scheduledQualityCredentialID(account *Account) int64 {
