@@ -66,7 +66,7 @@ try {
   context.on('requestfailed', request => networkFailures.push({ url: request.url(), error: request.failure()?.errorText }))
   await page.goto('http://127.0.0.1:4173/admin/accounts')
   await page.getByRole('link', { name: '上游站点', exact: true }).last().click()
-  await page.getByRole('heading', { name: '上游站点', exact: true }).waitFor()
+  await page.getByRole('main').getByRole('heading', { name: '上游站点', exact: true }).waitFor()
   await page.getByRole('checkbox', { name: '选择 Key：主用 Key', exact: true }).check()
   await page.getByRole('checkbox', { name: '选择 Key：备用 Key', exact: true }).check()
   assert.equal(await page.getByRole('checkbox', { name: '选择 Key：额度耗尽 Key', exact: true }).isDisabled(), true)

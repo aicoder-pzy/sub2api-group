@@ -35,6 +35,7 @@
       </section>
     </div>
     <p class="mt-5 rounded-lg bg-primary-50 p-3 text-xs leading-6 text-primary-800 dark:bg-primary-950/30 dark:text-primary-300">{{ frozen ? tr('frozen') : tr('batchSafety') }}</p>
+    <button v-if="frozen" type="button" class="mt-3 text-xs text-primary-600 dark:text-primary-400" :disabled="working" @click="frozen = false; drafts = []; skipped = []; error = ''">{{ tr('newDraft') }}</button>
     <template #footer>
       <div class="flex w-full flex-wrap items-center justify-between gap-3">
         <p class="text-xs text-gray-500" role="status">{{ t('upstreamSites.completed', { success: successes, total: drafts.length || eligibleRows.length }) }}</p>
