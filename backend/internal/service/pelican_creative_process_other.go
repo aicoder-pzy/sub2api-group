@@ -4,4 +4,6 @@ package service
 
 import "os/exec"
 
-func configureCreativeCommand(_ *exec.Cmd) {}
+func configureCreativeCommand(cmd *exec.Cmd) {
+	cmd.Cancel = func() error { return cmd.Process.Kill() }
+}

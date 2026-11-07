@@ -116,9 +116,10 @@ func pelicanPreviewHTML(item pelicanPublicItem, renderer string) string {
 	if item.CreativeRound != nil && item.CreativeRound.Evaluation != nil {
 		evaluation := item.CreativeRound.Evaluation
 		label, quality := "待判断", "unknown"
-		if evaluation.Status == "passed" {
+		switch evaluation.Status {
+		case "passed":
 			label, quality = "合格", "normal"
-		} else if evaluation.Status == "failed" {
+		case "failed":
 			label, quality = "未达标", "degraded"
 		}
 		score := ""

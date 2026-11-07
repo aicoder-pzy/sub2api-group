@@ -19,6 +19,7 @@ export default {
     missing: '未呈现',
     unclear: '无法确认',
     criteria: { materials: '素材落实 · 30%', story: '故事与动作 · 25%', visual: '画面完成度 · 25%', animation: '动画表现 · 20%' },
+    verification: { normal: '通过', degraded: '未通过', unknown: '待判断' },
     scoreHint: '合格需总分至少 65，素材项至少 3/5，其余各项至少 2/5，且必需素材齐全。不确定项保留待判断。评分评价本题表现，不能证明模型身份。',
     pool: '内置素材池 · {categories} 类 / {count} 条',
     retryPool: '素材加载失败，点击重试',

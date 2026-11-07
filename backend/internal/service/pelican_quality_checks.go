@@ -54,6 +54,14 @@ func (check *pelicanQualityChecks) assess(output string, assessment *PelicanAsse
 	if check == nil {
 		return assessment
 	}
+	value := check.result(output)
+	if value.Quality == "normal" || (assessment != nil && assessment.Quality == "degraded") {
+		return assessment
+	}
+	return value
+}
+
+func (check *pelicanQualityChecks) result(output string) *PelicanAssessment {
 	value := &PelicanAssessment{Quality: "unknown", Reason: "附加能力核验缺少有效答案", Source: "sub2api:quality-checks"}
 	pattern := regexp.MustCompile(`<!--quality-check:` + regexp.QuoteMeta(check.nonce) + `:(\{[^\r\n]*?\})-->`)
 	matches := pattern.FindAllStringSubmatch(output, 2)
@@ -67,12 +75,9 @@ func (check *pelicanQualityChecks) assess(output string, assessment *PelicanAsse
 				value.Quality = "degraded"
 				value.Reason = "附加路径计数或代码求值核验未通过"
 			} else {
-				return assessment
+				value.Quality, value.Reason = "normal", "附加路径计数和代码求值核验通过"
 			}
 		}
-	}
-	if assessment != nil && assessment.Quality == "degraded" {
-		return assessment
 	}
 	return value
 }

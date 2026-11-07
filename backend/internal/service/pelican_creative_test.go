@@ -74,6 +74,7 @@ func TestCreativeGroupRunsShareQuestionAcrossSamplesFailoverAndGroups(t *testing
 	require.Nil(t, plan.PelicanConfig.CreativeRound, "the stored plan is not mutated")
 	for _, result := range repo.results {
 		require.Equal(t, "unknown", result.QualityVerdict, "passing objective checks cannot replace a missing visual judge")
+		require.Equal(t, "normal", result.PelicanConfig.CreativeRound.Verification.Quality)
 		require.Len(t, result.PelicanConfig.CreativeRound.Checks.Missing, 4)
 		require.Equal(t, newPelicanCreativeRound(claimedAt).ID, result.PelicanConfig.CreativeRound.ID)
 		require.Equal(t, result.PelicanConfig.Prompt, result.PelicanConfig.CreativeRound.Prompt)

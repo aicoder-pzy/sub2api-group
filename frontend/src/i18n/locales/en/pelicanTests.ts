@@ -19,6 +19,7 @@ export default {
     missing: 'Not depicted',
     unclear: 'Unclear',
     criteria: { materials: 'Materials · 30%', story: 'Story and action · 25%', visual: 'Visual execution · 25%', animation: 'Animation · 20%' },
+    verification: { normal: 'Passed', degraded: 'Failed', unknown: 'Undetermined' },
     scoreHint: 'Passing requires at least 65 overall, 3/5 for materials, 2/5 for every other criterion, and all required materials depicted. Ambiguity remains undetermined. This evaluates the artwork, not model identity.',
     pool: 'Local material pool · {categories} categories / {count} entries',
     retryPool: 'Materials failed to load. Retry',

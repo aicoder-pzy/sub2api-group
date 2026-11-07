@@ -41,14 +41,15 @@ type PelicanCreativeMaterial struct {
 // A round is reproducible without shared process state. Its version covers both
 // the pool and draw/prompt algorithm; change it whenever either changes.
 type PelicanCreativeRound struct {
-	ID          string                     `json:"id"`
-	Seed        string                     `json:"seed"`
-	PoolVersion string                     `json:"pool_version"`
-	StartedAt   time.Time                  `json:"started_at"`
-	Materials   []PelicanCreativeMaterial  `json:"materials"`
-	Prompt      string                     `json:"prompt,omitempty"`
-	Checks      *PelicanCreativeChecks     `json:"checks,omitempty"`
-	Evaluation  *PelicanCreativeEvaluation `json:"evaluation,omitempty"`
+	ID           string                     `json:"id"`
+	Seed         string                     `json:"seed"`
+	PoolVersion  string                     `json:"pool_version"`
+	StartedAt    time.Time                  `json:"started_at"`
+	Materials    []PelicanCreativeMaterial  `json:"materials"`
+	Prompt       string                     `json:"prompt,omitempty"`
+	Checks       *PelicanCreativeChecks     `json:"checks,omitempty"`
+	Evaluation   *PelicanCreativeEvaluation `json:"evaluation,omitempty"`
+	Verification *PelicanAssessment         `json:"verification,omitempty"`
 }
 
 type PelicanCreativeChecks struct {

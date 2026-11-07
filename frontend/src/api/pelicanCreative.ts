@@ -12,6 +12,7 @@ export interface PelicanCreativeRound {
   materials: PelicanCreativeMaterial[]
   prompt?: string
   evaluation?: PelicanCreativeEvaluation
+  verification?: { quality: 'normal' | 'degraded' | 'unknown'; reason: string; checked_at: string }
   checks?: {
     has_svg: boolean
     animated: boolean

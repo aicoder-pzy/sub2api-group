@@ -631,6 +631,11 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 					result.ResponseText, assessment = s.assessOutput(ctx, sample.ResponseText)
 				}
 				if checks != nil {
+					if creative {
+						verification := checks.result(sample.ResponseText)
+						verification.CheckedAt = s.now()
+						result.PelicanConfig.CreativeRound.Verification = verification
+					}
 					assessment = checks.assess(sample.ResponseText, assessment)
 					if assessment != nil {
 						result.ResponseText = decoratePelicanSource(extractPelicanSource(sample.ResponseText), assessment)

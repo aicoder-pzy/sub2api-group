@@ -16,6 +16,9 @@
       <p v-for="material in round.evaluation.materials" :key="material.key" class="leading-relaxed"><strong>{{ round.materials.find(item => item.key === material.key)?.label }} · {{ t(`pelicanTests.creative.${material.status}`) }}</strong> — {{ material.reason }}</p>
       <p class="text-gray-400">{{ t('pelicanTests.creative.scoreHint') }}</p>
     </section>
+    <p v-if="round.verification" class="mt-3 rounded-lg bg-white p-3 leading-relaxed dark:bg-dark-900" data-testid="creative-verification">
+      <strong>{{ t('pelicanTests.creative.verificationProvider') }} · {{ t(`pelicanTests.creative.verification.${round.verification.quality}`) }}</strong> — {{ round.verification.reason }}
+    </p>
     <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
       <p v-for="material in round.materials" :key="material.key" class="leading-relaxed">
         <span class="text-gray-400">{{ material.label }} · </span><span class="text-gray-700 dark:text-gray-200">{{ material.value }}</span>

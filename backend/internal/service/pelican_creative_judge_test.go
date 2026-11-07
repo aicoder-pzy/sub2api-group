@@ -108,21 +108,30 @@ func TestCreativeJudgeFramesForChatAndResponses(t *testing.T) {
 	}
 }
 
-func TestCreativeRendererSamplesRealAnimation(t *testing.T) {
+func TestCreativeRendererSamplesOneDocumentTimeline(t *testing.T) {
 	if _, err := creativeChromium(); err != nil {
 		t.Skip("Chromium is provided by the production image")
 	}
-	for _, animated := range []bool{false, true} {
-		animation := ""
-		if animated {
-			animation = `<animate attributeName="cx" values="100;850;100" dur="6s" repeatCount="indefinite"/>`
-		}
-		frames, err := renderPelicanCreative(context.Background(), `<html><body style="margin:0"><svg width="960" height="720"><rect width="960" height="720" fill="white"/><circle cx="100" cy="300" r="80" fill="red">`+animation+`</circle></svg></body></html>`)
-		require.NoError(t, err)
-		require.Len(t, frames.Images, 3)
-		require.Equal(t, animated, frames.Motion)
-		if !animated {
-			require.Equal(t, frames.Hashes[0], frames.Hashes[1])
-		}
+	for _, tc := range []struct {
+		name, animation, script string
+		motion                  bool
+	}{
+		{name: "static"},
+		{name: "random static initialization", script: `<script>document.querySelector('circle').setAttribute('cx',100+Math.random()*700);document.body.style.backgroundColor='hsl('+Math.random()*360+',90%,50%)';</script>`},
+		{name: "SVG animation", animation: `<animate attributeName="cx" values="100;850;100" dur="6s" repeatCount="indefinite"/>`, motion: true},
+		{name: "CSS animation", script: `<style>@keyframes move{to{transform:translateX(700px)}}circle{animation:move 6s linear infinite alternate}</style>`, motion: true},
+		{name: "JavaScript animation", script: `<script>function move(t){document.querySelector('circle').setAttribute('cx',100+Math.sin(t/1200)*80);requestAnimationFrame(move)}requestAnimationFrame(move)</script>`, motion: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			frames, err := renderPelicanCreative(context.Background(), `<html><body style="margin:0"><svg width="960" height="720"><circle cx="100" cy="300" r="80" fill="red">`+tc.animation+`</circle></svg>`+tc.script+`</body></html>`)
+			require.NoError(t, err)
+			require.Len(t, frames.Images, 3)
+			require.Len(t, frames.Times, 3)
+			require.Equal(t, tc.motion, frames.Motion)
+			if !tc.motion {
+				require.Equal(t, frames.Hashes[0], frames.Hashes[1])
+				require.Equal(t, frames.Hashes[1], frames.Hashes[2])
+			}
+		})
 	}
 }

@@ -93,7 +93,7 @@ func (s *PelicanGroupTestService) assessCreative(ctx context.Context, testedAcco
 		evaluation.Reason = "渲染失败，未获得可评分画面"
 		return evaluation, nil
 	}
-	evaluation.FrameHashes, evaluation.FrameTimes, evaluation.Motion = frames.Hashes, append([]int(nil), pelicanCreativeFrameTimes...), frames.Motion
+	evaluation.FrameHashes, evaluation.FrameTimes, evaluation.Motion = frames.Hashes, frames.Times, frames.Motion
 	var costs []PelicanTestCostDetail
 	var parsed *PelicanCreativeEvaluation
 	_, failure := s.creativeJudge.runJudge(ctx, testedAccountID, cfg.CreativeJudgeGroupID, cfg.CreativeJudgeModelID, func(ctx context.Context, account *Account) string {
