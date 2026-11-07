@@ -284,8 +284,23 @@ func (s *UpstreamBillingProbeService) DeleteUpstreamSite(ctx context.Context, id
 	if _, err := s.GetUpstreamSite(ctx, id); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, "DELETE FROM upstream_sites WHERE id=$1", id)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.ExecContext(ctx, "DELETE FROM upstream_sites WHERE id=$1", id); err != nil {
+		return err
+	}
+	// Remove manual relationships so retained accounts can be associated again.
+	// The original import provenance and every account credential remain intact.
+	if _, err = tx.ExecContext(ctx, `WITH unlinked AS (
+		UPDATE accounts SET extra=extra-'upstream_site_link',updated_at=NOW()
+		WHERE extra->'upstream_site_link'->>'site_id'=$1 AND deleted_at IS NULL RETURNING id
+	) INSERT INTO scheduler_outbox(event_type,account_id) SELECT $2,id FROM unlinked`, id, SchedulerOutboxEventAccountChanged); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func upstreamRows(raw []byte) ([]gjson.Result, error) {

@@ -68,4 +68,12 @@ func TestUpstreamSitesConsoleLoadsCacheAndUnlinksOnlyMetadata(t *testing.T) {
 	accounts, err = svc.UpstreamSiteAccounts(ctx, siteID)
 	require.NoError(t, err)
 	require.Empty(t, accounts)
+	// Deleting a connection must not strand a manual association on the account.
+	_, err = integrationDB.ExecContext(ctx, `UPDATE accounts SET extra=jsonb_set(extra,'{upstream_site_link}',jsonb_build_object('site_id',$2::text,'key_id','7')) WHERE id=$1`, account.ID, siteID)
+	require.NoError(t, err)
+	require.NoError(t, svc.DeleteUpstreamSite(ctx, siteID))
+	var linked bool
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT credentials::text,extra ? 'upstream_site_link' FROM accounts WHERE id=$1", account.ID).Scan(&after, &linked))
+	require.Equal(t, before, after)
+	require.False(t, linked)
 }
