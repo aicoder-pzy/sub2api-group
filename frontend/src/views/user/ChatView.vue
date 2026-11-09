@@ -57,7 +57,7 @@
                 <details v-if="message.reasoning" :open="message.status === 'streaming' && !message.content" data-testid="chat-reasoning" class="mb-3 rounded-xl border border-gray-100 px-4 py-3 dark:border-dark-700"><summary class="cursor-pointer text-xs text-gray-500">{{ t('chat.thinking') }}</summary><p class="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-gray-500">{{ message.reasoning }}</p></details>
                 <!-- Only sanitized model Markdown is rendered as HTML. -->
                 <div v-if="message.content" class="chat-markdown" v-html="chatMarkdown(message.content)"></div>
-                <p v-if="message.status === 'streaming'" class="py-2 text-xs text-gray-500" role="status" data-testid="chat-stream-status"><span class="mr-1 inline-block animate-pulse" aria-hidden="true">●</span>{{ t(message.content || message.reasoning ? 'chat.receiving' : 'chat.waiting') }}</p>
+                <p v-if="message.status === 'streaming'" class="py-2 text-xs text-gray-500" role="status" data-testid="chat-stream-status"><span class="mr-1 inline-block animate-pulse" aria-hidden="true">●</span>{{ t(compacting ? 'chat.compacting' : message.content || message.reasoning ? 'chat.receiving' : 'chat.waiting') }}</p>
                 <p v-if="['stopped', 'failed', 'limited'].includes(message.status)" class="mt-3 text-xs text-amber-600">{{ t('chat.' + message.status) }}</p>
                 <div v-if="message.content && message.status !== 'streaming'" class="mt-3 flex flex-wrap items-center gap-4 text-xs text-gray-500">
                   <button @click="copy(message.content)">{{ t('chat.copy') }}</button>
@@ -149,6 +149,7 @@
             <label class="chat-field"><span>{{ t('chat.outputLength') }}</span><select v-model="current.maxOutputTokens" class="input" :disabled="busy"><option :value="4096">{{ t('chat.outputShort') }}</option><option :value="8192">{{ t('chat.outputStandard') }}</option><option :value="16384">{{ t('chat.outputLong') }}</option></select></label>
           </div>
           <label class="flex items-center gap-2 text-sm"><input v-model="current.financeMode" type="checkbox" :disabled="busy" data-testid="chat-finance-mode" />{{ t('chat.financeMode') }}</label>
+          <details v-if="current.context" class="text-xs text-gray-500" data-testid="chat-context-summary"><summary class="cursor-pointer">{{ t('chat.contextSummary') }}</summary><pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words">{{ current.context.summary }}</pre></details>
           <div class="grid grid-cols-2 gap-2">
             <button type="button" class="btn btn-secondary text-xs" :disabled="busy || keysLoading" @click="loadKeys">{{ t('chat.reload') }}</button>
             <button type="button" class="btn btn-secondary text-xs" :disabled="!current.messages.length || busy" data-testid="chat-export" @click="exportConversation">{{ t('chat.exportChat') }}</button>
@@ -212,7 +213,7 @@ function resetLayout() {
 }
 type KeyChoice = Pick<ApiKey, 'id' | 'user_id' | 'name' | 'group_id' | 'group' | 'status' | 'quota' | 'quota_used' | 'expires_at'>
 const conversations = ref<ChatConversation[]>([]), selectedId = ref(''), keys = ref<KeyChoice[]>([])
-const models = ref<string[]>([]), busy = ref(false), error = ref(''), historySearch = ref('')
+const models = ref<string[]>([]), busy = ref(false), compacting = ref(false), error = ref(''), historySearch = ref('')
 const keysLoading = ref(false), modelsLoading = ref(false), keysError = ref(false), modelsError = ref(false), storageError = ref(false)
 const historyReady = ref(false), historyError = ref(false)
 const syncStatus = ref<ChatSyncStatus>('syncing'), syncConflict = ref(false)
@@ -320,7 +321,7 @@ watch(() => [draft.value, draftFiles.value, draftImages.value], () => { clearTim
 watch(() => auth.user?.id, async userId => {
   chatSync?.dispose(); chatSync = undefined
   runController?.abort(); modelsController?.abort(); filesController?.abort(); generation++
-  runController = undefined; busy.value = false; filesLoading.value = false; keys.value = []; models.value = []; error.value = ''; historySearch.value = ''
+  runController = undefined; busy.value = false; compacting.value = false; filesLoading.value = false; keys.value = []; models.value = []; error.value = ''; historySearch.value = ''
   clearTimeout(draftTimer); imageDialog.value?.close?.(); shareDialog.value?.close?.(); previewImage.value = undefined
   historyDialog.value?.close?.(); settingsDialog.value?.close?.(); mobileTray.value = false
   syncStatus.value = 'syncing'; syncConflict.value = false
@@ -375,6 +376,13 @@ async function send(retry = false) {
     const status = await streamChat(request, key.key, controller.signal, (content, reasoning) => {
       if (!alive || controller.signal.aborted || auth.user?.id !== userId) return
       assistant!.content += content; assistant!.reasoning += reasoning; scrollToEnd()
+    }, {
+      compacting: active => { if (alive && auth.user?.id === userId) compacting.value = active },
+      checkpoint: async context => {
+        if (!alive || controller.signal.aborted || auth.user?.id !== userId) return
+        chat.context = context
+        await persist()
+      }
     })
     assistant.status = status
     if (!assistant.content.trim()) { assistant.status = 'failed'; error.value = t('chat.errors.empty') }
@@ -382,10 +390,10 @@ async function send(retry = false) {
     if (assistant) assistant.status = controller.signal.aborted ? 'stopped' : 'failed'
     if (alive && auth.user?.id === userId && !controller.signal.aborted) {
       error.value = cause instanceof ChatError ? cause.code === 'http' ? t(chat.messages.some(m => m.images?.length) && [400, 415, 422].includes(cause.status ?? 0) ? 'chat.errors.imageModel' : 'chat.errors.http', { status: cause.status ?? '—' }) :
-        t(cause.code === 'inputLimit' ? 'chat.errors.inputLimit' : cause.code === 'network' ? 'chat.errors.network' : 'chat.errors.stream') : t('chat.errors.network')
+        t(cause.code === 'inputLimit' || cause.code === 'contextWindow' ? 'chat.errors.inputLimit' : cause.code === 'compaction' ? 'chat.errors.compaction' : cause.code === 'network' ? 'chat.errors.network' : 'chat.errors.stream') : t('chat.errors.network')
     }
   } finally {
-    if (alive && runController === controller && auth.user?.id === userId) { busy.value = false; persist(); scrollToEnd() }
+    if (alive && runController === controller && auth.user?.id === userId) { busy.value = false; compacting.value = false; persist(); scrollToEnd() }
   }
 }
 function stop() { runController?.abort() }

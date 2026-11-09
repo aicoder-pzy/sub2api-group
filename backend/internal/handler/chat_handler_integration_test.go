@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -59,7 +60,10 @@ func TestChatSyncPostgres(t *testing.T) {
 		router.ServeHTTP(w, req)
 		return w
 	}
-	chat := &chatConversation{ID: "shared", Title: "Finance", Model: "vision", MaxOutputTokens: 4096, Messages: []chatMessage{}, DraftImages: []chatImage{{Name: "receipt.png", DataURL: "data:image/png;base64,AA==", Width: 20, Height: 30}}}
+	chat := &chatConversation{ID: "shared", Title: "Finance", Model: "vision", MaxOutputTokens: 4096,
+		Messages:    []chatMessage{{ID: "source", Role: "user", Content: "Original financial evidence", Status: "complete"}},
+		Context:     &chatContext{Summary: "Confirmed GBP -270,937.50; cause remains unverified", Through: 1, Fingerprint: strings.Repeat("a", 64)},
+		DraftImages: []chatImage{{Name: "receipt.png", DataURL: "data:image/png;base64,AA==", Width: 20, Height: 30}}}
 	put := func(revision int, deleted bool) any {
 		if deleted {
 			return map[string]any{"revision": revision, "deleted": true}
@@ -71,6 +75,9 @@ func TestChatSyncPostgres(t *testing.T) {
 	w := request("1", "GET", "/chat/shared", nil)
 	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 	require.Contains(t, w.Body.String(), "receipt.png")
+	require.Contains(t, w.Body.String(), chat.Context.Summary)
+	require.Contains(t, w.Body.String(), "Original financial evidence")
+	require.NotContains(t, request("2", "GET", "/chat", nil).Body.String(), chat.Context.Summary)
 	require.NotContains(t, request("1", "GET", "/chat", nil).Body.String(), "receipt.png")
 	require.Equal(t, 404, request("2", "GET", "/chat/shared", nil).Code)
 	require.Equal(t, 409, request("2", "PUT", "/chat/shared", put(1, true)).Code)

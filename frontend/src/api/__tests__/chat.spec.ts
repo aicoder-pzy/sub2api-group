@@ -23,7 +23,7 @@ beforeEach(() => { fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock); local
 afterEach(() => vi.unstubAllGlobals())
 
 describe('web chat gateway', () => {
-  it('sends images as real multimodal parts and retains them in follow-ups, rejecting unsafe or excessive image context before fetch', async () => {
+  it('sends images as real multimodal parts and retains them in follow-ups, rejecting unsafe images before fetch', async () => {
     fetchMock.mockResolvedValue(sse(delta('Read') + finish() + done))
     const chat = conversation()
     const image = { name: 'receipt.png', dataUrl: 'data:image/png;base64,AA==', width: 200, height: 300 }
@@ -35,9 +35,6 @@ describe('web chat gateway', () => {
     expect(payload.messages[2].content).toBe('Continue')
     fetchMock.mockClear()
     image.dataUrl = 'https://untrusted.invalid/image.png'
-    await expect(streamChat(chat, 'key', new AbortController().signal, () => {})).rejects.toMatchObject({ code: 'inputLimit' })
-    image.dataUrl = 'data:image/png;base64,AA=='
-    chat.messages = Array.from({ length: 13 }, (_, i) => ({ id: String(i), role: 'user', content: '', reasoning: '', status: 'complete', images: [image] }))
     await expect(streamChat(chat, 'key', new AbortController().signal, () => {})).rejects.toMatchObject({ code: 'inputLimit' })
     expect(fetchMock).not.toHaveBeenCalled()
   })

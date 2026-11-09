@@ -157,6 +157,24 @@ describe('online chat', () => {
     expect((await loadChats(1))[0].messages.at(-1)?.status).toBe('stopped')
     expect((await loadChats(1))[0].messages.at(-1)?.content).toBe('Partial answer')
   })
+  it('shows automatic context organization and retains its checkpoint when stopped or reopened', async () => {
+    const context = { summary: 'Confirmed sources; remaining difference is unverified.', through: 1, fingerprint: 'a'.repeat(64) }
+    mocks.stream.mockImplementation(async (_chat, _key, signal, _changed, hooks) => {
+      hooks.compacting(true)
+      await hooks.checkpoint(context)
+      return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))))
+    })
+    wrapper = open(); await flushPromises()
+    await wrapper.get('[data-testid="chat-input"]').setValue('Continue my work')
+    await wrapper.get('form').trigger('submit'); await flushPromises()
+    expect(wrapper.get('[data-testid="chat-stream-status"]').text()).toContain('chat.compacting')
+    expect((await loadChats(1))[0].context).toEqual(context)
+    await wrapper.get('[data-testid="chat-stop"]').trigger('click'); await flushPromises()
+    expect((await loadChats(1))[0].messages.at(-1)?.status).toBe('stopped')
+    wrapper.unmount(); wrapper = open(); await flushPromises()
+    expect(wrapper.get('[data-testid="chat-context-summary"]').text()).toContain(context.summary)
+    expect((await loadChats(1))[0].messages[0].content).toBe('Continue my work')
+  })
   it('removes unsafe HTML and clears visible history after changing users', async () => {
     const history: ChatConversation = { id: 'old', title: 'User one secret', keyId: 4, model: 'gpt-6.1-sol', effort: '', updatedAt: '', messages: [
       { id: '1', role: 'assistant', status: 'complete', reasoning: '', content: '<img src="https://evil.invalid" onerror="alert(1)"><script>alert(1)</script>[bad](javascript:alert(1))' }

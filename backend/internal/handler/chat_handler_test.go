@@ -33,3 +33,21 @@ func TestChatValidationBeforeStorage(t *testing.T) {
 	chat.Messages = append(chat.Messages, chat.Messages[0])
 	require.False(t, validChat(chat, "x"))
 }
+
+func TestChatContextCheckpointValidation(t *testing.T) {
+	chat := &chatConversation{ID: "x", MaxOutputTokens: 4096,
+		Messages: []chatMessage{{ID: "m", Role: "user", Content: "original evidence", Status: "complete"}},
+		Context:  &chatContext{Summary: "GBP -270,937.50: cause unverified", Through: 1, Fingerprint: strings.Repeat("a", 64)}}
+	require.True(t, validChat(chat, "x"))
+	for _, ctx := range []chatContext{
+		{Summary: "", Through: 1, Fingerprint: strings.Repeat("a", 64)},
+		{Summary: "summary", Through: 2, Fingerprint: strings.Repeat("a", 64)},
+		{Summary: "summary", Through: 0, Fingerprint: strings.Repeat("a", 64)},
+		{Summary: "summary", Through: 1, Fingerprint: strings.Repeat("g", 64)},
+		{Summary: strings.Repeat("财", 60001), Through: 1, Fingerprint: strings.Repeat("a", 64)},
+	} {
+		chat.Context = &ctx
+		require.False(t, validChat(chat, "x"))
+		require.Equal(t, "original evidence", chat.Messages[0].Content)
+	}
+}

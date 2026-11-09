@@ -11,7 +11,8 @@ export default {
     keyChanged: '所选密钥已过期、额度耗尽或分组已变更，请重新选择。',
     emptyTitle: '把财务资料变成清晰的结果', emptyHint: '上传表格、粘贴截图或手机拍照，选择任务后补充期间、币种和核对口径。',
     placeholder: '说明你要核对或分析什么；也可以直接从 Excel 复制表格粘贴到这里…', send: '发送', stop: '停止生成', retry: '重新生成',
-    keyboardHint: 'Enter 发送 · Shift + Enter 换行', chargingHint: '按所选分组正常计费，可在使用记录中查看。',
+    keyboardHint: 'Enter 发送 · Shift + Enter 换行', chargingHint: '按所选分组正常计费；长对话自动整理也使用当前模型额度，可在使用记录中查看。',
+    compacting: '正在整理较早的对话和图片，完成后继续回答…', contextSummary: '查看历史接续摘要（原记录保留）',
     historyHint: '同一账号的会话、草稿和照片自动同步到手机与电脑。', storageError: '聊天记录无法保存到本机，当前内容仍可使用；请检查浏览器存储空间。',
     continuePhone: '手机接续', copyLink: '复制会话链接', phoneHint: '手机扫码并登录同一账号。拍照后等待同步完成，电脑即可看到待发送照片；同步本身不消耗模型额度。',
     sync: { syncing: '正在同步…', synced: '已同步 · 手机电脑可接续', offline: '同步未完成，已保留本机内容；联网后重试', limit: '云端空间已满或会话过大（每段 24 MiB、每账号 100 段 / 200 MiB），请导出并删除旧对话后重试', refresh: '立即同步',
@@ -29,7 +30,7 @@ export default {
     attachmentHelp: '附件说明 · 最多 4 个 · 图片需看图模型',
     sheetSize: '{rows} 行 × {columns} 列', previewPartial: '预览仅展示前 3000 个字符；发送时包含本文件全部已导入内容。',
     removeFile: '移除文件 {name}', fileHint: '表格 / 文本 ≤ 5 MB/个，图片原图 ≤ 20 MB/张；图片和文件合计最多 4 个。添加后同步到同账号会话，点击发送才交给所选模型。',
-    imageHint: '支持粘贴截图、PNG / JPG / WebP 和手机拍照；图片缩放至最长边 2560 像素并移除拍摄信息。需选择支持看图的模型；后续追问会携带已发送图片并计费。',
+    imageHint: '支持粘贴截图、PNG / JPG / WebP 和手机拍照；图片缩放至最长边 2560 像素并移除拍摄信息。需选择支持看图的模型。较早的对话和图片会自动整理为接续摘要，原文原图仍保留；后续追问携带摘要与近期资料。',
     reviewHint: '金额、匹配和结论请复核；助手不直接执行表格计算。',
     copyTable: '复制首个表格到 Excel', downloadExcel: '下载全部表格（Excel）', downloadReport: '下载报告（网页）',
     reportDownloaded: '报告已下载，用浏览器打开后可打印或另存为 PDF。', exportError: '文件导出失败，请重试或复制回答。',
@@ -59,6 +60,7 @@ export default {
     errors: { network: '连接失败，请检查网络后重试。', http: '请求失败（HTTP {status}），请检查余额、分组权限或稍后重试。',
       imageModel: '模型未能处理本次图片请求（HTTP {status}）。请确认当前模型与渠道支持看图及所选参数，再更换模型或重试；不会自动改模型或丢弃图片。',
       stream: '模型未完整返回，已保留收到的内容。', empty: '模型没有返回文本回答，请更换模型或重试。',
-      inputLimit: '当前对话累计资料过多（最多 12 张图片、图片数据合计约 12 MB、文本 30 万字符），请新建对话并仅添加需要的资料。原对话内容仍保留。' }
+      compaction: '历史资料整理未完成，原记录和已完成的整理进度均已保留。请在当前会话重试，或更换支持看图的模型；无需新建会话。',
+      inputLimit: '单条消息或其中的资料过大，无法一次处理。请缩小本次资料后在当前会话重试；历史记录仍保留。' }
   }
 }

@@ -11,7 +11,8 @@ export default {
     keyChanged: 'The key expired, ran out of quota, or changed groups. Select it again.',
     emptyTitle: 'Turn financial data into clear results', emptyHint: 'Attach spreadsheets, paste screenshots or take a photo, then specify the period, currency and matching rules.',
     placeholder: 'Describe what to reconcile or analyze, or paste cells directly from Excel…', send: 'Send', stop: 'Stop generating', retry: 'Regenerate',
-    keyboardHint: 'Enter to send · Shift + Enter for a new line', chargingHint: 'Standard group billing applies. See Usage Records for charges.',
+    keyboardHint: 'Enter to send · Shift + Enter for a new line', chargingHint: 'Billed through the selected group, including automatic history summaries. See usage records for details.',
+    compacting: 'Organizing earlier messages and images before continuing…', contextSummary: 'View continuation summary (original history retained)',
     historyHint: 'Conversations, drafts and photos sync between devices signed into the same account.', storageError: 'Could not save history locally. You can keep chatting; check your browser storage.',
     continuePhone: 'Continue on phone', copyLink: 'Copy conversation link', phoneHint: 'Scan and sign in with the same account. Take a photo and wait for sync; it will appear on your computer before sending. Sync does not use model credits.',
     sync: { syncing: 'Syncing…', synced: 'Synced · Continue on phone or computer', offline: 'Sync pending; local content retained. Retry when online.', limit: 'Cloud storage or conversation limit reached (24 MiB per chat; 100 chats / 200 MiB per account). Export and delete older chats.', refresh: 'Sync now',
@@ -29,7 +30,7 @@ export default {
     attachmentHelp: 'Attachment info · Up to 4 · Images need a vision model',
     sheetSize: '{rows} rows × {columns} columns', previewPartial: 'Showing the first 3,000 characters. All imported content is included when you send.',
     removeFile: 'Remove {name}', fileHint: 'Spreadsheets / text up to 5 MB each; original images up to 20 MB. Up to 4 files and images combined. Attachments sync to the same account. Only Send submits them to the selected model.',
-    imageHint: 'Paste screenshots, upload PNG / JPG / WebP, or take a photo. Images are resized to a maximum edge of 2560 pixels and camera metadata is removed. Choose a model that can read images. Follow-ups include previous images and are billed accordingly.',
+    imageHint: 'Paste screenshots, upload PNG / JPG / WebP, or take a photo. Images are resized to a maximum edge of 2560 pixels and camera metadata is removed. Choose a model that can read images. Earlier messages and images are automatically summarized; original history is retained. Follow-ups include the summary and recent sources.',
     reviewHint: 'Review amounts, matches and conclusions. The assistant provides analysis and formula suggestions; it does not execute spreadsheet calculations.',
     copyTable: 'Copy first table to Excel', downloadExcel: 'Download all tables (Excel)', downloadReport: 'Download report (web page)',
     reportDownloaded: 'Report downloaded. Open it in your browser to print or save as PDF.', exportError: 'Could not export the file. Retry or copy the answer.',
@@ -59,6 +60,7 @@ export default {
     errors: { network: 'Connection failed. Check your connection and retry.', http: 'Request failed (HTTP {status}). Check your balance and group access, or try again later.',
       imageModel: 'The model could not process this image request (HTTP {status}). Check image support and parameters for this model and channel, then choose another model or retry. Images are never silently dropped.',
       stream: 'The response did not complete. Received content has been kept.', empty: 'The model returned no text. Try another model or retry.',
-      inputLimit: 'Too much context (up to 12 images, about 12 MB of image data and 300,000 text characters). Start a new chat with only the required data. The original chat is kept.' }
+      compaction: 'History could not be fully organized. Original messages and completed summaries are retained. Retry in this conversation or choose a model that supports images; a new chat is not required.',
+      inputLimit: 'One message or its sources is too large to process at once. Reduce that submission and retry in this conversation. Original history is retained.' }
   }
 }

@@ -33,6 +33,17 @@ beforeEach(() => {
 afterEach(() => { clients.forEach(c => c.dispose()) })
 
 describe('same-account conversation sync', () => {
+  it('transfers a completed context checkpoint and original evidence to the second device', async () => {
+    const source = chat()
+    source.messages = [{ id: 'source', role: 'user', content: 'Exact evidence 0012,-120.50,GBP', reasoning: '', status: 'complete', images: [image] }]
+    const desktop = device([source]); await desktop.sync.sync()
+    const phone = device([]); await phone.sync.sync()
+    source.context = { summary: 'Verified sources; unresolved reconciliation', through: 1, fingerprint: 'a'.repeat(64) }
+    desktop.sync.changed(); await desktop.sync.sync(); await phone.sync.sync()
+    expect(phone.chats[0].context).toEqual(source.context)
+    expect(phone.chats[0].messages).toEqual(source.messages)
+    expect(records.get('shared')?.conversation?.context).toEqual(source.context)
+  })
   it('transfers phone photos into an independent desktop draft without an inference request', async () => {
     const desktop = device([chat()]); await desktop.sync.sync()
     const phone = device([]); await phone.sync.sync()

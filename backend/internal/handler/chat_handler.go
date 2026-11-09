@@ -51,6 +51,11 @@ type chatMessage struct {
 	Attachments []chatAttachment `json:"attachments,omitempty"`
 	Images      []chatImage      `json:"images,omitempty"`
 }
+type chatContext struct {
+	Summary     string `json:"summary"`
+	Through     int    `json:"through"`
+	Fingerprint string `json:"fingerprint"`
+}
 type chatConversation struct {
 	ID              string           `json:"id"`
 	Title           string           `json:"title"`
@@ -64,6 +69,7 @@ type chatConversation struct {
 	Draft           string           `json:"draft"`
 	DraftFiles      []chatAttachment `json:"draftFiles,omitempty"`
 	DraftImages     []chatImage      `json:"draftImages,omitempty"`
+	Context         *chatContext     `json:"context,omitempty"`
 }
 type chatRecord struct {
 	ID           string          `json:"id"`
@@ -122,6 +128,11 @@ func validChat(chat *chatConversation, id string) bool {
 	}
 	if !validChatFiles(chat.DraftFiles, chat.DraftImages) {
 		return false
+	}
+	if ctx := chat.Context; ctx != nil {
+		if strings.TrimSpace(ctx.Summary) == "" || utf8.RuneCountInString(ctx.Summary) > 60000 || ctx.Through <= 0 || ctx.Through > len(chat.Messages) || len(ctx.Fingerprint) != 64 || strings.IndexFunc(ctx.Fingerprint, func(r rune) bool { return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') }) != -1 {
+			return false
+		}
 	}
 	ids := make(map[string]bool, len(chat.Messages))
 	for i := range chat.Messages {
