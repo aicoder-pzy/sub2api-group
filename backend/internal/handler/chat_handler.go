@@ -20,6 +20,7 @@ import (
 const chatMaxBytes = 24 << 20
 
 var chatIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,80}$`)
+var chatFingerprintPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // ChatHandler stores owner-scoped browser conversations. Inference uses the existing gateway.
 type ChatHandler struct{ db *sql.DB }
@@ -130,7 +131,7 @@ func validChat(chat *chatConversation, id string) bool {
 		return false
 	}
 	if ctx := chat.Context; ctx != nil {
-		if strings.TrimSpace(ctx.Summary) == "" || utf8.RuneCountInString(ctx.Summary) > 60000 || ctx.Through <= 0 || ctx.Through > len(chat.Messages) || len(ctx.Fingerprint) != 64 || strings.IndexFunc(ctx.Fingerprint, func(r rune) bool { return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') }) != -1 {
+		if strings.TrimSpace(ctx.Summary) == "" || utf8.RuneCountInString(ctx.Summary) > 60000 || ctx.Through <= 0 || ctx.Through > len(chat.Messages) || !chatFingerprintPattern.MatchString(ctx.Fingerprint) {
 			return false
 		}
 	}
