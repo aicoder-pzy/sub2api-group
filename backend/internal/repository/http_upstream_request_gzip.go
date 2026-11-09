@@ -242,7 +242,7 @@ var upstreamGzipWriters = sync.Pool{New: func() any {
 
 func gzipUpstreamBytes(body []byte) []byte {
 	var out bytes.Buffer
-	writer := upstreamGzipWriters.Get().(*gzip.Writer)
+	writer, _ := upstreamGzipWriters.Get().(*gzip.Writer)
 	writer.Reset(&out)
 	_, _ = writer.Write(body)
 	_ = writer.Close()

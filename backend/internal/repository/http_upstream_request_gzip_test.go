@@ -46,7 +46,7 @@ func TestUpstreamGzipPreservesBodyAndReplay(t *testing.T) {
 	encoded := gzipUpstreamRequest(req)
 	require.NotSame(t, req, encoded)
 	require.Equal(t, "gzip", encoded.Header.Get("Content-Encoding"))
-	require.Empty(t, encoded.Header["content-length"])
+	require.Empty(t, upstreamGzipHeader(encoded.Header, "Content-Length"))
 	require.Less(t, encoded.ContentLength, req.ContentLength/2)
 	for i := 0; i < 2; i++ {
 		reader, getErr := encoded.GetBody()

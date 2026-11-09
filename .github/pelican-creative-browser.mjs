@@ -88,6 +88,8 @@ await page.getByTestId('pelican-plan-edit-7').waitFor();
   assert.equal(await preview.locator('iframe').getAttribute('sandbox'),'allow-scripts')
   await page.screenshot({path:path.join(output,'scoring-details-desktop.png')})
   await page.setViewportSize({width:390,height:844})
+  // AppLayout animates its desktop sidebar margin for 300 ms on resize.
+  await page.waitForFunction(()=>document.documentElement.scrollWidth<=innerWidth,null,{timeout:2000})
   await page.screenshot({path:path.join(output,'scoring-details-phone.png')})
   const dimensions=await page.evaluate(()=>({width:document.documentElement.scrollWidth,viewport:innerWidth}))
   assert.ok(dimensions.width<=dimensions.viewport,'phone layout must not overflow')
@@ -103,6 +105,12 @@ await page.getByTestId('pelican-plan-edit-7').waitFor();
   assert.deepEqual(creativeUI.errors,[])
   await fsOutput.writeFile(path.join(output,'verification.json'),JSON.stringify({judge_config_saved:true,unconfigured_save_blocked:true,grade_persisted_in_history_and_gallery:true,reasoning_result_separate:true,phone_no_overflow:true,paid_requests:0},null,2))
 } catch(error) {
+  await fsOutput.writeFile(path.join(output,'failure-layout.json'),JSON.stringify(await page.evaluate(()=>({
+    width:document.documentElement.scrollWidth,viewport:innerWidth,
+    elements:[...document.querySelectorAll('body *')].map(el=>({tag:el.tagName,class:el.className,
+      left:el.getBoundingClientRect().left,right:el.getBoundingClientRect().right}))
+      .filter(el=>el.left<0||el.right>innerWidth).slice(0,40)
+  })),null,2)).catch(()=>{})
   await page.screenshot({path:path.join(output,'failure.png'),fullPage:true}).catch(()=>{})
   throw error
 } finally { await browser.close() }
