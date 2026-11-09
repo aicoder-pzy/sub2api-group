@@ -35,7 +35,7 @@ afterEach(() => { clients.forEach(c => c.dispose()) })
 describe('same-account conversation sync', () => {
   it('transfers a completed context checkpoint and original evidence to the second device', async () => {
     const source = chat()
-    source.messages = [{ id: 'source', role: 'user', content: 'Exact evidence 0012,-120.50,GBP', reasoning: '', status: 'complete', images: [image] }]
+    source.messages = [{ id: 'source', role: 'user', content: 'Exact evidence 0012,-120.50,GBP', reasoning: '', status: 'complete', attachments: [], images: [image] }]
     const desktop = device([source]); await desktop.sync.sync()
     const phone = device([]); await phone.sync.sync()
     source.context = { summary: 'Verified sources; unresolved reconciliation', through: 1, fingerprint: 'a'.repeat(64) }
