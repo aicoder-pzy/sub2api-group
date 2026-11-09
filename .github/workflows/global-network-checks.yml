@@ -1,0 +1,39 @@
+name: Global network checks
+
+on:
+  push:
+    branches: [codex/global-network-20261109, custom]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Formatting
+        working-directory: backend
+        run: |
+          test -z "$(gofmt -l internal/pkg/httputil/body*.go internal/repository/http_upstream*gzip*.go internal/repository/http_upstream_network_observation.go internal/server/middleware/response_network_observation*.go internal/server/middleware/logger.go)"
+      - name: Request compression and stream lifecycle race checks
+        working-directory: backend
+        run: |
+          go test -race -tags=unit ./internal/repository ./internal/pkg/httputil ./internal/server/middleware -run 'Test(UpstreamGzip|HTTPUpstreamGzip|BodyObservation|ResponseNetworkObservation|HasJSONControlBytes|Normalize)' -count=1 -timeout=8m
+      - name: Large JSON normalization benchmark
+        working-directory: backend
+        run: |
+          go test -tags=unit ./internal/pkg/httputil -run '^$' -bench '^BenchmarkNormalizeLargeControlFree$' -benchmem -benchtime=200ms -count=3 | tee /tmp/global-network-benchmark.txt
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: global-network-benchmark
+          path: /tmp/global-network-benchmark.txt
+          if-no-files-found: ignore

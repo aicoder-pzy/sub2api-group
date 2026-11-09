@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"compress/zlib"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -83,17 +85,24 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 		}
 	}
 
+	readStarted := time.Now()
 	raw, err := readRequestBodyChunks(req.Body, capHint, req.ContentLength)
 	if err != nil {
 		return nil, err
 	}
 
 	enc := strings.ToLower(strings.TrimSpace(req.Header.Get("Content-Encoding")))
+	observation := BodyReadObservation{Encoding: bodyEncodingCategory(enc), EncodedBytes: len(raw), DecodedBytes: -1,
+		ReadMillis: time.Since(readStarted).Milliseconds()}
+	defer func() { setBodyReadObservation(req, observation) }()
 	if enc == "" || enc == "identity" {
+		observation.DecodedBytes = len(raw)
 		return raw, nil
 	}
 
+	decodeStarted := time.Now()
 	decoded, err := decompressRequestBody(enc, raw)
+	observation.DecodeMicros = time.Since(decodeStarted).Microseconds()
 	if err != nil {
 		return nil, fmt.Errorf("decode Content-Encoding %q: %w", enc, err)
 	}
@@ -101,6 +110,7 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 	req.Header.Del("Content-Encoding")
 	req.Header.Del("Content-Length")
 	req.ContentLength = int64(len(decoded))
+	observation.DecodedBytes = len(decoded)
 
 	return decoded, nil
 }
@@ -207,6 +217,10 @@ func NormalizeLenientJSONRequestBody(body []byte, maxNormalizedBytes int64) ([]b
 	if int64(len(body)) > maxNormalizedBytes {
 		return nil, &http.MaxBytesError{Limit: maxNormalizedBytes}
 	}
+	// ranxi2001/sub2api#716: control-free large bodies cannot need escaping.
+	if len(body) >= 64<<10 && !hasJSONControlBytes(body) {
+		return body, nil
+	}
 
 	var out []byte
 	inString := false
@@ -260,6 +274,25 @@ func trimUTF8BOM(body []byte) []byte {
 
 func isJSONControlByte(b byte) bool {
 	return b < 0x20 || b == 0x7f
+}
+
+func hasJSONControlBytes(body []byte) bool {
+	const ones, high = uint64(0x0101010101010101), uint64(0x8080808080808080)
+	for len(body) >= 8 {
+		word := binary.LittleEndian.Uint64(body)
+		low := word & 0xe0e0e0e0e0e0e0e0
+		del := word ^ 0x7f7f7f7f7f7f7f7f
+		if (low-ones)&^low&high != 0 || (del-ones)&^del&high != 0 {
+			return true
+		}
+		body = body[8:]
+	}
+	for _, b := range body {
+		if isJSONControlByte(b) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendJSONUnicodeEscape(dst []byte, b byte) []byte {

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
@@ -15,6 +16,8 @@ func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 开始时间
 		startTime := time.Now()
+		networkResponse := &responseNetworkObservation{ResponseWriter: c.Writer}
+		c.Writer = networkResponse
 
 		// 请求路径
 		path := c.Request.URL.Path
@@ -61,6 +64,23 @@ func Logger() gin.HandlerFunc {
 			zap.String("protocol", protocol),
 			zap.String("method", method),
 			zap.String("path", path),
+		}
+		if !networkResponse.firstBody.IsZero() {
+			fields = append(fields, zap.Int64("response_first_body_write_ms", networkResponse.firstBody.Sub(startTime).Milliseconds()))
+		}
+		if !networkResponse.firstFlush.IsZero() {
+			fields = append(fields, zap.Int64("response_first_flush_ms", networkResponse.firstFlush.Sub(startTime).Milliseconds()))
+		}
+		if observation, ok := httputil.RequestBodyObservation(c.Request); ok {
+			fields = append(fields,
+				zap.String("request_content_encoding", observation.Encoding),
+				zap.Int("request_encoded_bytes", observation.EncodedBytes),
+				zap.Int64("request_body_read_ms", observation.ReadMillis),
+				zap.Int64("request_body_decode_us", observation.DecodeMicros),
+			)
+			if observation.DecodedBytes >= 0 {
+				fields = append(fields, zap.Int("request_decoded_bytes", observation.DecodedBytes))
+			}
 		}
 		if rejected {
 			fields = append(fields,
