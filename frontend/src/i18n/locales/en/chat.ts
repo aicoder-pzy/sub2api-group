@@ -22,7 +22,7 @@ export default {
     you: 'You', assistant: 'Assistant', thinking: 'Reasoning', waiting: 'Waiting for the first response…', receiving: 'Receiving…', copy: 'Copy answer',
     workspaceTitle: 'Finance workspace', workspaceHint: 'Reconciliation, financial analysis and reports in your browser',
     searchHistory: 'Search conversation titles', rename: 'Rename conversation', exportChat: 'Export chat', settings: 'Model and response settings',
-    financeMode: 'Financial review mode', outputLength: 'Response length', outputShort: 'Short (4K)', outputStandard: 'Standard (8K)', outputLong: 'Long report (16K)',
+    financeMode: 'Financial review mode (includes consolidation rules)', outputLength: 'Response length', outputShort: 'Short (4K)', outputStandard: 'Standard (8K)', outputLong: 'Long report (16K)',
     efforts: { low: 'Quick', medium: 'Standard', high: 'In depth', xhigh: 'More in depth' },
     quickTasks: 'Tasks:', replaceDraft: 'Replace the current draft with this task template? Attached files will be kept.',
     attach: 'Add files', photo: 'Images / gallery', camera: 'Take photo', readingFiles: 'Reading files…', preview: 'Preview source', sourceFile: 'Submitted source',
