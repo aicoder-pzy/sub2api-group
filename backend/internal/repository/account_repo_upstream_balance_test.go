@@ -46,7 +46,7 @@ func TestBalanceNormalEditPreservesConfigAndInvalidatesChangedIdentity(t *testin
 		require.NoError(t, err)
 		mock.ExpectQuery(`(?s)SELECT.*FOR NO KEY UPDATE`).
 			WithArgs(int64(27), service.PlatformOpenAI, service.AccountTypeAPIKey, `{"api_key":"test-key"}`, nil).
-			WillReturnRows(sqlmock.NewRows(openCodeGoMergeMockColumns()).AddRow(unchanged, false, true, nil, nil, nil, nil, nil, nil, false, nil, nil, raw))
+			WillReturnRows(sqlmock.NewRows(openCodeGoMergeMockColumns()).AddRow(unchanged, false, true, nil, nil, nil, nil, nil, nil, false, nil, nil, raw, nil, nil))
 		account := &service.Account{ID: 27, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}, Extra: map[string]any{service.UpstreamBalanceProbeExtraKey: map[string]any{"enabled": false}}}
 		extra, err := lockAndMergeAccountProbeExtra(context.Background(), client, account, nil, nil)
 		require.NoError(t, err)

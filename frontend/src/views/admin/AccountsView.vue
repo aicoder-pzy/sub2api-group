@@ -204,12 +204,12 @@
             <button type="button" class="btn btn-secondary btn-sm" :disabled="!schedulingGroup" :title="t('admin.accounts.schedulingStatus.title')" :aria-label="t('admin.accounts.schedulingStatus.title')" @click="showSchedulingStatus = true"><Icon name="eye" size="sm" /></button>
           </template>
         </AccountBulkActionsBar>
-        <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden" :aria-busy="loading" :inert="loading && accounts.length > 0">
         <DataTable
           ref="dataTableRef"
           :columns="cols"
           :data="accounts"
-          :loading="loading"
+          :loading="loading && accounts.length === 0"
           row-key="id"
           :server-side-sort="true"
           @sort="handleSort"

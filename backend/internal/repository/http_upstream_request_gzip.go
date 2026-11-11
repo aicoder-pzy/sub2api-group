@@ -66,7 +66,7 @@ func (s *httpUpstreamService) doWithRequestGzip(client *http.Client, req *http.R
 			}
 		}
 	}
-	resp, err := doObservedUpstreamRequest(client, forwarded, accountID)
+	resp, err := doObservedUpstreamRequest(client, forwarded, accountID, s.upstreamDrainTimeout())
 	if err == nil && resp.StatusCode == http.StatusUnsupportedMediaType && forwarded != req {
 		// 415 rejects the HTTP representation before model execution. Do not
 		// extend this to 400/403/5xx, EOF, or other ambiguous failures.
@@ -74,7 +74,7 @@ func (s *httpUpstreamService) doWithRequestGzip(client *http.Client, req *http.R
 		_ = resp.Body.Close()
 		slog.WarnContext(req.Context(), "upstream_request_gzip_rejected", "account_id", accountID)
 		closeOriginal = false
-		return doObservedUpstreamRequest(client, req, accountID)
+		return doObservedUpstreamRequest(client, req, accountID, s.upstreamDrainTimeout())
 	}
 	return resp, err
 }

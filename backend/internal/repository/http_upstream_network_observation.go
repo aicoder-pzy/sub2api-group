@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func doObservedUpstreamRequest(client *http.Client, req *http.Request, accountID int64) (*http.Response, error) {
+func doObservedUpstreamRequest(client *http.Client, req *http.Request, accountID int64, drainTimeouts ...time.Duration) (*http.Response, error) {
 	started := time.Now()
 	var connected, written, firstByte atomic.Int64
 	connected.Store(-1)
@@ -31,7 +31,7 @@ func doObservedUpstreamRequest(client *http.Client, req *http.Request, accountID
 			firstByte.Store(time.Since(started).Milliseconds())
 		},
 	}
-	resp, err := doUpstreamRequest(client, req.WithContext(httptrace.WithClientTrace(req.Context(), trace)))
+	resp, err := doUpstreamRequest(client, req.WithContext(httptrace.WithClientTrace(req.Context(), trace)), drainTimeouts...)
 	fields := []zap.Field{
 		zap.Int64("account_id", accountID),
 		zap.Int64("response_headers_ms", time.Since(started).Milliseconds()),

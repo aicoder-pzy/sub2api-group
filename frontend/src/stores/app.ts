@@ -382,6 +382,7 @@ export const useAppStore = defineStore('app', () => {
         allow_user_view_error_requests: false,
         usage_show_cache_rate: true,
         usage_show_cache_rate_to_users: false,
+        mcp_enabled: false,
       })
     }
 

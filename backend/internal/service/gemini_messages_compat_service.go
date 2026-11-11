@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -22,6 +21,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -35,12 +35,13 @@ import (
 const geminiStickySessionTTL = time.Hour
 
 const (
-	geminiMaxRetries     = 5
-	geminiRetryBaseDelay = 1 * time.Second
-	geminiRetryMaxDelay  = 16 * time.Second
+	// 未注入配置时的同账号重试次数，与 gateway.max_same_account_retries_gemini 默认值一致
+	geminiDefaultSameAccountRetries = 4
+	geminiRetryBaseDelay            = 1 * time.Second
+	geminiRetryMaxDelay             = 16 * time.Second
 )
 
-func geminiUpstreamAttemptLimit(ctx context.Context, account *Account) int {
+func geminiUpstreamAttemptLimit(ctx context.Context, account *Account, configuredAttempts int) int {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
 	if group != nil && fastestFailoverEnabled(ctx, &group.ID) {
 		if account.IsPoolMode() && account.GetPoolModeRetryCount() == 0 {
@@ -48,7 +49,7 @@ func geminiUpstreamAttemptLimit(ctx context.Context, account *Account) int {
 		}
 		return 2
 	}
-	return geminiMaxRetries
+	return configuredAttempts
 }
 
 const (
@@ -610,7 +611,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		mappedModel = account.GetMappedModel(req.Model)
 	}
 
-	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
+	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body, mappedModel)
 	if err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
@@ -776,8 +777,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	// checkedPolicy 是循环内对当前 resp 的错误策略检查结果，未检查时为 nil。
 	var checkedPolicy *ErrorPolicyResult
 	signatureRetryStage := 0
-	maxAttempts := geminiUpstreamAttemptLimit(ctx, account)
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	maxAttempts := geminiUpstreamAttemptLimit(ctx, account, s.geminiMaxAttemptsPerAccount())
+	// 签名降级重发不占用同号重试次数：每进入一个降级阶段，循环上限随之顺延一次。
+	for attempt := 1; attempt <= maxAttempts+signatureRetryStage; attempt++ {
 		checkedPolicy = nil
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
@@ -854,12 +856,11 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					stageName = "thinking+tools"
 					signatureRetryStage = 2
 				}
-				retryGeminiReq, txErr := convertClaudeMessagesToGeminiGenerateContent(strippedClaudeBody)
+				retryGeminiReq, txErr := convertClaudeMessagesToGeminiGenerateContent(strippedClaudeBody, mappedModel)
 				if txErr == nil {
 					logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: detected signature-related 400, retrying with downgraded Claude blocks (%s)", account.ID, stageName)
 					// 降级只改写历史块，思考参数沿用客户端原始请求。
 					geminiReq = applyGeminiCompatThinkingConfig(retryGeminiReq, originalClaudeBody, mappedModel, includeThoughts)
-					// Consume one retry budget attempt and continue with the updated request payload.
 					sleepGeminiBackoff(1)
 					continue
 				}
@@ -898,7 +899,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				// Apply account-scoped 429 handling early so concurrent requests avoid a rate-limited account.
 				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 			}
-			if attempt < maxAttempts {
+			retryAttempt := attempt - signatureRetryStage
+			if retryAttempt < maxAttempts {
 				upstreamReqID := resp.Header.Get(requestIDHeader)
 				if upstreamReqID == "" {
 					upstreamReqID = resp.Header.Get("x-goog-request-id")
@@ -926,8 +928,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					Detail:             upstreamDetail,
 				})
 
-				logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: upstream status %d, retry %d/%d", account.ID, resp.StatusCode, attempt, maxAttempts)
-				sleepGeminiBackoff(attempt)
+				logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: upstream status %d, retry %d/%d", account.ID, resp.StatusCode, retryAttempt, maxAttempts)
+				sleepGeminiBackoff(retryAttempt)
 				continue
 			}
 			// Final attempt: surface the upstream error body (mapped below) instead of a generic retry error.
@@ -1092,7 +1094,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		streamFinished = streamRes.finished
 	} else {
 		if useUpstreamStream {
-			collected, usageObj, err := collectGeminiSSE(resp.Body, true)
+			collected, usageObj, err := collectGeminiSSE(s.cfg, resp.Body, true)
 			if err != nil {
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 			}
@@ -1135,6 +1137,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		FirstTokenMs:                  firstTokenMs,
 		ReasoningEffort:               extractGeminiReasoningEffortFromBody(geminiReq),
 		ClientDisconnect:              clientDisconnect,
+		ImageEndpoint:                 imageCount > 0,
 		ImageCount:                    imageCount,
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
@@ -1337,7 +1340,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 	var resp *http.Response
 	var checkedPolicy *ErrorPolicyResult
-	maxAttempts := geminiUpstreamAttemptLimit(ctx, account)
+	maxAttempts := geminiUpstreamAttemptLimit(ctx, account, s.geminiMaxAttemptsPerAccount())
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		checkedPolicy = nil
 		upstreamReq, idHeader, err := buildReq(ctx)
@@ -1484,9 +1487,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		if isGeminiCachedContentNotFound(resp.StatusCode, respBody) {
 			return nil, s.writeGeminiCachedContentNotFound(c, account, resp, respBody, requestID, isOAuth)
 		}
-		// 上游网关的限流 / 不可用只针对其持有缓存的账号：不改本账号状态，交由绑定请求的耗尽处理透传。
+		// 上游网关的限流 / 不可用只针对其持有缓存的账号：不改本账号状态，按池模式配置同账号重试，用尽后透传。
 		if isGeminiBoundCacheUpstreamPassthrough(ctx, account, resp.StatusCode) {
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody, BoundUpstreamPassthrough: true}
+			return nil, s.boundCacheUpstreamPassthroughError(c, account, resp.StatusCode, respBody, requestID)
 		}
 		// Best-effort fallback for OAuth tokens missing AI Studio scopes when calling countTokens.
 		// This avoids Gemini SDKs failing hard during preflight token counting.
@@ -1631,7 +1634,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	} else {
 		if useUpstreamStream {
 			var best geminiResponseSignal
-			collected, usageObj, stats, err := collectGeminiSSEObserved(resp.Body, isOAuth, func(rawBytes []byte) {
+			collected, usageObj, stats, err := collectGeminiSSEObserved(s.cfg, resp.Body, isOAuth, func(rawBytes []byte) {
 				if sig, ok := detectGeminiResponseSignal(rawBytes); ok && sig.Kind > best.Kind {
 					best = sig
 				}
@@ -1680,6 +1683,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
 		ClientDisconnect:              clientDisconnect,
+		ImageEndpoint:                 imageCount > 0,
 		ImageCount:                    imageCount,
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
@@ -1740,6 +1744,14 @@ func (s *GeminiMessagesCompatService) cachedContentPassthroughInLoop(ctx context
 	return isGeminiCachedContentNotFound(resp.StatusCode, body), rebuilt
 }
 
+// geminiMaxAttemptsPerAccount 返回可重试上游错误在单个账号上的最大请求次数（首次请求 + 同账号重试）。
+func (s *GeminiMessagesCompatService) geminiMaxAttemptsPerAccount() int {
+	if s == nil || s.cfg == nil {
+		return geminiDefaultSameAccountRetries + 1
+	}
+	return s.cfg.Gateway.MaxSameAccountRetriesGemini + 1
+}
+
 func (s *GeminiMessagesCompatService) shouldRetryGeminiUpstreamError(account *Account, statusCode int) bool {
 	switch statusCode {
 	case 429, 500, 502, 503, 504, 529:
@@ -1795,6 +1807,36 @@ func (s *GeminiMessagesCompatService) skippedErrorPolicyFailoverError(c *gin.Con
 		StatusCode:             statusCode,
 		ResponseBody:           respBody,
 		RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode),
+	}
+}
+
+// boundCacheUpstreamPassthroughError 构造绑定显式缓存的请求在上游网关账号上收到 429 / 5xx 时的 failover 错误。
+// 缓存只存在于该账号，handler 不换号；池模式账号对 pool_mode_retry_status_codes 内的状态码按 pool_mode_retry_count
+// 同账号重试，用尽或不可重试时原样回写上游响应。故障在上游网关持有缓存的账号上，与本账号健康无关，
+// 因此可重试的错误标为请求级瞬时故障：重试用尽也不临时封禁本账号。可重试时每次尝试登记一条 retry 事件，
+// 重试成功的请求在 ops 记为恢复。
+func (s *GeminiMessagesCompatService) boundCacheUpstreamPassthroughError(c *gin.Context, account *Account, statusCode int, respBody []byte, upstreamRequestID string) *UpstreamFailoverError {
+	retryable := account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
+	if retryable {
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			ProxyID:            opsUpstreamProxyID(account),
+			ProxyName:          opsUpstreamProxyName(account),
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: statusCode,
+			UpstreamRequestID:  upstreamRequestID,
+			Kind:               "retry",
+			Message:            sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody))),
+			Detail:             s.upstreamErrorDetail(respBody),
+		})
+	}
+	return &UpstreamFailoverError{
+		StatusCode:               statusCode,
+		ResponseBody:             respBody,
+		BoundUpstreamPassthrough: true,
+		RetryableOnSameAccount:   retryable,
+		RequestScopedTransient:   retryable,
 	}
 }
 
@@ -2239,16 +2281,16 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	nextBlockIndex := 0
 	openBlockIndex := -1
 	openBlockType := ""
-	seenText := ""
-	seenThought := ""
+	var seenText geminiTextDelta
+	var seenThought geminiTextDelta
 	openToolIndex := -1
 	openToolID := ""
 	openToolName := ""
-	seenToolJSON := ""
+	var seenToolJSON geminiTextDelta
 
-	reader := bufio.NewReader(resp.Body)
+	reader := newBoundedSSELineReader(resp.Body, s.cfg)
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadLineString()
 		if err != nil && !errors.Is(err, io.EOF) {
 			if geminiStreamAbortedWithBillableOutput(c, err, &usage) {
 				logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] Client disconnected during messages stream, billing collected usage: %v", err)
@@ -2300,8 +2342,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		parts := extractGeminiParts(geminiResp)
 		for _, part := range parts {
 			if text, ok := part["text"].(string); ok && isGeminiThoughtPart(part) {
-				delta, newSeen := computeGeminiTextDelta(seenThought, text)
-				seenThought = newSeen
+				delta := seenThought.next(text)
 				if delta == "" {
 					continue
 				}
@@ -2312,7 +2353,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					})
 					openToolIndex = -1
 					openToolName = ""
-					seenToolJSON = ""
+					seenToolJSON.reset()
 				}
 				if openBlockType != "thinking" {
 					if openBlockIndex >= 0 {
@@ -2363,11 +2404,10 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					})
 					openToolIndex = -1
 					openToolName = ""
-					seenToolJSON = ""
+					seenToolJSON.reset()
 				}
 
-				delta, newSeen := computeGeminiTextDelta(seenText, text)
-				seenText = newSeen
+				delta := seenText.next(text)
 				if delta == "" {
 					continue
 				}
@@ -2433,7 +2473,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					})
 					openToolIndex = -1
 					openToolName = ""
-					seenToolJSON = ""
+					seenToolJSON.reset()
 				}
 
 				if openToolIndex < 0 {
@@ -2469,8 +2509,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					}
 				}
 
-				delta, newSeen := computeGeminiTextDelta(seenToolJSON, argsJSONText)
-				seenToolJSON = newSeen
+				delta := seenToolJSON.next(argsJSONText)
 				if delta != "" {
 					writeSSE(streamWriter, "content_block_delta", map[string]any{
 						"type":  "content_block_delta",
@@ -2599,8 +2638,8 @@ func unwrapIfNeeded(isOAuth bool, raw []byte) []byte {
 	return inner
 }
 
-func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
-	collected, usage, _, err := collectGeminiSSEObserved(body, isOAuth, nil)
+func collectGeminiSSE(cfg *config.Config, body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
+	collected, usage, _, err := collectGeminiSSEObserved(cfg, body, isOAuth, nil)
 	return collected, usage, err
 }
 
@@ -2611,8 +2650,8 @@ type geminiSSECollectStats struct {
 }
 
 // collectGeminiSSEObserved 在聚合的同时把每个解包后的事件原文交给 observe（可为 nil）。
-func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawBytes []byte)) (map[string]any, *ClaudeUsage, geminiSSECollectStats, error) {
-	reader := bufio.NewReader(body)
+func collectGeminiSSEObserved(cfg *config.Config, body io.Reader, isOAuth bool, observe func(rawBytes []byte)) (map[string]any, *ClaudeUsage, geminiSSECollectStats, error) {
+	reader := newBoundedSSELineReader(body, cfg)
 
 	var last map[string]any
 	var lastWithParts map[string]any
@@ -2621,7 +2660,7 @@ func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawByte
 	stats := geminiSSECollectStats{fallback: &geminiSSEFallbackBody{}}
 
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadLineString()
 		if len(line) > 0 {
 			trimmed := strings.TrimRight(line, "\r\n")
 			if !strings.HasPrefix(trimmed, "data:") {
@@ -2944,7 +2983,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 
 	streamWriter := newFastestFailoverStreamWriter(c.Writer, resp)
 	flusher := streamWriter
-	reader := bufio.NewReader(resp.Body)
+	reader := newBoundedSSELineReader(resp.Body, s.cfg)
 	usage := &ClaudeUsage{}
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
@@ -2958,7 +2997,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 	finished := false
 
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadLineString()
 		// 读错误时 line 是未以换行结尾的残行，不透传也不参与用量统计；EOF 时的末行完整有效。
 		if len(line) > 0 && (err == nil || errors.Is(err, io.EOF)) {
 			trimmed := strings.TrimRight(line, "\r\n")
@@ -3069,7 +3108,8 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 						if !ok {
 							continue
 						}
-						if text, ok := pm["text"].(string); ok && text != "" {
+						// 思考摘要不属于正文；非流式响应不输出思考内容。
+						if text, ok := pm["text"].(string); ok && text != "" && !isGeminiThoughtPart(pm) {
 							contentBlocks = append(contentBlocks, map[string]any{
 								"type": "text",
 								"text": text,
@@ -3466,22 +3506,38 @@ func extractGeminiParts(geminiResp map[string]any) []map[string]any {
 	return nil
 }
 
-func computeGeminiTextDelta(seen, incoming string) (delta, newSeen string) {
+// geminiTextDelta tracks the text already emitted for one stream block. Only the
+// storage differs from concatenating strings: appends are amortized, so
+// delta-mode streams no longer copy the whole prefix on every chunk.
+type geminiTextDelta struct {
+	seen strings.Builder
+}
+
+// next returns the part of incoming that has not been emitted yet.
+func (d *geminiTextDelta) next(incoming string) string {
 	incoming = strings.TrimSuffix(incoming, "\u0000")
 	if incoming == "" {
-		return "", seen
+		return ""
 	}
+	seen := d.seen.String()
 
 	// Cumulative mode: incoming contains full text so far.
 	if strings.HasPrefix(incoming, seen) {
-		return strings.TrimPrefix(incoming, seen), incoming
+		delta := incoming[len(seen):]
+		_, _ = d.seen.WriteString(delta)
+		return delta
 	}
 	// Duplicate/rewind: ignore.
 	if strings.HasPrefix(seen, incoming) {
-		return "", seen
+		return ""
 	}
 	// Delta mode: treat incoming as incremental chunk.
-	return incoming, seen + incoming
+	_, _ = d.seen.WriteString(incoming)
+	return incoming
+}
+
+func (d *geminiTextDelta) reset() {
+	d.seen.Reset()
 }
 
 func mapGeminiFinishReasonToClaudeStopReason(finishReason string) string {
@@ -3495,7 +3551,7 @@ func mapGeminiFinishReasonToClaudeStopReason(finishReason string) string {
 	}
 }
 
-func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
+func convertClaudeMessagesToGeminiGenerateContent(body []byte, model string) ([]byte, error) {
 	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -3504,7 +3560,7 @@ func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
 	toolUseIDToName := make(map[string]string)
 
 	systemText := extractClaudeSystemText(req["system"])
-	contents, err := convertClaudeMessagesToGeminiContents(req["messages"], toolUseIDToName)
+	contents, err := convertClaudeMessagesToGeminiContents(req["messages"], toolUseIDToName, gemini.SupportsMultimodalFunctionResponses(model))
 	if err != nil {
 		return nil, err
 	}
@@ -3584,7 +3640,7 @@ func extractClaudeSystemText(system any) string {
 	}
 }
 
-func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[string]string) ([]any, error) {
+func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[string]string, multimodalToolResults bool) ([]any, error) {
 	arr, ok := messages.([]any)
 	if !ok {
 		return nil, errors.New("messages must be an array")
@@ -3660,18 +3716,19 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					}
 					text := extractClaudeContentText(bm["content"])
 					images := extractClaudeToolResultImageParts(bm["content"])
-					if text == "" && len(images) > 0 {
+					if text == "" && len(images) > 0 && !multimodalToolResults {
 						text = "[image attached below]"
 					}
-					parts = append(parts, map[string]any{
-						"functionResponse": map[string]any{
-							"name": name,
-							"response": map[string]any{
-								"content": text,
-							},
-						},
-					})
-					toolImageParts = append(toolImageParts, images...)
+					response := map[string]any{
+						"name":     name,
+						"response": map[string]any{"content": text},
+					}
+					if multimodalToolResults && len(images) > 0 {
+						response["parts"] = images
+					} else {
+						toolImageParts = append(toolImageParts, images...)
+					}
+					parts = append(parts, map[string]any{"functionResponse": response})
 				case "image":
 					if src, ok := bm["source"].(map[string]any); ok {
 						if srcType, _ := src["type"].(string); srcType == "base64" {
