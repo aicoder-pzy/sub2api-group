@@ -805,7 +805,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 		// Special-case: signature/thought_signature validation errors are not transient, but may be fixed by
 		// downgrading Claude thinking/tool history to plain text (conservative two-stage retry).
-		if resp.StatusCode == http.StatusBadRequest && signatureRetryStage < 2 && attempt < maxAttempts {
+		if resp.StatusCode == http.StatusBadRequest && signatureRetryStage < 2 {
 			respBody := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
 
