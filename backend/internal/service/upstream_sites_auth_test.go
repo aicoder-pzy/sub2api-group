@@ -22,20 +22,25 @@ func TestUpstreamSiteSavesCompleteAuthorizationWithoutReturningSecrets(t *testin
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
+	oldAccess, newAccess := siteAuthJWT(7, "copied"), siteAuthJWT(7, "enrolled")
 	upstream := &siteImportHTTP{call: func(req *http.Request) (*http.Response, error) {
-		require.Equal(t, "Bearer access-secret", req.Header.Get("Authorization"))
+		if req.URL.Path == "/api/v1/auth/refresh" {
+			return siteImportResponse(fmt.Sprintf(`{"code":0,"data":{"access_token":%q,"refresh_token":"enrolled-refresh-secret"}}`, newAccess)), nil
+		}
+		require.Equal(t, "Bearer "+newAccess, req.Header.Get("Authorization"))
 		return siteImportResponse(`{"code":0,"data":{"id":7}}`), nil
 	}}
 	svc := newUpstreamBillingProbeTestService(nil, upstream, nil)
 	svc.db, svc.newAPIFixedKey, svc.newAPIEncryptor = db, true, &siteImportEncryptor{}
-	mock.ExpectQuery("INSERT INTO upstream_sites").WithArgs(sqlmock.AnyArg(), "test", "sub2api", "https://example.com", int64(7), "encrypted:access-secret", nil, "https://example.com", "", "encrypted:refresh-secret").WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(1))
-	site, err := svc.SaveUpstreamSite(context.Background(), UpstreamSite{Name: "test", Kind: "sub2api", BaseURL: "https://example.com", AccessToken: `{"data":{"access_token":"access-secret","refresh_token":"refresh-secret"}}`})
+	mock.ExpectQuery("INSERT INTO upstream_sites").WithArgs(sqlmock.AnyArg(), "test", "sub2api", "https://example.com", int64(7), "encrypted:"+newAccess, nil, "https://example.com", "", "encrypted:enrolled-refresh-secret").WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(1))
+	site, err := svc.SaveUpstreamSite(context.Background(), UpstreamSite{Name: "test", Kind: "sub2api", BaseURL: "https://example.com", AccessToken: fmt.Sprintf(`{"data":{"access_token":%q,"refresh_token":"refresh-secret"}}`, oldAccess)})
 	require.NoError(t, err)
 	require.True(t, site.CanRefresh)
 	encoded, err := json.Marshal(site)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "secret")
 	require.NotContains(t, string(encoded), "encrypted:")
+	require.NotContains(t, string(encoded), newAccess)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

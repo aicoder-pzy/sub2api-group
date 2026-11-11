@@ -289,6 +289,15 @@ func (s *UpstreamBillingProbeService) SaveUpstreamSite(ctx context.Context, inpu
 	if input.AccessToken == "" && input.cipher == "" {
 		return nil, upstreamSiteError("Management access token required")
 	}
+	// Verify the refresh credential at enrollment and keep its replacement out
+	// of the source browser session, instead of discovering an invalid pair later.
+	if input.RefreshToken != "" {
+		pair, refreshErr := s.rotateUpstreamSiteAuthorization(ctx, &input, input.AccessToken, input.RefreshToken)
+		if refreshErr != nil {
+			return nil, refreshErr
+		}
+		input.AccessToken, input.RefreshToken = pair.AccessToken, pair.RefreshToken
+	}
 	path := "/api/v1/auth/me"
 	if input.Kind == "newapi" {
 		path = "/api/user/self"

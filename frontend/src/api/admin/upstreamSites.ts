@@ -85,7 +85,7 @@ const sitePath = (id: string) => `${endpoint}/${encodeURIComponent(id)}`
 export const upstreamSitesAPI = {
   async list(): Promise<UpstreamSite[]> { return (await apiClient.get(endpoint)).data },
   async save(id: string, form: SiteForm): Promise<UpstreamSite> {
-    return (await (id ? apiClient.put(sitePath(id), form, { timeout: 30_000 }) : apiClient.post(endpoint, form, { timeout: 30_000 }))).data
+    return (await (id ? apiClient.put(sitePath(id), form, { timeout: 60_000 }) : apiClient.post(endpoint, form, { timeout: 60_000 }))).data
   },
   async delete(id: string): Promise<void> { await apiClient.delete(sitePath(id)) },
   async sync(id: string): Promise<SiteInventory> { return (await apiClient.get(`${sitePath(id)}/inventory`, { timeout: 180_000 })).data },
