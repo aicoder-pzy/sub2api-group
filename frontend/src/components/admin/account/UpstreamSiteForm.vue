@@ -6,6 +6,11 @@
       <label class="sm:col-span-2"><span class="input-label">{{ tr('managementUrl') }}</span><input v-model="form.base_url" type="url" required class="input" placeholder="https://console.example.com" /></label>
       <label class="sm:col-span-2"><span class="input-label">{{ tr('inferenceUrl') }}</span><input v-model="form.inference_url" type="url" class="input" placeholder="https://api.example.com" /><span class="mt-1 block text-xs text-gray-500">{{ tr('inferenceHint') }}</span></label>
       <label class="sm:col-span-2"><span class="input-label">{{ tr('token') }}</span><input v-model="form.access_token" type="password" autocomplete="new-password" :required="isNew" class="input" /><span class="mt-1 block text-xs text-gray-500">{{ tr('tokenHint') }}</span></label>
+      <details v-if="form.kind === 'sub2api'" class="sm:col-span-2 text-xs text-gray-500">
+        <summary class="cursor-pointer">{{ tr('authorizationHelp') }}</summary>
+        <p class="my-2 leading-6">{{ tr('authorizationHelpHint') }}</p>
+        <input :value="authorizationCommand" :aria-label="tr('authorizationCommand')" readonly class="input font-mono text-xs" @focus="($event.target as HTMLInputElement).select()" />
+      </details>
       <label v-if="form.kind === 'newapi'"><span class="input-label">{{ tr('userId') }}</span><input v-model.number="form.user_id" type="number" min="0" class="input" /></label>
       <label><span class="input-label">{{ tr('proxy') }}</span><select v-model="form.proxy_id" class="input"><option :value="null">{{ tr('direct') }}</option><option v-for="proxy in proxies" :key="proxy.id" :value="proxy.id">{{ proxy.name }}</option></select></label>
       <label class="sm:col-span-2"><span class="input-label">{{ tr('note') }}</span><textarea v-model="form.purchase_note" class="input" rows="2" maxlength="2000"></textarea></label>
@@ -22,4 +27,5 @@ defineProps<{ busy: boolean; isNew?: boolean; proxies: Proxy[] }>()
 const emit = defineEmits<{ save: [] }>()
 const { t } = useI18n()
 const tr = (key: string) => t(`upstreamSites.${key}`)
+const authorizationCommand = "copy(JSON.stringify({access_token:localStorage.getItem('auth_token'),refresh_token:localStorage.getItem('refresh_token')}))"
 </script>

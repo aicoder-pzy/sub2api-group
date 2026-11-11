@@ -40,6 +40,7 @@ export interface UpstreamSite {
   proxy_id: number | null
   revision: number
   account_count: number
+  can_refresh?: boolean
   inventory?: SiteInventory
   catalogs?: Record<string, { models: string[]; attempt_at: string }>
 }

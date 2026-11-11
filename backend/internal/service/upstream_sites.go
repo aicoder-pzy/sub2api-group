@@ -20,21 +20,24 @@ import (
 )
 
 type UpstreamSite struct {
-	ID           string                         `json:"id"`
-	Name         string                         `json:"name"`
-	Kind         string                         `json:"kind"`
-	BaseURL      string                         `json:"base_url"`
-	InferenceURL string                         `json:"inference_url"`
-	PurchaseNote string                         `json:"purchase_note"`
-	Inventory    *UpstreamSiteInventory         `json:"inventory,omitempty"`
-	Catalogs     map[string]UpstreamSiteCatalog `json:"catalogs,omitempty"`
-	AccountCount int                            `json:"account_count"`
-	UserID       int64                          `json:"user_id"`
-	ProxyID      *int64                         `json:"proxy_id"`
-	Revision     int64                          `json:"revision"`
-	AccessToken  string                         `json:"access_token,omitempty"`
-	Proxy        *Proxy                         `json:"-"`
-	cipher       string
+	ID            string                         `json:"id"`
+	Name          string                         `json:"name"`
+	Kind          string                         `json:"kind"`
+	BaseURL       string                         `json:"base_url"`
+	InferenceURL  string                         `json:"inference_url"`
+	PurchaseNote  string                         `json:"purchase_note"`
+	Inventory     *UpstreamSiteInventory         `json:"inventory,omitempty"`
+	Catalogs      map[string]UpstreamSiteCatalog `json:"catalogs,omitempty"`
+	AccountCount  int                            `json:"account_count"`
+	UserID        int64                          `json:"user_id"`
+	ProxyID       *int64                         `json:"proxy_id"`
+	Revision      int64                          `json:"revision"`
+	AccessToken   string                         `json:"access_token,omitempty"`
+	RefreshToken  string                         `json:"refresh_token,omitempty"`
+	CanRefresh    bool                           `json:"can_refresh"`
+	Proxy         *Proxy                         `json:"-"`
+	cipher        string
+	refreshCipher string
 }
 
 var ErrUpstreamKeyAlreadyImported = infraerrors.Conflict("UPSTREAM_KEY_ALREADY_IMPORTED", "This upstream key has already been imported for this platform")
@@ -65,7 +68,7 @@ func (s *UpstreamBillingProbeService) ListUpstreamSites(ctx context.Context) ([]
 	if s == nil || s.db == nil {
 		return nil, ErrUpstreamBillingProbeUnavailable
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id,name,kind,base_url,user_id,proxy_id,revision,inference_url,purchase_note,inventory,model_catalogs,
+	rows, err := s.db.QueryContext(ctx, `SELECT id,name,kind,base_url,user_id,proxy_id,revision,inference_url,purchase_note,inventory,model_catalogs,refresh_token_cipher <> '',
 		(SELECT COUNT(*) FROM accounts a WHERE a.deleted_at IS NULL AND
 		(a.extra->'upstream_import'->>'site_id'=upstream_sites.id::text OR a.extra->'upstream_site_link'->>'site_id'=upstream_sites.id::text))
 		FROM upstream_sites ORDER BY created_at,id`)
@@ -77,7 +80,7 @@ func (s *UpstreamBillingProbeService) ListUpstreamSites(ctx context.Context) ([]
 	for rows.Next() {
 		var site UpstreamSite
 		var inventory, catalogs []byte
-		if err = rows.Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.InferenceURL, &site.PurchaseNote, &inventory, &catalogs, &site.AccountCount); err != nil {
+		if err = rows.Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.InferenceURL, &site.PurchaseNote, &inventory, &catalogs, &site.CanRefresh, &site.AccountCount); err != nil {
 			return nil, err
 		}
 		if err = decodeUpstreamSiteCache(&site, inventory, catalogs); err != nil {
@@ -97,7 +100,8 @@ func (s *UpstreamBillingProbeService) GetUpstreamSite(ctx context.Context, id st
 	}
 	var site UpstreamSite
 	var inventory, catalogs []byte
-	err := s.db.QueryRowContext(ctx, "SELECT id,name,kind,base_url,user_id,proxy_id,revision,token_cipher,inference_url,purchase_note,inventory,model_catalogs FROM upstream_sites WHERE id=$1", id).Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.cipher, &site.InferenceURL, &site.PurchaseNote, &inventory, &catalogs)
+	err := s.db.QueryRowContext(ctx, "SELECT id,name,kind,base_url,user_id,proxy_id,revision,token_cipher,inference_url,purchase_note,inventory,model_catalogs,refresh_token_cipher FROM upstream_sites WHERE id=$1", id).Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.cipher, &site.InferenceURL, &site.PurchaseNote, &inventory, &catalogs, &site.refreshCipher)
+	site.CanRefresh = site.refreshCipher != ""
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, infraerrors.NotFound("UPSTREAM_SITE_NOT_FOUND", "Upstream site not found")
 	}
@@ -109,23 +113,59 @@ func (s *UpstreamBillingProbeService) GetUpstreamSite(ctx context.Context, id st
 
 // Management requests share the existing validated upstream transport, refuse
 // redirects and never return raw upstream errors or credentials to the caller.
-func (s *UpstreamBillingProbeService) upstreamSiteRequest(ctx context.Context, site *UpstreamSite, method, path string, payload any) ([]byte, error) {
+func (s *UpstreamBillingProbeService) upstreamSiteRequest(ctx context.Context, site *UpstreamSite, method, path string, payload any) (data []byte, err error) {
+	defer func() {
+		var status *upstreamSiteHTTPError
+		if errors.As(err, &status) {
+			err = upstreamSiteError(status.Error())
+		}
+	}()
+	secret, err := s.upstreamSiteAccessToken(site)
+	if err != nil {
+		return nil, err
+	}
+	data, err = s.upstreamSiteRequestWithToken(ctx, site, method, path, payload, secret)
+	var status *upstreamSiteHTTPError
+	if !errors.As(err, &status) || status.code != http.StatusUnauthorized || site.Kind != "sub2api" || path == "/v1/models" {
+		return data, err
+	}
+	if err = s.refreshUpstreamSiteAuthorization(ctx, site, secret); err != nil {
+		return nil, err
+	}
+	secret, err = s.upstreamSiteAccessToken(site)
+	if err != nil {
+		return nil, err
+	}
+	// Only a definitive authorization rejection is retried, never an ambiguous POST failure.
+	return s.upstreamSiteRequestWithToken(ctx, site, method, path, payload, secret)
+}
+
+func (s *UpstreamBillingProbeService) upstreamSiteAccessToken(site *UpstreamSite) (string, error) {
+	if site.AccessToken != "" {
+		return site.AccessToken, nil
+	}
+	if s.newAPIEncryptor == nil {
+		return "", ErrNewAPIEncryptionKey
+	}
+	secret, err := s.newAPIEncryptor.Decrypt(site.cipher)
+	if err != nil {
+		return "", ErrNewAPIEncryptionKey
+	}
+	return secret, nil
+}
+
+type upstreamSiteHTTPError struct{ code int }
+
+func (e *upstreamSiteHTTPError) Error() string {
+	return fmt.Sprintf("Upstream management HTTP %d; check token permissions", e.code)
+}
+
+func (s *UpstreamBillingProbeService) upstreamSiteRequestWithToken(ctx context.Context, site *UpstreamSite, method, path string, payload any, secret string) ([]byte, error) {
 	if s.accountTestService == nil || s.accountTestService.httpUpstream == nil {
 		return nil, ErrUpstreamBillingProbeUnavailable
 	}
 	if _, err := s.accountTestService.validateUpstreamBaseURL(site.BaseURL); err != nil {
 		return nil, upstreamSiteError("Invalid or disallowed upstream URL")
-	}
-	secret := site.AccessToken
-	if secret == "" {
-		if s.newAPIEncryptor == nil {
-			return nil, ErrNewAPIEncryptionKey
-		}
-		var err error
-		secret, err = s.newAPIEncryptor.Decrypt(site.cipher)
-		if err != nil {
-			return nil, ErrNewAPIEncryptionKey
-		}
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -142,7 +182,9 @@ func (s *UpstreamBillingProbeService) upstreamSiteRequest(ctx context.Context, s
 		return nil, upstreamSiteError("Cannot build management request")
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+secret)
+	if secret != "" {
+		req.Header.Set("Authorization", "Bearer "+secret)
+	}
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -168,7 +210,7 @@ func (s *UpstreamBillingProbeService) upstreamSiteRequest(ctx context.Context, s
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, upstreamSiteError(fmt.Sprintf("Upstream management HTTP %d; check token permissions", resp.StatusCode))
+		return nil, &upstreamSiteHTTPError{code: resp.StatusCode}
 	}
 	data, err = io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024+1))
 	if err != nil || len(data) > 2*1024*1024 || !gjson.ValidBytes(data) {
@@ -195,7 +237,10 @@ func (s *UpstreamBillingProbeService) SaveUpstreamSite(ctx context.Context, inpu
 		return nil, ErrNewAPIEncryptionKey
 	}
 	input.Name = strings.TrimSpace(input.Name)
-	if input.Name == "" || len(input.Name) > 100 || (input.Kind != "sub2api" && input.Kind != "newapi") || len(input.AccessToken) > 16384 || strings.ContainsAny(input.AccessToken, "\r\n") {
+	if err := parseUpstreamSiteAuthorization(&input); err != nil {
+		return nil, err
+	}
+	if input.Name == "" || len(input.Name) > 100 || (input.Kind != "sub2api" && input.Kind != "newapi") {
 		return nil, upstreamSiteError("Invalid site configuration")
 	}
 	base, err := CanonicalNewAPISite(input.BaseURL)
@@ -232,6 +277,13 @@ func (s *UpstreamBillingProbeService) SaveUpstreamSite(ctx context.Context, inpu
 				return nil, upstreamSiteError("A new identity requires a new management token")
 			}
 			input.cipher = old.cipher
+			input.refreshCipher = old.refreshCipher
+			if input.RefreshToken != "" {
+				input.AccessToken, err = s.upstreamSiteAccessToken(old)
+				if err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 	if input.AccessToken == "" && input.cipher == "" {
@@ -249,30 +301,39 @@ func (s *UpstreamBillingProbeService) SaveUpstreamSite(ctx context.Context, inpu
 	if userID <= 0 {
 		return nil, upstreamSiteError("Upstream did not return a valid user identity")
 	}
-	if input.Kind == "newapi" {
-		if input.UserID > 0 && input.UserID != userID {
-			return nil, upstreamSiteError("Management token belongs to another user")
-		}
-		input.UserID = userID
+	if input.UserID > 0 && input.UserID != userID {
+		return nil, upstreamSiteError("Management token belongs to another user")
 	}
+	input.UserID = userID
 	if input.AccessToken != "" {
 		input.cipher, err = s.newAPIEncryptor.Encrypt(input.AccessToken)
 		if err != nil {
 			return nil, ErrNewAPIEncryptionKey
 		}
+		input.refreshCipher = ""
+		if input.RefreshToken != "" {
+			input.refreshCipher, err = s.newAPIEncryptor.Encrypt(input.RefreshToken)
+			if err != nil {
+				return nil, ErrNewAPIEncryptionKey
+			}
+		}
 	}
 	if input.ID == "" {
 		input.ID = uuid.NewString()
 		input.Revision = 1
-		err = s.db.QueryRowContext(ctx, "INSERT INTO upstream_sites(id,name,kind,base_url,user_id,token_cipher,proxy_id,inference_url,purchase_note) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING revision", input.ID, input.Name, input.Kind, input.BaseURL, input.UserID, input.cipher, input.ProxyID, input.InferenceURL, input.PurchaseNote).Scan(&input.Revision)
+		err = s.db.QueryRowContext(ctx, "INSERT INTO upstream_sites(id,name,kind,base_url,user_id,token_cipher,proxy_id,inference_url,purchase_note,refresh_token_cipher) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING revision", input.ID, input.Name, input.Kind, input.BaseURL, input.UserID, input.cipher, input.ProxyID, input.InferenceURL, input.PurchaseNote, input.refreshCipher).Scan(&input.Revision)
 	} else {
-		err = s.db.QueryRowContext(ctx, "UPDATE upstream_sites SET name=$2,kind=$3,base_url=$4,user_id=$5,token_cipher=$6,proxy_id=$7,inference_url=$9,purchase_note=$10,inventory='{}',inventory_at=NULL,model_catalogs='{}',revision=revision+1,updated_at=NOW() WHERE id=$1 AND revision=$8 RETURNING revision", input.ID, input.Name, input.Kind, input.BaseURL, input.UserID, input.cipher, input.ProxyID, input.Revision, input.InferenceURL, input.PurchaseNote).Scan(&input.Revision)
+		// Metadata edits must not overwrite credentials rotated by a concurrent sync.
+		err = s.db.QueryRowContext(ctx, "UPDATE upstream_sites SET name=$2,kind=$3,base_url=$4,user_id=$5,token_cipher=CASE WHEN $11 THEN $6 ELSE token_cipher END,refresh_token_cipher=CASE WHEN $11 THEN $12 ELSE refresh_token_cipher END,proxy_id=$7,inference_url=$9,purchase_note=$10,inventory='{}',inventory_at=NULL,model_catalogs='{}',revision=revision+1,updated_at=NOW() WHERE id=$1 AND revision=$8 RETURNING revision", input.ID, input.Name, input.Kind, input.BaseURL, input.UserID, input.cipher, input.ProxyID, input.Revision, input.InferenceURL, input.PurchaseNote, input.AccessToken != "", input.refreshCipher).Scan(&input.Revision)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUpstreamBillingProbeIdentityChanged
 		}
 	}
 	input.AccessToken = ""
+	input.RefreshToken = ""
+	input.CanRefresh = input.refreshCipher != ""
 	input.cipher = ""
+	input.refreshCipher = ""
 	input.Proxy = nil
 	input.Inventory = nil
 	input.Catalogs = nil
@@ -544,6 +605,8 @@ func (s *UpstreamBillingProbeService) upstreamSiteModels(ctx context.Context, si
 		modelSite.BaseURL = site.InferenceURL
 	}
 	modelSite.AccessToken = key.secret
+	modelSite.RefreshToken = ""
+	modelSite.refreshCipher = ""
 	data, err := s.upstreamSiteRequest(ctx, &modelSite, http.MethodGet, "/v1/models", nil)
 	if err != nil {
 		return nil, err

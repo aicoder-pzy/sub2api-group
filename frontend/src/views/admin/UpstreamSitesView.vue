@@ -66,6 +66,7 @@
               </section>
             </div>
             <div v-else class="p-5">
+              <p v-if="selected.kind === 'sub2api'" class="mb-4 text-sm" :class="selected.can_refresh ? 'text-primary-600' : 'text-amber-600'" data-site-authorization>{{ tr(selected.can_refresh ? 'automaticRefresh' : 'manualRefresh') }}</p>
               <UpstreamSiteForm v-model="settingsForm" :busy="working" :proxies="proxies" @save="saveSelected"><button type="button" class="btn btn-secondary text-red-600" :disabled="working" @click="showDelete = true">{{ tr('delete') }}</button></UpstreamSiteForm>
               <div class="mt-7 border-t border-gray-100 pt-5 dark:border-dark-700"><h3 class="mb-3 text-sm font-medium">{{ tr('checks') }}</h3><p class="mb-3 text-xs text-gray-500">{{ formatTime(selected.inventory?.attempt_at) }}</p><div class="space-y-2"><p v-for="component in ['wallet', 'groups', 'keys']" :key="component" class="break-words text-xs"><span class="mr-2 inline-block h-1.5 w-1.5 rounded-full" :class="!selected.inventory ? 'bg-gray-400' : selected.inventory.errors[component] ? 'bg-amber-500' : 'bg-primary-500'"></span>{{ componentLabel(component) }} · {{ !selected.inventory ? tr('unknown') : selected.inventory.errors[component] || tr('ok') }}</p><p class="text-xs text-gray-500">{{ tr('modelsCheck') }} · {{ Object.keys(selected.catalogs || {}).length }} Key</p></div></div>
             </div>

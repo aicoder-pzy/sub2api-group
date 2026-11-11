@@ -49,7 +49,7 @@ func TestUpstreamSiteSaveEncryptsAndDoesNotReturnSecrets(t *testing.T) {
 	svc.db = db
 	svc.newAPIFixedKey = true
 	svc.newAPIEncryptor = &siteImportEncryptor{}
-	mock.ExpectQuery("INSERT INTO upstream_sites").WithArgs(sqlmock.AnyArg(), "test", "newapi", "https://example.com/tenant", int64(7), "encrypted:nap_management-secret", nil, "https://example.com/tenant", "").WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(1))
+	mock.ExpectQuery("INSERT INTO upstream_sites").WithArgs(sqlmock.AnyArg(), "test", "newapi", "https://example.com/tenant", int64(7), "encrypted:nap_management-secret", nil, "https://example.com/tenant", "", "").WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(1))
 	site, err := svc.SaveUpstreamSite(context.Background(), UpstreamSite{Name: "test", Kind: "newapi", BaseURL: "https://example.com/tenant/v1/", AccessToken: "nap_management-secret"})
 	require.NoError(t, err)
 	encoded, err := json.Marshal(site)

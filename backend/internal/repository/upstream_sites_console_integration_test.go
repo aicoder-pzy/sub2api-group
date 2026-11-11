@@ -15,8 +15,8 @@ import (
 func TestUpstreamSitesConsoleLoadsCacheAndUnlinksOnlyMetadata(t *testing.T) {
 	ctx := context.Background()
 	siteID := uuid.NewString()
-	_, err := integrationDB.ExecContext(ctx, `INSERT INTO upstream_sites(id,name,kind,base_url,inference_url,token_cipher,inventory,model_catalogs)
-		VALUES($1,'console fixture','newapi','https://console.example.invalid','https://relay.example.invalid','encrypted-fixture',
+	_, err := integrationDB.ExecContext(ctx, `INSERT INTO upstream_sites(id,name,kind,base_url,inference_url,token_cipher,refresh_token_cipher,inventory,model_catalogs)
+		VALUES($1,'console fixture','sub2api','https://console.example.invalid','https://relay.example.invalid','encrypted-fixture','refresh-private-fixture',
 		'{"revision":1,"status":"ok","attempt_at":"2026-11-07T00:00:00Z","groups":[],"keys":[],"errors":{}}',
 		'{"7":{"models":["model-1"],"attempt_at":"2026-11-07T00:00:00Z"}}')`, siteID)
 	require.NoError(t, err)
@@ -44,11 +44,13 @@ func TestUpstreamSitesConsoleLoadsCacheAndUnlinksOnlyMetadata(t *testing.T) {
 	}
 	require.NotNil(t, loaded)
 	require.Equal(t, 1, loaded.AccountCount)
+	require.True(t, loaded.CanRefresh)
 	require.Equal(t, "https://relay.example.invalid", loaded.InferenceURL)
 	require.Equal(t, "ok", loaded.Inventory.Status)
 	require.Equal(t, []string{"model-1"}, loaded.Catalogs["7"].Models)
 	site, err := svc.GetUpstreamSite(ctx, siteID)
 	require.NoError(t, err)
+	require.True(t, site.CanRefresh)
 	accounts, err := svc.UpstreamSiteAccounts(ctx, siteID)
 	require.NoError(t, err)
 	require.Len(t, accounts, 1)
@@ -57,6 +59,7 @@ func TestUpstreamSitesConsoleLoadsCacheAndUnlinksOnlyMetadata(t *testing.T) {
 	encoded, _ := json.Marshal([]any{sites, site, accounts})
 	require.NotContains(t, string(encoded), "encrypted-fixture")
 	require.NotContains(t, string(encoded), "relay-private-fixture")
+	require.NotContains(t, string(encoded), "refresh-private-fixture")
 	var before, after string
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT credentials::text FROM accounts WHERE id=$1", account.ID).Scan(&before))
 	require.NoError(t, svc.LinkUpstreamSiteAccount(ctx, site, account.ID, "7", true))
