@@ -416,6 +416,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/upstream-sites/:site_id/accounts/link", h.Admin.Account.LinkUpstreamSiteAccount)
 		accounts.POST("/upstream-sites/:site_id/accounts/:account_id/models", h.Admin.Account.UpstreamSiteAccountModels)
 		accounts.GET("/upstream-sites/:site_id/keys/:key_id/models", h.Admin.Account.UpstreamSiteModels)
+		accounts.GET("/upstream-sites/:site_id/keys/:key_id/groups", h.Admin.Account.UpstreamSiteKeyGroups)
+		accounts.PUT("/upstream-sites/:site_id/keys/:key_id/group", h.Admin.Account.ChangeUpstreamSiteKeyGroup)
 		accounts.POST("/upstream-sites/:site_id/keys", h.Admin.Account.CreateUpstreamSiteKey)
 		accounts.POST("/upstream-sites/:site_id/import", h.Admin.Account.ImportUpstreamSiteKey)
 		accounts.GET("/upstream-balance/settings", h.Admin.Account.GetUpstreamBalanceSettings)

@@ -17,7 +17,8 @@ export interface SiteKey {
   suffix?: string
   quota?: SiteAmount
 }
-export interface SiteGroup { id: string; name: string; multiplier?: number }
+export interface SiteGroup { id: string; name: string; description?: string; multiplier?: number }
+export interface SiteKeyGroups { key: SiteKey; groups: SiteGroup[] }
 export interface SiteInventory {
   revision: number
   status: 'ok' | 'attention'
@@ -99,6 +100,12 @@ export const upstreamSitesAPI = {
   },
   async createKey(id: string, revision: number, name: string, groupId: string): Promise<void> {
     await apiClient.post(`${sitePath(id)}/keys`, { revision, name, group_id: groupId, confirmed: true }, { timeout: 30_000 })
+  },
+  async keyGroups(id: string, keyId: string): Promise<SiteKeyGroups> {
+    return (await apiClient.get(`${sitePath(id)}/keys/${encodeURIComponent(keyId)}/groups`, { timeout: 60_000 })).data
+  },
+  async changeKeyGroup(id: string, keyId: string, revision: number, currentGroupId: string, groupId: string): Promise<SiteKey> {
+    return (await apiClient.put(`${sitePath(id)}/keys/${encodeURIComponent(keyId)}/group`, { revision, current_group_id: currentGroupId, group_id: groupId }, { timeout: 120_000 })).data
   },
   async importKey(id: string, draft: ImportDraft): Promise<{ account_id: number }> {
     return (await apiClient.post(`${sitePath(id)}/import`, draft.payload, { timeout: 120_000, headers: { 'Idempotency-Key': draft.idempotencyKey } })).data

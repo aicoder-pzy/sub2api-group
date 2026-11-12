@@ -7,7 +7,7 @@ const { chromium } = createRequire(path.resolve(process.env.BROWSER_TEST_MODULES
 const output = path.resolve('zako-feature-browser-results')
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
-const errors = [], networkFailures = [], imports = [], creations = [], policies = [], modelWrites = [], links = []
+const errors = [], networkFailures = [], imports = [], creations = [], policies = [], modelWrites = [], links = [], groupChanges = []
 const importedAccounts = []
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, locale: 'zh-CN' })
@@ -17,6 +17,8 @@ try {
   const site = { id: '12345678-1234-4234-8234-123456789012', name: 'Test upstream', kind: 'newapi', base_url: 'https://upstream.example.invalid', user_id: 7, proxy_id: null, revision: 1, inference_url: 'https://relay.example.invalid', purchase_note: 'Browser fixture', account_count: 0, catalogs: {} }
   const inventory = { revision: 1, status: 'ok', attempt_at: '2026-11-07T01:00:00Z', received_at: '2026-11-07T01:00:00Z', wallet_at: '2026-11-07T01:00:00Z', wallet: { currency: 'QUOTA', remaining: 1234567, unlimited: false }, errors: {}, groups: [{ id: 'vip', name: 'VIP', multiplier: 0.5 }], keys: [{ id: '3', name: '主用 Key', group_id: 'vip', group_name: 'VIP', available: true, status: 'active', suffix: '3abc', quota: { currency: 'QUOTA', unlimited: true } }, { id: '4', name: '备用 Key', group_id: 'vip', group_name: 'VIP', available: true, status: 'active', suffix: '4abc' }, { id: '9', name: '额度耗尽 Key', group_id: 'vip', group_name: 'VIP', available: false, status: 'quota_exhausted', quota: { currency: 'QUOTA', remaining: 0, unlimited: false } }] }
   site.inventory = inventory
+  inventory.groups[0].description = '当前分组的完整介绍'
+  inventory.groups.push({ id: 'fast', name: '快速分组', multiplier: 0.15, description: '支持完整上下文与缓存。\n第二行：完整介绍不截断。<script>window.upstreamInjected = true</script>' })
   await context.addInitScript(user => {
     localStorage.setItem('auth_token', 'TEST_PANEL_TOKEN')
     localStorage.setItem('auth_user', JSON.stringify(user))
@@ -42,6 +44,13 @@ try {
     if (p === sites) return json([site])
     if (p === `${sites}/${site.id}/inventory`) return json(inventory)
     if (p === `${sites}/${site.id}/accounts`) return json(importedAccounts)
+    if (p === `${sites}/${site.id}/keys/3/groups`) return json({ key: inventory.keys[0], groups: inventory.groups })
+    if (p === `${sites}/${site.id}/keys/3/group` && request.method() === 'PUT') {
+      const payload = request.postDataJSON(); groupChanges.push(payload)
+      assert.equal(payload.current_group_id, inventory.keys[0].group_id)
+      Object.assign(inventory.keys[0], { group_id: payload.group_id, group_name: '快速分组' })
+      return json(inventory.keys[0])
+    }
     if (/\/keys\/[34]\/models$/.test(p)) return json(p.includes('/keys/3/') ? ['model-1', 'model-2'] : ['model-2'])
     if (p.endsWith('/import')) {
       const payload = request.postDataJSON(), identity = request.headers()['idempotency-key']
@@ -132,12 +141,30 @@ try {
   const createDialog = page.getByRole('dialog', { name: '在上游创建 Key', exact: true })
   await createDialog.getByLabel('新密钥名称').fill('Browser fixture key')
   await createDialog.getByLabel('上游分组', { exact: true }).selectOption('vip')
+  assert.match(await createDialog.locator('[data-upstream-group-detail]').textContent(), /当前分组的完整介绍/)
   assert.equal(await createDialog.getByRole('button', { name: '在上游创建 Key', exact: true }).isDisabled(), true)
   await createDialog.getByRole('checkbox', { name: '我确认在上游创建这把密钥', exact: true }).check()
   await createDialog.getByRole('button', { name: '在上游创建 Key', exact: true }).click()
   await page.getByText('已提交创建，请同步列表确认', { exact: true }).waitFor()
   assert.equal(creations.length, 1)
   assert.equal(creations[0].confirmed, true)
+  await page.getByRole('row').filter({ has: page.getByText('主用 Key', { exact: true }) }).getByRole('button', { name: '切换分组', exact: true }).click()
+  const groupDialog = page.getByRole('dialog', { name: '切换分组', exact: true })
+  await groupDialog.getByLabel('上游分组', { exact: true }).selectOption('fast')
+  assert.match(await groupDialog.locator('[data-upstream-group-detail]').textContent(), /×0.15/)
+  assert.match(await groupDialog.locator('[data-upstream-group-detail]').textContent(), /第二行：完整介绍不截断/)
+  assert.equal(await groupDialog.locator('script').count(), 0)
+  assert.equal(await page.evaluate(() => window.upstreamInjected), undefined)
+  for (const width of [1440, 375, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.screenshot({ path: path.join(output, `key-group-${width}.png`), animations: 'disabled' })
+    assert.equal(await groupDialog.locator('.modal-content').evaluate(element => element.scrollWidth <= element.clientWidth + 2), true, `Group dialog overflow at ${width}`)
+  }
+  await groupDialog.getByRole('button', { name: '保存到上游', exact: true }).click()
+  await page.getByText('上游分组已切换并核验', { exact: true }).waitFor()
+  assert.deepEqual(groupChanges, [{ revision: 1, current_group_id: 'vip', group_id: 'fast' }])
+  await page.reload()
+  await page.getByRole('main').getByText('快速分组', { exact: false }).first().waitFor()
   await page.close()
   page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
@@ -154,7 +181,7 @@ try {
   assert.equal(policies.length, 1)
   assert.deepEqual(policies[0].prompt_policy, { '*': 'zako-default' })
   assert.equal(errors.length, 0, errors.join('\n'))
-  await writeFile(path.join(output, 'result.json'), JSON.stringify({ errors, networkFailures, imports, creations, policies, modelWrites, links, realRequests: 0 }, null, 2))
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ errors, networkFailures, imports, creations, policies, modelWrites, links, groupChanges, realRequests: 0 }, null, 2))
 } catch (error) {
   for (const page of browser.contexts().flatMap(context => context.pages())) {
     await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {})

@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '@/api/client'
-import { runSiteImports, type ImportDraft } from '../upstreamSites'
+import { upstreamSitesAPI, runSiteImports, type ImportDraft } from '../upstreamSites'
 
-vi.mock('@/api/client', () => ({ apiClient: { post: vi.fn() } }))
+vi.mock('@/api/client', () => ({ apiClient: { post: vi.fn(), get: vi.fn(), put: vi.fn() } }))
 const draft = (keyId: string): ImportDraft => ({ status: 'pending', idempotencyKey: `stable-${keyId}`, payload: { key_id: keyId, revision: 2, name: `account-${keyId}`, platform: 'openai', group_id: 5, concurrency: 3, rate_multiplier: 0.5, models: ['model-1'] } })
 beforeEach(() => vi.resetAllMocks())
+
+it('keeps upstream group changes separate from local group assignment', async () => {
+  vi.mocked(apiClient.put).mockResolvedValue({ data: { id: '3', group_id: 'fast' } })
+  await upstreamSitesAPI.changeKeyGroup('site', '3', 4, 'vip', 'fast')
+  expect(apiClient.put).toHaveBeenCalledWith('/admin/accounts/upstream-sites/site/keys/3/group', { revision: 4, current_group_id: 'vip', group_id: 'fast' }, { timeout: 120_000 })
+})
 describe('upstream batch import', () => {
   it('keeps successes and retries an ambiguous failure with the same request ID and payload', async () => {
     const drafts = [draft('3'), draft('4')]

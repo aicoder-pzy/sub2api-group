@@ -205,6 +205,47 @@ func (h *AccountHandler) CreateUpstreamSiteKey(c *gin.Context) {
 	response.Success(c, gin.H{"created": true})
 }
 
+func (h *AccountHandler) UpstreamSiteKeyGroups(c *gin.Context) {
+	site, err := h.loadUpstreamSite(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	options, err := h.upstreamBillingProbe.UpstreamSiteKeyGroupOptions(c.Request.Context(), site, c.Param("key_id"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, options)
+}
+
+func (h *AccountHandler) ChangeUpstreamSiteKeyGroup(c *gin.Context) {
+	var input struct {
+		Revision       int64   `json:"revision"`
+		GroupID        string  `json:"group_id"`
+		CurrentGroupID *string `json:"current_group_id"`
+	}
+	if c.ShouldBindJSON(&input) != nil || input.CurrentGroupID == nil || input.GroupID == "" || len(input.GroupID) > 256 || len(*input.CurrentGroupID) > 256 {
+		response.BadRequest(c, "Choose an upstream group from a fresh key snapshot")
+		return
+	}
+	site, err := h.loadUpstreamSite(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if input.Revision != site.Revision {
+		response.ErrorFrom(c, service.ErrUpstreamBillingProbeIdentityChanged)
+		return
+	}
+	key, err := h.upstreamBillingProbe.ChangeUpstreamSiteKeyGroup(c.Request.Context(), site, c.Param("key_id"), *input.CurrentGroupID, input.GroupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, key)
+}
+
 func (h *AccountHandler) ImportUpstreamSiteKey(c *gin.Context) {
 	var input struct {
 		KeyID          string   `json:"key_id"`

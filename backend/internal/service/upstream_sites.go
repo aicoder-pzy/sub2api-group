@@ -43,9 +43,10 @@ type UpstreamSite struct {
 var ErrUpstreamKeyAlreadyImported = infraerrors.Conflict("UPSTREAM_KEY_ALREADY_IMPORTED", "This upstream key has already been imported for this platform")
 
 type UpstreamSiteGroup struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Multiplier *float64 `json:"multiplier,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Multiplier  *float64 `json:"multiplier,omitempty"`
 }
 
 type UpstreamSiteKey struct {
@@ -394,8 +395,8 @@ func (s *UpstreamBillingProbeService) UpstreamSiteGroups(ctx context.Context, si
 		return nil, err
 	}
 	out := []UpstreamSiteGroup{}
-	appendGroup := func(id, name string, ratio gjson.Result) {
-		item := UpstreamSiteGroup{ID: id, Name: name}
+	appendGroup := func(id, name, description string, ratio gjson.Result) {
+		item := UpstreamSiteGroup{ID: id, Name: name, Description: description}
 		if ratio.IsObject() {
 			ratio = ratio.Get("ratio")
 		}
@@ -412,14 +413,17 @@ func (s *UpstreamBillingProbeService) UpstreamSiteGroups(ctx context.Context, si
 		if !r.IsObject() {
 			return nil, upstreamSiteError("Unrecognized upstream group format")
 		}
-		r.ForEach(func(k, v gjson.Result) bool { appendGroup(k.String(), k.String(), v); return true })
+		r.ForEach(func(k, v gjson.Result) bool {
+			appendGroup(k.String(), k.String(), v.Get("desc").String(), v)
+			return true
+		})
 	} else {
 		rows, e := upstreamRows(data)
 		if e != nil {
 			return nil, e
 		}
 		for _, row := range rows {
-			appendGroup(row.Get("id").String(), row.Get("name").String(), row.Get("rate_multiplier"))
+			appendGroup(row.Get("id").String(), row.Get("name").String(), row.Get("description").String(), row.Get("rate_multiplier"))
 		}
 	}
 	return out, nil
