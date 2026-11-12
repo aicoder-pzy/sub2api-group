@@ -171,7 +171,7 @@ func TestUpstreamGzipStreamOnly415ReplaysOriginal(t *testing.T) {
 	calls := 0
 	client := &http.Client{Transport: gzipTestTransport(func(r *http.Request) (*http.Response, error) {
 		calls++
-		defer r.Body.Close()
+		defer func() { require.NoError(t, r.Body.Close()) }()
 		if r.Header.Get("Content-Encoding") == "gzip" {
 			return gzipTestResponse(415, "unsupported encoding"), nil
 		}
