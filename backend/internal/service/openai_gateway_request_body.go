@@ -91,8 +91,12 @@ func filterOpenAIResponsesNoneReasoningEffortForAccount(account *Account, body [
 	}
 
 	out := body
+	fields := indexOpenAIRequestFields(body)
 	for _, path := range []string{"reasoning.effort", "reasoning_effort"} {
-		effort := gjson.GetBytes(out, path)
+		effort := fields["reasoning_effort"]
+		if path == "reasoning.effort" {
+			effort = fields["reasoning"].Get("effort")
+		}
 		if effort.Type != gjson.String || !strings.EqualFold(strings.TrimSpace(effort.String()), "none") {
 			continue
 		}
@@ -102,7 +106,11 @@ func filterOpenAIResponsesNoneReasoningEffortForAccount(account *Account, body [
 		}
 		out = next
 	}
-	if reasoning := gjson.GetBytes(out, "reasoning"); reasoning.IsObject() && len(reasoning.Map()) == 0 {
+	reasoning := fields["reasoning"]
+	if len(out) != len(body) {
+		reasoning = parseRawJSONView(out).Get("reasoning")
+	}
+	if reasoning.IsObject() && len(reasoning.Map()) == 0 {
 		next, err := sjson.DeleteBytes(out, "reasoning")
 		if err != nil {
 			return body, fmt.Errorf("strip empty reasoning object: %w", err)
@@ -738,7 +746,7 @@ func normalizeOpenAIAPIKeyStoreFalseReasoningReplay(body []byte, knownStoreFalse
 	if !input.IsArray() {
 		return body, false, nil
 	}
-	if !root.IsObject() || !gjson.ValidBytes(body) || !utf8.Valid(body) || hasDuplicateJSONObjectKeys(root) {
+	if !root.IsObject() || !validOpenAIRequestJSON(body) || !utf8.Valid(body) || hasDuplicateJSONObjectKeys(root) {
 		return normalizeOpenAIAPIKeyStoreFalseReasoningReplayDecoded(body, knownStoreFalse)
 	}
 
@@ -758,10 +766,18 @@ func normalizeOpenAIAPIKeyStoreFalseReasoningReplay(body []byte, knownStoreFalse
 			return false
 		}
 		typ := strings.TrimSpace(item.Get("type").String())
-		id := strings.TrimSpace(item.Get("id").String())
-		encrypted := item.Get("encrypted_content")
-		if (typ == "reasoning" && (encrypted.Type != gjson.String || strings.TrimSpace(encrypted.Str) == "")) ||
-			(typ == "item_reference" && strings.HasPrefix(id, "rs_")) {
+		id := ""
+		if typ == "reasoning" || typ == "item_reference" {
+			id = strings.TrimSpace(item.Get("id").String())
+		}
+		if typ == "reasoning" {
+			encrypted := item.Get("encrypted_content")
+			if encrypted.Type != gjson.String || strings.TrimSpace(encrypted.Str) == "" {
+				changed = true
+				return true
+			}
+		}
+		if typ == "item_reference" && strings.HasPrefix(id, "rs_") {
 			changed = true
 			return true
 		}
@@ -1050,6 +1066,7 @@ func deriveOpenAIReasoningEffortFromModelCandidates(models []string) string {
 
 type openAIRequestView struct {
 	body               []byte
+	fields             map[string]gjson.Result
 	Model              string
 	Stream             bool
 	PromptCacheKey     string
@@ -1066,61 +1083,41 @@ type openAIRequestPatch struct {
 	value  any
 }
 
+func indexOpenAIRequestFields(body []byte) map[string]gjson.Result {
+	fields := make(map[string]gjson.Result, 16)
+	parseRawJSONView(body).ForEach(func(key, value gjson.Result) bool {
+		switch key.Str {
+		case "model", "stream", "prompt_cache_key", "previous_response_id", "service_tier",
+			"reasoning", "reasoning_effort", "instructions", "text", "response_format",
+			"max_output_tokens", "max_tokens", "max_completion_tokens",
+			"prompt_cache_retention", "safety_identifier", "prompt_cache_options":
+			if _, seen := fields[key.Str]; !seen {
+				fields[key.Str] = value
+			}
+		}
+		return true
+	})
+	return fields
+}
+
 func newOpenAIRequestView(body []byte) openAIRequestView {
 	if len(body) == 0 {
 		return openAIRequestView{}
 	}
 
-	const (
-		modelField uint8 = 1 << iota
-		streamField
-		promptCacheKeyField
-		previousResponseIDField
-		serviceTierField
-		reasoningField
-		allRequestViewFields = modelField | streamField | promptCacheKeyField |
-			previousResponseIDField | serviceTierField | reasoningField
-	)
-
-	view := openAIRequestView{body: body}
-	var seen uint8
-	// parseRawJSONView reads body without copying; view keeps body alive for extracted strings.
-	parseRawJSONView(body).ForEach(func(key, value gjson.Result) bool {
-		switch key.Str {
-		case "model":
-			if seen&modelField == 0 {
-				view.Model = strings.TrimSpace(value.String())
-				seen |= modelField
-			}
-		case "stream":
-			if seen&streamField == 0 {
-				view.Stream = value.Bool()
-				seen |= streamField
-			}
-		case "prompt_cache_key":
-			if seen&promptCacheKeyField == 0 {
-				view.PromptCacheKey = strings.TrimSpace(value.String())
-				seen |= promptCacheKeyField
-			}
-		case "previous_response_id":
-			if seen&previousResponseIDField == 0 {
-				view.PreviousResponseID = strings.TrimSpace(value.String())
-				seen |= previousResponseIDField
-			}
-		case "service_tier":
-			if seen&serviceTierField == 0 {
-				view.ServiceTier = strings.TrimSpace(value.String())
-				seen |= serviceTierField
-			}
-		case "reasoning":
-			if seen&reasoningField == 0 {
-				view.ReasoningEffort = strings.TrimSpace(value.Get("effort").String())
-				seen |= reasoningField
-			}
-		}
-		return seen != allRequestViewFields
-	})
-	return view
+	// Borrow values and keep the first duplicate, matching GetBytes. Index only
+	// known fields so arbitrary client keys cannot amplify scratch memory.
+	fields := indexOpenAIRequestFields(body)
+	return openAIRequestView{
+		body:               body,
+		fields:             fields,
+		Model:              strings.TrimSpace(fields["model"].String()),
+		Stream:             fields["stream"].Bool(),
+		PromptCacheKey:     strings.TrimSpace(fields["prompt_cache_key"].String()),
+		PreviousResponseID: strings.TrimSpace(fields["previous_response_id"].String()),
+		ServiceTier:        strings.TrimSpace(fields["service_tier"].String()),
+		ReasoningEffort:    strings.TrimSpace(fields["reasoning"].Get("effort").String()),
+	}
 }
 
 // Decode 保留阶段一既有 full-map 行为；后续阶段会把调用点下沉到复杂分支。
@@ -2489,7 +2486,7 @@ func openAIRequestBodyMayContainEmptyBase64InputImage(body []byte) bool {
 	if len(body) == 0 || !openAIRequestBodyMayContainInputImageToken(body) {
 		return false
 	}
-	input := gjson.GetBytes(body, "input")
+	input := parseRawJSONView(body).Get("input")
 	if !input.Exists() {
 		return false
 	}

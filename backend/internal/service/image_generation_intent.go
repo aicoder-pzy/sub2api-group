@@ -20,7 +20,7 @@ func isOpenAIResponsesLiteHeader(value string) bool {
 }
 
 func isOpenAIResponsesLiteWebSocketPayload(body []byte) bool {
-	if len(body) == 0 || !gjson.ValidBytes(body) {
+	if len(body) == 0 || !validOpenAIRequestJSON(body) {
 		return false
 	}
 	return isOpenAIResponsesLiteHeader(gjson.GetBytes(body, "client_metadata."+responsesLiteWSMetadataKey).String())
@@ -44,7 +44,7 @@ func IsImageGenerationIntent(endpoint string, requestedModel string, body []byte
 	if isOpenAIImageGenerationModel(requestedModel) {
 		return true
 	}
-	if len(body) == 0 || !gjson.ValidBytes(body) {
+	if len(body) == 0 || !validOpenAIRequestJSON(body) {
 		return false
 	}
 
@@ -86,7 +86,7 @@ func IsExplicitImageGenerationIntent(endpoint string, requestedModel string, bod
 	if IsImageGenerationEndpoint(endpoint) || isOpenAIImageGenerationModel(requestedModel) {
 		return true
 	}
-	if len(body) == 0 || !gjson.ValidBytes(body) {
+	if len(body) == 0 || !validOpenAIRequestJSON(body) {
 		return false
 	}
 	var modelSeen, toolsSeen, toolChoiceSeen bool
@@ -133,7 +133,7 @@ func isExplicitGrokImageGenerationIntent(endpoint string, requestedModel string,
 	if IsImageGenerationEndpoint(endpoint) || isOpenAIImageGenerationModel(requestedModel) {
 		return true
 	}
-	if len(body) == 0 || !gjson.ValidBytes(body) {
+	if len(body) == 0 || !validOpenAIRequestJSON(body) {
 		return false
 	}
 
@@ -272,7 +272,7 @@ func openAIJSONInputContainsImageGenTool(input gjson.Result) bool {
 }
 
 func openAIRequestBodyHasImageGenerationDeclaration(body []byte) bool {
-	if len(body) == 0 || !gjson.ValidBytes(body) {
+	if len(body) == 0 || !validOpenAIRequestJSON(body) {
 		return false
 	}
 	return openAIJSONToolsContainImageGeneration(gjson.GetBytes(body, "tools")) ||
@@ -281,7 +281,7 @@ func openAIRequestBodyHasImageGenerationDeclaration(body []byte) bool {
 }
 
 func openAIRequestBodyImageGenerationToolNeedsNormalization(body []byte) bool {
-	if len(body) == 0 || !gjson.ValidBytes(body) {
+	if len(body) == 0 || !validOpenAIRequestJSON(body) {
 		return false
 	}
 	tools := gjson.GetBytes(body, "tools")
@@ -476,7 +476,7 @@ func resolveOpenAIResponsesImageBillingConfigDetailedFromBody(body []byte, fallb
 	imageModel := ""
 	imageSize := ""
 	hasImageTool := false
-	if len(body) > 0 && gjson.ValidBytes(body) {
+	if len(body) > 0 && validOpenAIRequestJSON(body) {
 		tools := gjson.GetBytes(body, "tools")
 		if tools.IsArray() {
 			tools.ForEach(func(_, item gjson.Result) bool {

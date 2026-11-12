@@ -24,7 +24,7 @@ func normalizeOpenAIResponsesLegacyIngressWithConfig(cfg *config.Config, body []
 	// Native requests can contain large image data URLs. Decode the full object
 	// only when a legacy top-level field needs compatibility handling.
 	view := parseRawJSONView(body)
-	if view.IsObject() && gjson.ValidBytes(body) {
+	if view.IsObject() && validOpenAIRequestJSON(body) {
 		hasLegacyField := false
 		view.ForEach(func(key, _ gjson.Result) bool {
 			switch key.Str {

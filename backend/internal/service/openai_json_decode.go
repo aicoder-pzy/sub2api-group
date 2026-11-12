@@ -5,7 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+
+	"github.com/tidwall/gjson"
 )
+
+// The standard validator scans ordinary strings faster on our Go toolchain.
+// Keep GJSON as the fallback for its legacy UTF-8/depth acceptance behavior.
+func validOpenAIRequestJSON(data []byte) bool {
+	return json.Valid(data) || gjson.ValidBytes(data)
+}
 
 func decodeOpenAIJSONUseNumber(data []byte, dst any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))

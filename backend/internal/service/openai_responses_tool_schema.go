@@ -152,6 +152,15 @@ func sanitizeOpenAIResponsesToolSchemas(
 	if !utf8.Valid(body) {
 		return nil, false, fmt.Errorf("sanitize OpenAI Responses tool schemas: invalid UTF-8")
 	}
+	// Without either schema key (including escaped ASCII spellings), no tool schema
+	// can be changed. Validate JSON once without walking every image string in
+	// both the input-item type probe and the schema parser. Invalid input still
+	// takes the original parser path and retains its errors and safety limits.
+	if !bytes.Contains(body, []byte(`"parameters"`)) &&
+		!bytes.Contains(body, []byte(`"input_schema"`)) &&
+		!bytes.Contains(body, []byte(`\u00`)) && json.Valid(body) {
+		return body, false, nil
+	}
 	p := openAIResponsesToolSchemaParser{body: body, options: options}
 	if err := p.parseValue(openAIResponsesToolSchemaDocument, false, 0); err != nil {
 		if errors.Is(err, errOpenAIResponsesToolSchemaLimit) {

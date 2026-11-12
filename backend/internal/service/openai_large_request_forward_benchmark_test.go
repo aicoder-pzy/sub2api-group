@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,8 +23,20 @@ func (largeRequestBenchmarkUpstream) Do(req *http.Request, _ string, _ int64, _ 
 }
 
 func BenchmarkOpenAILargeAPIKeyForward(b *testing.B) {
+	benchmarkOpenAIAPIKeyForward(b, 90<<20)
+}
+
+func BenchmarkOpenAIAPIKeyForwardSizes(b *testing.B) {
+	for _, mib := range []int{1, 10, 60, 90} {
+		b.Run(fmt.Sprintf("%dMiB", mib), func(b *testing.B) {
+			benchmarkOpenAIAPIKeyForward(b, mib<<20)
+		})
+	}
+}
+
+func benchmarkOpenAIAPIKeyForward(b *testing.B, size int) {
 	gin.SetMode(gin.TestMode)
-	body := bytes.Replace(largeNativeResponsesBody(90<<20), []byte("gpt-6-astra"), []byte("gpt-6.1-sol"), 1)
+	body := bytes.Replace(largeNativeResponsesBody(size), []byte("gpt-6-astra"), []byte("gpt-6.1-sol"), 1)
 	body = append(body[:len(body)-1], []byte(`,"instructions":"Keep compaction_trigger documentation and \u4e2d text unchanged","reasoning":{"effort":"xhigh"}}`)...)
 	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: largeRequestBenchmarkUpstream{}}
 	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 500, Credentials: map[string]any{"api_key": "test-only", "base_url": "https://upstream.example"}}

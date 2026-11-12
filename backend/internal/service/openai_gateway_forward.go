@@ -174,19 +174,24 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	if account.IsOpenAIApiKey() {
+		metadataChanged := false
 		if normalized, changed, normalizeErr := normalizeOpenAIParallelToolCallsWithoutTools(body, responsesLite); normalizeErr != nil {
 			return nil, normalizeErr
 		} else if changed {
 			body = normalized
 			originalBody = normalized
+			metadataChanged = true
 		}
 		if normalized, changed, normalizeErr := normalizeOpenAIAPIKeyStoreFalseReasoningReplay(body, isOpenAIResponsesCompactPath(c)); normalizeErr != nil {
 			return nil, normalizeErr
 		} else if changed {
 			body = normalized
 			originalBody = normalized
+			metadataChanged = true
 		}
-		requestView = newOpenAIRequestView(body)
+		if metadataChanged {
+			requestView = newOpenAIRequestView(body)
+		}
 		reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
 		originalModel = reqModel
 	}
@@ -421,7 +426,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			upstreamModel = compactModel
 		}
 	}
-	instructions := gjson.GetBytes(body, "instructions")
+	instructions := requestView.fields["instructions"]
 	instructionsEmpty := !instructions.Exists() || instructions.Type != gjson.String || strings.TrimSpace(instructions.String()) == ""
 	if instructionsEmpty && account.UsesOpenAICodexProtocol() && !compatMessagesBridge && !nativeCNResponses {
 		markPatchSet("instructions", defaultCodexSynthInstructions(upstreamModel))
@@ -440,12 +445,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Upstream model resolved: %s -> %s (account: %s, type: %s, isCodexCLI: %v)", billingModel, upstreamModel, account.Name, account.Type, isCodexCLI)
 		}
 	}
-	if strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String()) == "minimal" {
+	if requestView.ReasoningEffort == "minimal" {
 		markPatchSet("reasoning.effort", "none")
 		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Normalized reasoning.effort: minimal -> none (account: %s)", account.Name)
 	}
-	if strings.TrimSpace(gjson.GetBytes(body, "text.format.type").String()) == "json_schema" ||
-		strings.TrimSpace(gjson.GetBytes(body, "response_format.type").String()) == "json_schema" {
+	if strings.TrimSpace(requestView.fields["text"].Get("format.type").String()) == "json_schema" ||
+		strings.TrimSpace(requestView.fields["response_format"].Get("type").String()) == "json_schema" {
 		decoded, decodeErr := ensureReqBody()
 		if decodeErr != nil {
 			return nil, decodeErr
@@ -540,7 +545,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// Responses OAuth 与 Chat 兼容入口保持一致：纯文本 system 可以无损提升后删除，
 		// JSON object 模式仍需在 input 中保留 JSON 指令供上游兼容校验。
 		omitPromotedSystemMessages := !strings.EqualFold(
-			strings.TrimSpace(gjson.GetBytes(body, "text.format.type").String()),
+			strings.TrimSpace(requestView.fields["text"].Get("format.type").String()),
 			"json_object",
 		)
 		codexResult := codexTransformResult{}
@@ -619,12 +624,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
-	if !SupportsVerbosity(upstreamModel) && gjson.GetBytes(body, "text.verbosity").Exists() {
+	if !SupportsVerbosity(upstreamModel) && requestView.fields["text"].Get("verbosity").Exists() {
 		markPatchDelete("text.verbosity")
 	}
 
 	if !isCodexCLI {
-		maxOutputTokens := gjson.GetBytes(body, "max_output_tokens")
+		maxOutputTokens := requestView.fields["max_output_tokens"]
 		if maxOutputTokens.Exists() {
 			switch account.Platform {
 			case PlatformOpenAI, PlatformDeepseek:
@@ -651,18 +656,18 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// 仅对 OpenAI 平台归一化：Anthropic 合法使用 max_tokens，其 max_output_tokens
 		// 反向转换已在上方 switch 中处理。
 		if account.Platform == PlatformOpenAI {
-			if maxTokens := gjson.GetBytes(body, "max_tokens"); maxTokens.Exists() {
-				if !gjson.GetBytes(body, "max_output_tokens").Exists() {
+			if maxTokens := requestView.fields["max_tokens"]; maxTokens.Exists() {
+				if !maxOutputTokens.Exists() {
 					markPatchSet("max_output_tokens", maxTokens.Value())
 				}
 				markPatchDelete("max_tokens")
 			}
 		}
-		if gjson.GetBytes(body, "max_completion_tokens").Exists() && (account.Type == AccountTypeAPIKey || account.Platform != PlatformOpenAI) {
+		if requestView.fields["max_completion_tokens"].Exists() && (account.Type == AccountTypeAPIKey || account.Platform != PlatformOpenAI) {
 			markPatchDelete("max_completion_tokens")
 		}
 		for _, unsupportedField := range []string{"prompt_cache_retention", "safety_identifier", "prompt_cache_options"} {
-			if gjson.GetBytes(body, unsupportedField).Exists() {
+			if requestView.fields[unsupportedField].Exists() {
 				markPatchDelete(unsupportedField)
 			}
 		}
@@ -676,7 +681,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		markPatchSet("max_output_tokens", clampedCap)
 	}
 	if wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2 &&
-		!account.IsOpenAIApiKey() && gjson.GetBytes(body, "previous_response_id").Exists() {
+		!account.IsOpenAIApiKey() && requestView.fields["previous_response_id"].Exists() {
 		markPatchDelete("previous_response_id")
 	}
 	if openAIRequestBodyMayContainEmptyBase64InputImage(body) {

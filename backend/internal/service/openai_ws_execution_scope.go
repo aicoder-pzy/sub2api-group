@@ -51,10 +51,11 @@ func resolveOpenAIWSClientThreadID(c *gin.Context, body []byte) string {
 	if len(body) == 0 {
 		return ""
 	}
-	if id := strings.TrimSpace(gjson.GetBytes(body, "client_metadata.thread_id").String()); id != "" {
+	metadata := parseRawJSONView(body).Get("client_metadata")
+	if id := strings.TrimSpace(metadata.Get("thread_id").String()); id != "" {
 		return id
 	}
-	return codexTurnMetadataThreadID(gjson.GetBytes(body, "client_metadata."+openAIWSTurnMetadataHeader).String())
+	return codexTurnMetadataThreadID(metadata.Get(openAIWSTurnMetadataHeader).String())
 }
 
 // codexTurnMetadata 是 x-codex-turn-metadata JSON 里执行作用域用到的字段。
@@ -143,12 +144,13 @@ func openAIWSExecutionScopeSeed(apiKeyID int64, identity, value, lane string) st
 // 两种身份都没有时返回空作用域：按请求内容推导的粘性种子只服务账号亲和，
 // 不是可靠身份，不参与抢占。
 func resolveOpenAIWSExecutionScope(c *gin.Context, body []byte, apiKeyID int64) (scope, threadID string) {
-	lane := resolveOpenAIWSExecutionLane(c, body)
 	if threadID = resolveOpenAIWSClientThreadID(c, body); threadID != "" {
+		lane := resolveOpenAIWSExecutionLane(c, body)
 		scope, _ = deriveOpenAISessionHashes(openAIWSExecutionScopeSeed(apiKeyID, "thread", threadID, lane))
 		return scope, threadID
 	}
 	if sessionID := strings.TrimSpace(explicitOpenAIRequestSessionID(c, body)); sessionID != "" {
+		lane := resolveOpenAIWSExecutionLane(c, body)
 		scope, _ = deriveOpenAISessionHashes(openAIWSExecutionScopeSeed(apiKeyID, "session", sessionID, lane))
 		return scope, ""
 	}

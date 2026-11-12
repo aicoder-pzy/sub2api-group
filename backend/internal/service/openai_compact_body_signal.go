@@ -73,7 +73,7 @@ func NormalizeCompactionTriggerInputOrder(body []byte) ([]byte, bool, error) {
 // original decoder path, preserving validation and its last-key-wins behavior.
 func compactionTriggerNeedsDecode(body []byte) bool {
 	trimmed := bytes.TrimLeft(body, " \t\r\n")
-	if len(trimmed) == 0 || trimmed[0] != '{' || !gjson.ValidBytes(body) {
+	if len(trimmed) == 0 || trimmed[0] != '{' || !validOpenAIRequestJSON(body) {
 		return true
 	}
 	if !bytes.Contains(body, []byte("compaction_trigger")) && !bytes.Contains(body, []byte(`\u`)) {

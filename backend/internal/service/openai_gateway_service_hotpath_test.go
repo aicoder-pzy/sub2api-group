@@ -53,6 +53,28 @@ func TestOpenAIRequestView_KeepsLenientPrefixExtraction(t *testing.T) {
 	require.True(t, view.Stream)
 }
 
+func TestOpenAIRequestView_IndexedFieldsMatchOriginalLookups(t *testing.T) {
+	for _, body := range []string{
+		` {"model":"gpt-6.1-sol","input":[{"output":"large"}],"text":{"format":{"type":"json_schema"},"verbosity":"low"},"reasoning":{"effort":"xhigh"},"max_output_tokens":9007199254740993,"safety_identifier":null}`,
+		`{"text":{"format":{"type":"json_schema"}},"text":{"format":{"type":"text"}},"reasoning":{"effort":"minimal"},"reasoning":{"effort":"high"},"previous_response_id":null}`,
+		`{"te\u0078t":{"format":{"type":"json_schema"}},"max\u005ftokens":17,"instructions":"keep \"quoted\" and \u4e2d","stream":false}`,
+		`{"model":"gpt-6.1-sol","stream":true,"input":[`,
+	} {
+		view := newOpenAIRequestView([]byte(body))
+		for _, path := range []string{"instructions", "text.format.type", "text.verbosity", "response_format.type", "reasoning.effort", "max_output_tokens", "max_tokens", "max_completion_tokens", "safety_identifier", "previous_response_id", "prompt_cache_options"} {
+			key, child, nested := strings.Cut(path, ".")
+			got := view.fields[key]
+			if nested {
+				got = got.Get(child)
+			}
+			want := gjson.Get(body, path)
+			require.Equal(t, want.Type, got.Type, path)
+			require.Equal(t, want.Raw, got.Raw, path)
+			require.Equal(t, want.Exists(), got.Exists(), path)
+		}
+	}
+}
+
 func TestOpenAIRequestView_DecodeKeepsFullMapBehavior(t *testing.T) {
 	view := newOpenAIRequestView([]byte(`{"model":"gpt-5","stream":true,"input":[{"type":"message","content":"hi"}]}`))
 
@@ -60,6 +82,16 @@ func TestOpenAIRequestView_DecodeKeepsFullMapBehavior(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "gpt-5", reqBody["model"])
 	require.IsType(t, []any{}, reqBody["input"])
+}
+
+func TestOpenAIRequestView_DoesNotIndexUnknownClientFields(t *testing.T) {
+	body := []byte(`{"model":"gpt-6.1-sol",` + strings.Repeat(`"unknown":null,`, 1000) + `"other":42}`)
+	view := newOpenAIRequestView(body)
+	require.Len(t, view.fields, 1)
+	decoded, err := view.Decode(nil)
+	require.NoError(t, err)
+	require.Contains(t, decoded, "unknown")
+	require.Contains(t, decoded, "other")
 }
 
 func TestOpenAIRequestView_ApplyPatches(t *testing.T) {
