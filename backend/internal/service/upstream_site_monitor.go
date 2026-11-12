@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -13,19 +14,31 @@ import (
 
 // These are upstream-reported results. Reading them never runs a model probe.
 type UpstreamSiteMonitorRow struct {
-	ID             string     `json:"id"`
-	Name           string     `json:"name"`
-	GroupID        string     `json:"group_id,omitempty"`
-	GroupName      string     `json:"group_name,omitempty"`
-	Model          string     `json:"model,omitempty"`
-	State          string     `json:"state"`
-	LatencyKind    string     `json:"latency_kind"`
-	LatencyMS      *float64   `json:"latency_ms"`
-	Availability7d *float64   `json:"availability_7d"`
-	ErrorRate      *float64   `json:"error_rate"`
-	CacheRate      *float64   `json:"cache_rate"`
-	CacheWindowHrs *float64   `json:"cache_window_hours,omitempty"`
-	CheckedAt      *time.Time `json:"checked_at,omitempty"`
+	ID             string                     `json:"id"`
+	Name           string                     `json:"name"`
+	GroupID        string                     `json:"group_id,omitempty"`
+	GroupName      string                     `json:"group_name,omitempty"`
+	Model          string                     `json:"model,omitempty"`
+	State          string                     `json:"state"`
+	LatencyKind    string                     `json:"latency_kind"`
+	LatencyMS      *float64                   `json:"latency_ms"`
+	Availability7d *float64                   `json:"availability_7d"`
+	ErrorRate      *float64                   `json:"error_rate"`
+	SuccessRate    *float64                   `json:"success_rate"`
+	CacheRate      *float64                   `json:"cache_rate"`
+	CacheWindowHrs *float64                   `json:"cache_window_hours,omitempty"`
+	CheckedAt      *time.Time                 `json:"checked_at,omitempty"`
+	Points         []UpstreamSiteMonitorPoint `json:"points,omitempty"`
+}
+
+type UpstreamSiteMonitorPoint struct {
+	At          time.Time `json:"at"`
+	State       string    `json:"state"`
+	Score       *float64  `json:"score"`
+	LatencyMS   *float64  `json:"latency_ms"`
+	SuccessRate *float64  `json:"success_rate"`
+	ErrorRate   *float64  `json:"error_rate"`
+	CacheRate   *float64  `json:"cache_rate"`
 }
 
 type UpstreamSiteMonitor struct {
@@ -35,6 +48,9 @@ type UpstreamSiteMonitor struct {
 	AttemptAt      time.Time                `json:"attempt_at"`
 	ReceivedAt     *time.Time               `json:"received_at,omitempty"`
 	DataAt         *time.Time               `json:"data_at,omitempty"`
+	TrendStart     *time.Time               `json:"trend_start,omitempty"`
+	TrendEnd       *time.Time               `json:"trend_end,omitempty"`
+	BucketSeconds  int                      `json:"bucket_seconds,omitempty"`
 	RefreshSeconds int                      `json:"refresh_seconds"`
 	Stale          bool                     `json:"stale"`
 	Error          string                   `json:"error,omitempty"`
@@ -128,6 +144,13 @@ func (s *UpstreamBillingProbeService) readUpstreamSiteMonitoring(ctx context.Con
 		return out, upstreamSiteError("Invalid upstream monitoring response")
 	}
 	out.DataAt = upstreamMonitorTime(result.Get("coverage.data_through"))
+	if out.Mode == "v2" {
+		out.TrendStart = upstreamMonitorTime(result.Get("coverage.requested_start"))
+		out.TrendEnd = upstreamMonitorTime(result.Get("coverage.requested_end"))
+		if seconds := result.Get("coverage.bucket_seconds").Int(); seconds >= 60 && seconds <= 86400 {
+			out.BucketSeconds = int(seconds)
+		}
+	}
 	for _, row := range result.Get("items").Array() {
 		if out.Mode == "v1" {
 			item := UpstreamSiteMonitorRow{
@@ -138,10 +161,14 @@ func (s *UpstreamBillingProbeService) readUpstreamSiteMonitoring(ctx context.Con
 				CheckedAt: upstreamMonitorTime(row.Get("checked_at")),
 			}
 			for _, point := range row.Get("timeline").Array() {
-				if checked := upstreamMonitorTime(point.Get("checked_at")); checked != nil && (item.CheckedAt == nil || checked.After(*item.CheckedAt)) {
-					item.CheckedAt = checked
+				if checked := upstreamMonitorTime(point.Get("checked_at")); checked != nil {
+					item.Points = append(item.Points, UpstreamSiteMonitorPoint{At: *checked, State: upstreamMonitorState(point.Get("status").String()), LatencyMS: upstreamMonitorNumber(point.Get("latency_ms"), math.MaxFloat64, 1)})
+					if item.CheckedAt == nil || checked.After(*item.CheckedAt) {
+						item.CheckedAt = checked
+					}
 				}
 			}
+			item.Points = upstreamMonitorPoints(item.Points)
 			if item.CheckedAt != nil && (out.DataAt == nil || item.CheckedAt.After(*out.DataAt)) {
 				out.DataAt = item.CheckedAt
 			}
@@ -159,21 +186,48 @@ func (s *UpstreamBillingProbeService) readUpstreamSiteMonitoring(ctx context.Con
 			ID: row.Get("platform").String() + ":" + groupID, Name: row.Get("group_name").String(), GroupID: groupID, GroupName: row.Get("group_name").String(),
 			State: upstreamMonitorState(row.Get("health.overall").String()), LatencyKind: "ttft_p50", CheckedAt: out.DataAt,
 		}
-		// Some sites hide counts as zero while returning valid aggregate metrics.
-		// Unknown health and zero metrics cannot establish that a group is healthy.
-		metrics := row.Get("metrics")
-		hasData := item.State != "unknown" || metrics.Get("has_requests").Bool() || metrics.Get("request_count").Int() > 0 || metrics.Get("ttft.p50_ms").Float() > 0 || metrics.Get("cache_rate").Float() > 0
-		if hasData {
-			item.LatencyMS = upstreamMonitorNumber(metrics.Get("ttft.p50_ms"), math.MaxFloat64, 1)
-			item.ErrorRate = upstreamMonitorNumber(metrics.Get("error_rate"), 1, 100)
-			item.CacheRate = upstreamMonitorNumber(metrics.Get("cache_rate"), 1, 100)
+		values := upstreamMonitorV2Values(row)
+		item.LatencyMS, item.ErrorRate, item.SuccessRate, item.CacheRate = values.LatencyMS, values.ErrorRate, values.SuccessRate, values.CacheRate
+		for _, bucket := range row.Get("buckets").Array() {
+			if at := upstreamMonitorTime(bucket.Get("bucket_start")); at != nil {
+				point := upstreamMonitorV2Values(bucket)
+				point.At = *at
+				item.Points = append(item.Points, point)
+			}
 		}
+		item.Points = upstreamMonitorPoints(item.Points)
 		out.Rows = append(out.Rows, item)
 	}
 	out.Status = "ok"
 	received := s.now().UTC()
 	out.ReceivedAt = &received
 	return out, nil
+}
+
+func upstreamMonitorV2Values(source gjson.Result) UpstreamSiteMonitorPoint {
+	point := UpstreamSiteMonitorPoint{State: upstreamMonitorState(source.Get("health.overall").String())}
+	// Some sites hide counts while returning valid rates. Unknown health alone
+	// cannot establish a healthy bucket, even if the source includes a score.
+	metrics := source.Get("metrics")
+	hasData := point.State != "unknown" || metrics.Get("has_requests").Bool() || metrics.Get("request_count").Int() > 0 || metrics.Get("ttft.p50_ms").Float() > 0 || metrics.Get("cache_rate").Float() > 0
+	if hasData {
+		point.LatencyMS = upstreamMonitorNumber(metrics.Get("ttft.p50_ms"), math.MaxFloat64, 1)
+		point.ErrorRate = upstreamMonitorNumber(metrics.Get("error_rate"), 1, 100)
+		point.SuccessRate = upstreamMonitorNumber(metrics.Get("success_rate"), 1, 100)
+		point.CacheRate = upstreamMonitorNumber(metrics.Get("cache_rate"), 1, 100)
+	}
+	if point.State != "unknown" {
+		point.Score = upstreamMonitorNumber(source.Get("health.score"), 100, 1)
+	}
+	return point
+}
+
+func upstreamMonitorPoints(points []UpstreamSiteMonitorPoint) []UpstreamSiteMonitorPoint {
+	sort.SliceStable(points, func(i, j int) bool { return points[i].At.Before(points[j].At) })
+	if len(points) > 256 {
+		points = points[len(points)-256:]
+	}
+	return points
 }
 
 func upstreamMonitorNumber(value gjson.Result, maximum, scale float64) *float64 {

@@ -1,6 +1,10 @@
 export default {
   monitoring: 'Channel status',
   monitor: {
+    trend: 'Availability trend', successRate: 'Success rate', score: 'Upstream health score',
+    trendHint: 'Each block represents an upstream time bucket or check. Hover, focus or tap for details; wheel to zoom, Shift + wheel to pan. Scroll the table horizontally.',
+    bucketMinutes: '{minutes}-minute buckets', perCheck: 'Actual check history', resetZoom: 'Reset zoom',
+    noHistory: 'No upstream history provided', noBucket: 'No data or insufficient samples', worse: 'Poor', better: 'Good',
     readOnly: 'Reads existing upstream monitoring without model requests or inference quota charges.',
     v1Hint: 'Check latency and 7-day availability come from upstream probes. Cache rate uses the upstream time window. These may differ from local requests.',
     v2Hint: 'Upstream group statistics (90-minute view). First-token and cache metrics use upstream definitions and may have aggregation delay.',

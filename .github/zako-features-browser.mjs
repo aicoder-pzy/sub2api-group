@@ -16,6 +16,17 @@ const monitoring = { status: 'ok', mode: 'v1', source_url: 'https://upstream.exa
   { id: 'vip', name: '未匹配项目 <script>window.monitorInjected = true</script>', state: 'warning', latency_kind: 'check', latency_ms: 3000, availability_7d: 98, error_rate: null, cache_rate: null, checked_at: monitorTime },
   { id: 'old', name: '旧监控记录', state: 'healthy', latency_kind: 'check', latency_ms: 1000, availability_7d: 100, error_rate: null, cache_rate: null, checked_at: '2020-01-01T00:00:00Z' }
 ] }
+monitoring.mode = 'v2'
+monitoring.bucket_seconds = 300
+const trendStart = Math.floor(Date.now() / 300000) * 300000 - 85 * 60000
+monitoring.trend_start = new Date(trendStart).toISOString()
+monitoring.trend_end = new Date(trendStart + 90 * 60000).toISOString()
+for (const row of monitoring.rows) {
+  row.success_rate = 99.8
+  row.error_rate = 0.2
+  row.latency_kind = 'ttft_p50'
+  row.points = Array.from({ length: 17 }, (_, index) => ({ at: new Date(trendStart + index * 300000).toISOString(), state: index === 5 ? 'critical' : index === 9 ? 'warning' : 'healthy', score: index === 5 ? 25 : index === 9 ? 60 : 92 + index % 8, latency_ms: 1500 + index * 10, success_rate: 99.8, error_rate: 0.2, cache_rate: 84 }))
+}
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, locale: 'zh-CN' })
   const user = { id: 1, role: 'admin', email: 'admin@example.invalid', username: 'Admin', balance: 100, status: 'active', concurrency: 5 }
@@ -182,6 +193,17 @@ try {
   assert.equal(await monitorPanel.locator('[data-monitor-row="old"] .monitor-state').textContent(), '数据过期')
   assert.equal(await monitorPanel.locator('script').count(), 0)
   assert.equal(await page.evaluate(() => window.monitorInjected), undefined)
+  const track = monitorPanel.locator('[data-monitor-row="matched"] [data-monitor-trend]')
+  assert.equal(await track.locator('.trend-cell').count(), 18)
+  assert.equal(await track.locator('.health-unknown').count(), 1)
+  await track.locator('.trend-cell').first().hover()
+  await page.getByRole('tooltip').waitFor()
+  assert.match(await page.getByRole('tooltip').textContent(), /上游健康评分：92.0/)
+  await page.screenshot({ path: path.join(output, 'upstream-trend-tooltip.png'), animations: 'disabled' })
+  await track.locator('.trend-cell').first().dispatchEvent('wheel', { deltaY: -120, deltaX: 0, shiftKey: false })
+  assert.ok(await track.locator('.trend-cell').count() < 18)
+  await monitorPanel.getByRole('button', { name: '重置缩放', exact: true }).click()
+  assert.equal(await track.locator('.trend-cell').count(), 18)
   await monitorPanel.getByLabel('监控范围').selectOption('keys')
   assert.equal(await monitorPanel.locator('[data-monitor-row]').count(), 1)
   await monitorPanel.getByLabel('监控范围').selectOption('all')
@@ -189,9 +211,16 @@ try {
     await page.setViewportSize({ width, height: 1000 })
     await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 2)
     await monitorPanel.scrollIntoViewIfNeeded()
+  await monitorPanel.locator('.overflow-auto').evaluate(element => { element.scrollLeft = innerWidth < 640 ? element.scrollWidth : 0 })
     await page.screenshot({ path: path.join(output, `upstream-monitor-${width}.png`), animations: 'disabled' })
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), true, `Monitor page overflow at ${width}`)
   }
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await monitorPanel.locator('.overflow-auto').evaluate(element => { element.scrollLeft = 0 })
+  await page.evaluate(() => document.documentElement.classList.add('dark'))
+  await monitorPanel.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: path.join(output, 'upstream-trend-dark.png'), animations: 'disabled' })
+  await page.evaluate(() => document.documentElement.classList.remove('dark'))
   monitoring.status = 'error'; monitoring.stale = true
   await monitorPanel.getByRole('button', { name: '刷新', exact: true }).click()
   await monitorPanel.getByRole('alert').waitFor()

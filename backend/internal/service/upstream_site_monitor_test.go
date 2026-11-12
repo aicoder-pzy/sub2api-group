@@ -129,3 +129,46 @@ func TestUpstreamSiteMonitoringUnavailableDoesNotProbeModels(t *testing.T) {
 		})
 	}
 }
+
+func TestUpstreamSiteMonitoringHistoryPreservesSourceSemantics(t *testing.T) {
+	for _, mode := range []string{"v1", "v2"} {
+		t.Run(mode, func(t *testing.T) {
+			upstream := &siteImportHTTP{call: func(req *http.Request) (*http.Response, error) {
+				require.Equal(t, http.MethodGet, req.Method)
+				if req.URL.Path == "/api/v1/settings/public" {
+					return siteImportResponse(`{"channel_monitor_enabled":true,"channel_monitor_mode":"` + mode + `"}`), nil
+				}
+				if mode == "v1" {
+					return siteImportResponse(`{"items":[{"id":1,"primary_status":"operational","timeline":[{"checked_at":"2026-11-12T06:00:00Z","status":"operational","latency_ms":500},{"checked_at":"invalid","status":"operational"},{"checked_at":"2026-11-12T05:59:00Z","status":"error","latency_ms":12000}],"extra_models":[{"model":"extra","status":"operational"}]}]}`), nil
+				}
+				return siteImportResponse(`{"coverage":{"requested_start":"2026-11-12T05:45:00Z","requested_end":"2026-11-12T06:05:00Z","data_through":"2026-11-12T06:00:00Z","bucket_seconds":300},"items":[{"platform":"openai","group_id":1,"health":{"overall":"healthy"},"metrics":{"error_rate":0.05,"success_rate":0.8},"buckets":[{"bucket_start":"2026-11-12T05:55:00Z","health":{"overall":"healthy","score":92},"metrics":{"success_rate":0.8,"error_rate":0.05,"cache_rate":0.85,"ttft":{"p50_ms":1500}}},{"bucket_start":"2026-11-12T05:50:00Z","health":{"overall":"warning","score":60},"metrics":{"success_rate":0.7,"error_rate":0.2}},{"bucket_start":"2026-11-12T05:45:00Z","health":{"overall":"unknown","score":100},"metrics":{"request_count":0,"error_rate":0,"cache_rate":0}}]}]}`), nil
+			}}
+			svc := newUpstreamBillingProbeTestService(nil, upstream, nil)
+			result, err := svc.UpstreamSiteMonitoring(context.Background(), &UpstreamSite{ID: mode, Kind: "sub2api", BaseURL: "https://example.com", AccessToken: "management"})
+			require.NoError(t, err)
+			points := result.Rows[0].Points
+			for i := 1; i < len(points); i++ {
+				require.True(t, points[i].At.After(points[i-1].At), "upstream history can arrive newest first")
+			}
+			if mode == "v1" {
+				require.Len(t, points, 2)
+				require.Equal(t, "critical", points[0].State)
+				require.Equal(t, "healthy", points[1].State)
+				require.Equal(t, 500.0, *points[1].LatencyMS)
+				require.Nil(t, points[1].SuccessRate, "a probe result is not a statistical success percentage")
+				require.Empty(t, result.Rows[1].Points, "extra models must not inherit the primary model's history")
+			} else {
+				require.Len(t, points, 3)
+				require.Nil(t, points[0].Score, "unknown buckets must not become green from an unqualified score")
+				require.Nil(t, points[0].SuccessRate)
+				require.Equal(t, "unknown", points[0].State)
+				require.Equal(t, 92.0, *points[2].Score)
+				require.Equal(t, 80.0, *points[2].SuccessRate, "use upstream success_rate, not one minus error_rate")
+				require.InDelta(t, 5.0, *points[2].ErrorRate, 0.001)
+				require.Equal(t, 80.0, *result.Rows[0].SuccessRate)
+				require.Equal(t, 300, result.BucketSeconds)
+				require.Equal(t, "2026-11-12T06:05:00Z", result.TrendEnd.Format(time.RFC3339))
+			}
+		})
+	}
+}

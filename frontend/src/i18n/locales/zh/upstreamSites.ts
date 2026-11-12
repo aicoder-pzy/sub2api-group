@@ -1,6 +1,10 @@
 export default {
   monitoring: '渠道状态',
   monitor: {
+    trend: '可用性趋势', successRate: '成功率', score: '上游健康评分',
+    trendHint: '每个色块代表上游一个统计时间段或一次检测；悬停、聚焦或点击查看详情，滚轮放大，Shift＋滚轮平移。表格可横向滚动。',
+    bucketMinutes: '{minutes} 分钟粒度', perCheck: '按实际检测记录', resetZoom: '重置缩放',
+    noHistory: '上游未提供历史记录', noBucket: '暂无数据或样本不足', worse: '差', better: '好',
     readOnly: '读取上游已有监控，不发起模型请求，不消耗调用额度。',
     v1Hint: '检测耗时、7日可用率来自上游探测；缓存率按上游提供的时间窗显示。与本地调用速度、缓存率可能不同。',
     v2Hint: '上游分组统计（近90分钟视图）；首字和缓存按上游各自统计口径显示，可能存在聚合延迟。',

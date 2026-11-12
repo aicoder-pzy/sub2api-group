@@ -19,6 +19,15 @@ export interface SiteKey {
 }
 export interface SiteGroup { id: string; name: string; description?: string; multiplier?: number }
 export interface SiteKeyGroups { key: SiteKey; groups: SiteGroup[] }
+export interface SiteMonitorPoint {
+  at: string
+  state: 'healthy' | 'warning' | 'critical' | 'unknown'
+  score: number | null
+  latency_ms: number | null
+  success_rate: number | null
+  error_rate: number | null
+  cache_rate: number | null
+}
 export interface SiteMonitorRow {
   id: string
   name: string
@@ -30,9 +39,11 @@ export interface SiteMonitorRow {
   latency_ms: number | null
   availability_7d: number | null
   error_rate: number | null
+  success_rate?: number | null
   cache_rate: number | null
   cache_window_hours?: number
   checked_at?: string
+  points?: SiteMonitorPoint[]
 }
 export interface SiteMonitor {
   status: 'ok' | 'error' | 'disabled' | 'unsupported'
@@ -41,6 +52,9 @@ export interface SiteMonitor {
   attempt_at: string
   received_at?: string
   data_at?: string
+  trend_start?: string
+  trend_end?: string
+  bucket_seconds?: number
   refresh_seconds: number
   stale: boolean
   error?: string

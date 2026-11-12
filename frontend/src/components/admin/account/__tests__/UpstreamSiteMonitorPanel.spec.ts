@@ -68,3 +68,30 @@ it('discards another site response and stops refreshing when hidden or unmounted
   await vi.advanceTimersByTimeAsync(120_000)
   expect(api.monitoring).toHaveBeenCalledTimes(3)
 })
+
+it('renders actual history with source scores, gaps, tooltip details and shared wheel zoom', async () => {
+  const snapshot: SiteMonitor = { ...result([row({ success_rate: 80, error_rate: 5, points: [
+    { at: '2026-11-12T05:45:00Z', state: 'healthy', score: 92, latency_ms: 1200, success_rate: 80, error_rate: 5, cache_rate: 85 },
+    { at: '2026-11-12T05:50:00Z', state: 'warning', score: 60, latency_ms: 8000, success_rate: 70, error_rate: 20, cache_rate: 60 },
+    { at: '2026-11-12T05:55:00Z', state: 'unknown', score: 100, latency_ms: null, success_rate: null, error_rate: null, cache_rate: null }
+  ] })]), mode: 'v2', trend_start: '2026-11-12T05:45:00Z', trend_end: '2026-11-12T06:05:00Z', bucket_seconds: 300 }
+  vi.mocked(api.monitoring).mockResolvedValueOnce(snapshot).mockRejectedValue(new Error('failed'))
+  wrapper = view(); await flushPromises()
+  expect(wrapper.findAll('.trend-cell')).toHaveLength(4)
+  expect(wrapper.findAll('.trend-cell.health-unknown')).toHaveLength(2)
+  expect(wrapper.get('.trend-cell').classes()).toContain('health-score9')
+  expect(wrapper.get('[data-monitor-row]').text()).toContain('80.0%')
+  await wrapper.get('.trend-cell').trigger('focus')
+  const tooltip = document.querySelector('[role=tooltip]')!
+  expect(tooltip.textContent).toContain('92.0')
+  expect(tooltip.textContent).toContain('成功率：80.0%')
+  expect(tooltip.textContent).toContain('缓存率：85.0%')
+  const track = wrapper.get('.trend-cell').element.parentElement!
+  for (let i = 0; i < 5; i++) track.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true }))
+  await flushPromises()
+  expect(wrapper.findAll('.trend-cell').length).toBeLessThan(4)
+  await wrapper.findAll('button').find(button => button.text() === zh.monitor.resetZoom)!.trigger('click')
+  expect(wrapper.findAll('.trend-cell')).toHaveLength(4)
+  await vi.advanceTimersByTimeAsync(60_000); await flushPromises()
+  expect(wrapper.get('[data-monitor-trend] .grayscale').exists()).toBe(true)
+})
