@@ -37,6 +37,10 @@ func doObservedUpstreamRequest(client *http.Client, req *http.Request, accountID
 		zap.Int64("response_headers_ms", time.Since(started).Milliseconds()),
 		zap.Bool("connection_reused", reused.Load()),
 	}
+	if body, ok := req.Body.(*upstreamGzipStream); ok {
+		fields = append(fields, zap.Int64("original_bytes", body.size),
+			zap.Int64("encoded_bytes", body.encodedBytes.Load()), zap.String("request_content_encoding", "gzip"))
+	}
 	for _, stage := range []struct {
 		name  string
 		value int64

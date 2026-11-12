@@ -82,6 +82,14 @@ func TestUpstreamGzipEligibilityRespectsProtocolAndSignatures(t *testing.T) {
 		req.ContentLength = size
 		require.False(t, upstreamGzipEligible(req))
 	}
+	for _, size := range []int64{16 << 20, 30 << 20, 60 << 20} {
+		req := gzipTestRequest(t, "https://relay.example/v1/responses")
+		req.ContentLength = size
+		require.True(t, upstreamGzipEligible(req))
+	}
+	req90 := gzipTestRequest(t, "https://relay.example/v1/responses")
+	req90.ContentLength = 90 << 20
+	require.False(t, upstreamGzipEligible(req90), "known large coded-body rejection keeps identity")
 	req := gzipTestRequest(t, "https://relay.example/v1/responses")
 	req.Header.Set("Content-Type", "multipart/form-data")
 	require.False(t, upstreamGzipEligible(req))
@@ -104,6 +112,7 @@ func TestUpstreamGzipCompatibilityRequiresTwoDistinctValidationControls(t *testi
 					return gzipTestResponse(401, `{"error":"authentication required"}`), nil
 				}
 				if req.Header.Get("Content-Encoding") == "gzip" && mode != "ignored-gzip" {
+					require.EqualValues(t, -1, req.ContentLength)
 					zr, zipErr := gzip.NewReader(bytes.NewReader(data))
 					require.NoError(t, zipErr)
 					data, err = io.ReadAll(zr)
@@ -246,6 +255,9 @@ func TestHTTPUpstreamGzipPreservesIncrementalSSEForNormalAndTLS(t *testing.T) {
 			t.Cleanup(srv.Close)
 			s, send := lifecycleClient(t, srv, withTLS)
 			req := gzipTestRequest(t, srv.URL+"/v1/responses")
+			if withTLS {
+				req = largeGzipTestRequest(t, srv.URL+"/v1/responses")
+			}
 			ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
 			defer cancel()
 			req = req.WithContext(ctx)

@@ -67,16 +67,35 @@ func NormalizeCompactionTriggerInputOrder(body []byte) ([]byte, bool, error) {
 	return encoded, true, nil
 }
 
-// compactionTriggerNeedsDecode lets bodies that cannot hold a trigger skip the
-// full decode: the type string appears literally unless a \u escape spells it.
-// Such a body must still be a valid JSON object, so decode errors keep
-// surfacing from the original path.
+// Only a real input item needs the full-map normalization. Mentions in prompts
+// and unrelated Unicode escapes must not decode large image/tool payloads.
+// Invalid JSON and every possible duplicate input/type key still take the
+// original decoder path, preserving validation and its last-key-wins behavior.
 func compactionTriggerNeedsDecode(body []byte) bool {
-	if bytes.Contains(body, []byte("compaction_trigger")) || bytes.Contains(body, []byte(`\u`)) {
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	if len(trimmed) == 0 || trimmed[0] != '{' || !gjson.ValidBytes(body) {
 		return true
 	}
-	trimmed := bytes.TrimLeft(body, " \t\r\n")
-	return len(trimmed) == 0 || trimmed[0] != '{' || !gjson.ValidBytes(body)
+	if !bytes.Contains(body, []byte("compaction_trigger")) && !bytes.Contains(body, []byte(`\u`)) {
+		return false
+	}
+	found := false
+	parseRawJSONView(body).ForEach(func(key, input gjson.Result) bool {
+		if key.Str != "input" || !input.IsArray() {
+			return true
+		}
+		input.ForEach(func(_, item gjson.Result) bool {
+			if item.IsObject() {
+				item.ForEach(func(key, value gjson.Result) bool {
+					found = key.Str == "type" && value.Type == gjson.String && value.Str == "compaction_trigger"
+					return !found
+				})
+			}
+			return !found
+		})
+		return !found
+	})
+	return found
 }
 
 func isOpenAINativeCompactionV2(c *gin.Context) bool {

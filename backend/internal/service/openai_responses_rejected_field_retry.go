@@ -33,6 +33,7 @@ type openAIResponsesRejectedFieldRetryState struct {
 	mu             sync.Mutex
 	budget         *openAIResponsesRejectedFieldRetryBudget
 	seenBodyHashes map[[sha256.Size]byte]struct{}
+	initialBody    []byte
 }
 
 type openAIResponsesRejectedFieldRetryBudget struct {
@@ -67,12 +68,11 @@ func newOpenAIResponsesRejectedFieldRetryState(initialBody []byte) *openAIRespon
 }
 
 func newOpenAIResponsesRejectedFieldRetryStateWithBudget(initialBody []byte, budget *openAIResponsesRejectedFieldRetryBudget) *openAIResponsesRejectedFieldRetryState {
-	state := &openAIResponsesRejectedFieldRetryState{
+	return &openAIResponsesRejectedFieldRetryState{
 		budget:         budget,
 		seenBodyHashes: make(map[[sha256.Size]byte]struct{}, maxOpenAIResponsesRejectedFieldRetries+1),
+		initialBody:    initialBody,
 	}
-	state.remember(initialBody)
-	return state
 }
 
 func (s *openAIResponsesRejectedFieldRetryState) Allow(nextBody []byte) bool {
@@ -81,6 +81,12 @@ func (s *openAIResponsesRejectedFieldRetryState) Allow(nextBody []byte) bool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Successful requests never need loop detection. Hash the initial large body
+	// only when a compatibility retry actually asks to send a different body.
+	if s.initialBody != nil {
+		s.rememberLocked(s.initialBody)
+		s.initialBody = nil
+	}
 	bodyHash := sha256.Sum256(nextBody)
 	if _, seen := s.seenBodyHashes[bodyHash]; seen {
 		return false

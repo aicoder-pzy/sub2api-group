@@ -16,10 +16,12 @@ import (
 )
 
 const (
-	upstreamGzipMinBytes  = 256 << 10
-	upstreamGzipMaxBytes  = 16 << 20
-	upstreamGzipMaxPeers  = 512
-	upstreamGzipProbeBody = `{"input":[],"messages":[],"stream":true}`
+	upstreamGzipMinBytes = 256 << 10
+	// Larger coded bodies hit ingress limits on otherwise gzip-capable relays.
+	upstreamGzipMaxBytes         = 60 << 20
+	upstreamGzipBufferedMaxBytes = 16 << 20
+	upstreamGzipMaxPeers         = 512
+	upstreamGzipProbeBody        = `{"input":[],"messages":[],"stream":true}`
 )
 
 type upstreamGzipCapability struct {
@@ -60,9 +62,14 @@ func (s *httpUpstreamService) doWithRequestGzip(client *http.Client, req *http.R
 				// The transport owns forwarded.Body. Close the original as Client.Do
 				// would, including on cancellation, without consuming it for a probe.
 				closeOriginal = true
-				slog.InfoContext(req.Context(), "upstream_request_gzip", "account_id", accountID,
-					"original_bytes", req.ContentLength, "encoded_bytes", forwarded.ContentLength,
-					"compression_us", time.Since(started).Microseconds())
+				if forwarded.ContentLength < 0 {
+					slog.InfoContext(req.Context(), "upstream_request_gzip", "account_id", accountID,
+						"original_bytes", req.ContentLength, "encoding_mode", "streaming")
+				} else {
+					slog.InfoContext(req.Context(), "upstream_request_gzip", "account_id", accountID,
+						"original_bytes", req.ContentLength, "encoded_bytes", forwarded.ContentLength,
+						"compression_us", time.Since(started).Microseconds())
+				}
 			}
 		}
 	}
@@ -201,6 +208,9 @@ func probeUpstreamGzip(client *http.Client, template *http.Request) bool {
 			req.Header.Set("Accept-Encoding", "identity")
 			if encoded {
 				req.Header.Set("Content-Encoding", "gzip")
+				// Large requests stream with unknown wire length. Learn support
+				// using that representation too, including HTTP/1.1 chunking.
+				req.ContentLength = -1
 			}
 			resp, err := probeClient.Do(req) //nolint:gosec // G704: validated upstream URL, redirects disabled; no user body.
 			if err != nil {
@@ -254,6 +264,9 @@ func gzipUpstreamBytes(body []byte) []byte {
 var upstreamGzipSlots = make(chan struct{}, 2)
 
 func gzipUpstreamRequest(req *http.Request) *http.Request {
+	if req.ContentLength > upstreamGzipBufferedMaxBytes {
+		return gzipStreamingUpstreamRequest(req)
+	}
 	// Bound transient replay/encoding memory independently of request volume.
 	// Saturation keeps the original request rather than queueing model calls.
 	select {

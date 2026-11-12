@@ -139,3 +139,47 @@ func TestNormalizeCompactionTriggerInputOrder_PrecheckKeepsContract(t *testing.T
 	require.True(t, changed)
 	require.Equal(t, "compaction_trigger", gjson.GetBytes(normalized, "input.1.type").String())
 }
+
+func TestNormalizeCompactionTriggerInputOrder_OnlyDecodesRealItems(t *testing.T) {
+	for _, raw := range []string{
+		`{"input":[{"type":"message","content":"compaction_trigger"}],"instructions":"\u4e2d"}`,
+		`{"input":[{"type":"message","content":[{"type":"compaction_trigger"}]}]}`,
+		`{"input":"compaction_trigger","metadata":{"type":"compaction_trigger"}}`,
+		`{"input":[{"type":{"type":"compaction_trigger"}}]}`,
+	} {
+		body := []byte(raw)
+		require.False(t, compactionTriggerNeedsDecode(body), raw)
+		got, changed, err := NormalizeCompactionTriggerInputOrder(body)
+		require.NoError(t, err)
+		require.False(t, changed)
+		require.Same(t, &body[0], &got[0])
+	}
+	for _, raw := range []string{
+		`{"\u0069nput":[{"\u0074ype":"\u0063ompaction_trigger"},{"type":"message"}]}`,
+		`{"input":[],"input":[{"type":"compaction_trigger"},{"type":"message"}]}`,
+		`{"input":[{"type":"message","type":"compaction_trigger"},{"type":"message"}]}`,
+	} {
+		body := []byte(raw)
+		require.True(t, compactionTriggerNeedsDecode(body), raw)
+		got, changed, err := NormalizeCompactionTriggerInputOrder(body)
+		require.NoError(t, err)
+		require.True(t, changed)
+		require.Equal(t, "compaction_trigger", gjson.GetBytes(got, "input.1.type").String())
+	}
+	// Conservative duplicate detection must let the decoder resolve the final key.
+	for _, raw := range []string{
+		`{"input":[{"type":"compaction_trigger"}],"input":[]}`,
+		`{"input":[{"type":"compaction_trigger","type":"message"}]}`,
+	} {
+		body := []byte(raw)
+		require.True(t, compactionTriggerNeedsDecode(body), raw)
+		got, changed, err := NormalizeCompactionTriggerInputOrder(body)
+		require.NoError(t, err)
+		require.False(t, changed)
+		require.Equal(t, body, got)
+	}
+	for _, raw := range []string{`{"instructions":"compaction_trigger",`, `{"input":"\uZZZZ"}`} {
+		_, _, err := NormalizeCompactionTriggerInputOrder([]byte(raw))
+		require.Error(t, err)
+	}
+}
