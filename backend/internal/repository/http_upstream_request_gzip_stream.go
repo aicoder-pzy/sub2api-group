@@ -99,13 +99,13 @@ func (b *upstreamGzipStream) Close() error {
 
 func (b *upstreamGzipStream) encode() {
 	defer func() { <-upstreamGzipSlots }()
-	defer b.closeInput()
+	defer func() { _ = b.closeInput() }()
 	stop := context.AfterFunc(b.ctx, func() {
 		_ = b.reader.CloseWithError(b.ctx.Err())
 		_ = b.closeInput()
 	})
 	defer stop()
-	writer := upstreamGzipWriters.Get().(*gzip.Writer)
+	writer, _ := upstreamGzipWriters.Get().(*gzip.Writer)
 	writer.Reset(b.writer)
 	written, err := io.Copy(writer, io.LimitReader(b.source, b.size+1))
 	if err == nil && written != b.size {

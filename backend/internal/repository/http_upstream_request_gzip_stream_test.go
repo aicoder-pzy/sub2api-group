@@ -31,12 +31,12 @@ func largeGzipTestRequest(t *testing.T, endpoint string) *http.Request {
 
 func gzipTestDigest(t *testing.T, r io.ReadCloser, encoded bool) []byte {
 	t.Helper()
-	defer r.Close()
+	defer func() { require.NoError(t, r.Close()) }()
 	var source io.Reader = r
 	if encoded {
 		zr, err := gzip.NewReader(r)
 		require.NoError(t, err)
-		defer zr.Close()
+		defer func() { require.NoError(t, zr.Close()) }()
 		source = zr
 	}
 	h := sha256.New()
@@ -128,10 +128,10 @@ func TestUpstreamGzipStreamReplayWaitIsCancellable(t *testing.T) {
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
 	encoded := gzipUpstreamRequest(req.WithContext(ctx))
-	defer encoded.Body.Close()
+	defer func() { require.NoError(t, encoded.Body.Close()) }()
 	second, err := encoded.GetBody()
 	require.NoError(t, err)
-	defer second.Close()
+	defer func() { require.NoError(t, second.Close()) }()
 	done := make(chan error, 1)
 	go func() { _, err := encoded.GetBody(); done <- err }()
 	cancel()
@@ -225,7 +225,7 @@ func TestUpstreamGzipStreamHTTP1HTTP2IncrementalSSE(t *testing.T) {
 			encoded := gzipUpstreamRequest(req)
 			resp, err := srv.Client().Do(encoded)
 			require.NoError(t, err)
-			defer resp.Body.Close()
+			defer func() { require.NoError(t, resp.Body.Close()) }()
 			line, err := bufio.NewReader(resp.Body).ReadString('\n')
 			require.NoError(t, err)
 			require.Equal(t, "data: first\n", line, "SSE arrives before terminal response")
