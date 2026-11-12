@@ -19,6 +19,33 @@ export interface SiteKey {
 }
 export interface SiteGroup { id: string; name: string; description?: string; multiplier?: number }
 export interface SiteKeyGroups { key: SiteKey; groups: SiteGroup[] }
+export interface SiteMonitorRow {
+  id: string
+  name: string
+  group_id?: string
+  group_name?: string
+  model?: string
+  state: 'healthy' | 'warning' | 'critical' | 'unknown'
+  latency_kind: 'check' | 'ttft_p50'
+  latency_ms: number | null
+  availability_7d: number | null
+  error_rate: number | null
+  cache_rate: number | null
+  cache_window_hours?: number
+  checked_at?: string
+}
+export interface SiteMonitor {
+  status: 'ok' | 'error' | 'disabled' | 'unsupported'
+  mode?: 'v1' | 'v2'
+  source_url?: string
+  attempt_at: string
+  received_at?: string
+  data_at?: string
+  refresh_seconds: number
+  stale: boolean
+  error?: string
+  rows: SiteMonitorRow[]
+}
 export interface SiteInventory {
   revision: number
   status: 'ok' | 'attention'
@@ -90,6 +117,9 @@ export const upstreamSitesAPI = {
   },
   async delete(id: string): Promise<void> { await apiClient.delete(sitePath(id)) },
   async sync(id: string): Promise<SiteInventory> { return (await apiClient.get(`${sitePath(id)}/inventory`, { timeout: 180_000 })).data },
+  async monitoring(id: string, signal?: AbortSignal): Promise<SiteMonitor> {
+    return (await apiClient.get(`${sitePath(id)}/monitoring`, { timeout: 60_000, signal })).data
+  },
   async models(id: string, keyId: string): Promise<string[]> { return (await apiClient.get(`${sitePath(id)}/keys/${encodeURIComponent(keyId)}/models`, { timeout: 120_000 })).data },
   async accounts(id: string): Promise<SiteAccount[]> { return (await apiClient.get(`${sitePath(id)}/accounts`)).data },
   async link(id: string, revision: number, accountId: number, keyId: string, unlink = false): Promise<void> {

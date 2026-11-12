@@ -65,6 +65,7 @@
                 </div>
               </section>
             </div>
+            <UpstreamSiteMonitorPanel v-else-if="tab === 'monitoring'" :site="selected" />
             <div v-else class="p-5">
               <p v-if="selected.kind === 'sub2api'" class="mb-4 text-sm" :class="selected.can_refresh ? 'text-primary-600' : 'text-amber-600'" data-site-authorization>{{ tr(selected.can_refresh ? 'automaticRefresh' : 'manualRefresh') }}</p>
               <UpstreamSiteForm v-model="settingsForm" :busy="working" :proxies="proxies" @save="saveSelected"><button type="button" class="btn btn-secondary text-red-600" :disabled="working" @click="showDelete = true">{{ tr('delete') }}</button></UpstreamSiteForm>
@@ -107,6 +108,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import UpstreamSiteForm from '@/components/admin/account/UpstreamSiteForm.vue'
 import UpstreamImportDrawer from '@/components/admin/account/UpstreamImportDrawer.vue'
 import UpstreamGroupSelect from '@/components/admin/account/UpstreamGroupSelect.vue'
+import UpstreamSiteMonitorPanel from '@/components/admin/account/UpstreamSiteMonitorPanel.vue'
 import * as groupsAPI from '@/api/admin/groups'
 import * as proxiesAPI from '@/api/admin/proxies'
 import type { AdminGroup, Proxy } from '@/types'
@@ -116,7 +118,7 @@ const { t, locale } = useI18n()
 const tr = (key: string) => t(`upstreamSites.${key}`)
 const sites = ref<UpstreamSite[]>([]), groups = ref<AdminGroup[]>([]), proxies = ref<Proxy[]>([])
 const selectedId = ref(''), siteSearch = ref(''), attentionOnly = ref(false), keySearch = ref(''), importFilter = ref('all'), availabilityFilter = ref('all'), page = ref(1)
-const tabs = ['keys', 'accounts', 'changes', 'settings'] as const
+const tabs = ['keys', 'accounts', 'changes', 'settings', 'monitoring'] as const
 const tab = ref<typeof tabs[number]>('keys')
 const busy = ref(false), syncing = ref(false), error = ref(''), notice = ref('')
 const working = computed(() => busy.value || syncing.value)

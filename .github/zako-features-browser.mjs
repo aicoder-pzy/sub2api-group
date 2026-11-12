@@ -9,6 +9,13 @@ await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 const errors = [], networkFailures = [], imports = [], creations = [], policies = [], modelWrites = [], links = [], groupChanges = []
 const importedAccounts = []
+let monitorReads = 0
+const monitorTime = new Date().toISOString()
+const monitoring = { status: 'ok', mode: 'v1', source_url: 'https://upstream.example.invalid/monitor', attempt_at: monitorTime, received_at: monitorTime, data_at: monitorTime, refresh_seconds: 60, stale: false, rows: [
+  { id: 'matched', group_id: 'fast', group_name: '快速分组', name: '当前 Key 渠道', model: 'test-model', state: 'healthy', latency_kind: 'check', latency_ms: 1500, availability_7d: 99.9, error_rate: null, cache_rate: 84, cache_window_hours: 24, checked_at: monitorTime },
+  { id: 'vip', name: '未匹配项目 <script>window.monitorInjected = true</script>', state: 'warning', latency_kind: 'check', latency_ms: 3000, availability_7d: 98, error_rate: null, cache_rate: null, checked_at: monitorTime },
+  { id: 'old', name: '旧监控记录', state: 'healthy', latency_kind: 'check', latency_ms: 1000, availability_7d: 100, error_rate: null, cache_rate: null, checked_at: '2020-01-01T00:00:00Z' }
+] }
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, locale: 'zh-CN' })
   const user = { id: 1, role: 'admin', email: 'admin@example.invalid', username: 'Admin', balance: 100, status: 'active', concurrency: 5 }
@@ -43,6 +50,7 @@ try {
     const sites = '/api/v1/admin/accounts/upstream-sites'
     if (p === sites) return json([site])
     if (p === `${sites}/${site.id}/inventory`) return json(inventory)
+    if (p === `${sites}/${site.id}/monitoring`) { assert.equal(request.method(), 'GET'); monitorReads++; return json(monitoring) }
     if (p === `${sites}/${site.id}/accounts`) return json(importedAccounts)
     if (p === `${sites}/${site.id}/keys/3/groups`) return json({ key: inventory.keys[0], groups: inventory.groups })
     if (p === `${sites}/${site.id}/keys/3/group` && request.method() === 'PUT') {
@@ -165,6 +173,31 @@ try {
   assert.deepEqual(groupChanges, [{ revision: 1, current_group_id: 'vip', group_id: 'fast' }])
   await page.reload()
   await page.getByRole('main').getByText('快速分组', { exact: false }).first().waitFor()
+  assert.equal(monitorReads, 0, 'monitoring should load only when its tab opens')
+  await page.getByRole('tab', { name: '渠道状态', exact: true }).click()
+  const monitorPanel = page.locator('[data-site-monitor]')
+  await monitorPanel.locator('[data-monitor-row="matched"]').waitFor()
+  assert.equal(monitorReads, 1)
+  assert.match(await monitorPanel.locator('[data-monitor-unmatched]').textContent(), /VIP/)
+  assert.equal(await monitorPanel.locator('[data-monitor-row="old"] .monitor-state').textContent(), '数据过期')
+  assert.equal(await monitorPanel.locator('script').count(), 0)
+  assert.equal(await page.evaluate(() => window.monitorInjected), undefined)
+  await monitorPanel.getByLabel('监控范围').selectOption('keys')
+  assert.equal(await monitorPanel.locator('[data-monitor-row]').count(), 1)
+  await monitorPanel.getByLabel('监控范围').selectOption('all')
+  for (const width of [1440, 375, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 2)
+    await monitorPanel.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: path.join(output, `upstream-monitor-${width}.png`), animations: 'disabled' })
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), true, `Monitor page overflow at ${width}`)
+  }
+  monitoring.status = 'error'; monitoring.stale = true
+  await monitorPanel.getByRole('button', { name: '刷新', exact: true }).click()
+  await monitorPanel.getByRole('alert').waitFor()
+  assert.equal(await monitorPanel.locator('.monitor-state.healthy').count(), 0)
+  assert.equal(await monitorPanel.locator('[data-monitor-row]').count(), 3)
+  assert.match(await monitorPanel.getByRole('alert').textContent(), /保留上次数据/)
   await page.close()
   page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
@@ -181,7 +214,7 @@ try {
   assert.equal(policies.length, 1)
   assert.deepEqual(policies[0].prompt_policy, { '*': 'zako-default' })
   assert.equal(errors.length, 0, errors.join('\n'))
-  await writeFile(path.join(output, 'result.json'), JSON.stringify({ errors, networkFailures, imports, creations, policies, modelWrites, links, groupChanges, realRequests: 0 }, null, 2))
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ errors, networkFailures, imports, creations, policies, modelWrites, links, groupChanges, monitorReads, realRequests: 0 }, null, 2))
 } catch (error) {
   for (const page of browser.contexts().flatMap(context => context.pages())) {
     await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {})

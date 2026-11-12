@@ -412,6 +412,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.PUT("/upstream-sites/:site_id", h.Admin.Account.SaveUpstreamSite)
 		accounts.DELETE("/upstream-sites/:site_id", h.Admin.Account.DeleteUpstreamSite)
 		accounts.GET("/upstream-sites/:site_id/inventory", h.Admin.Account.UpstreamSiteInventory)
+		accounts.GET("/upstream-sites/:site_id/monitoring", h.Admin.Account.UpstreamSiteMonitoring)
 		accounts.GET("/upstream-sites/:site_id/accounts", h.Admin.Account.UpstreamSiteAccounts)
 		accounts.POST("/upstream-sites/:site_id/accounts/link", h.Admin.Account.LinkUpstreamSiteAccount)
 		accounts.POST("/upstream-sites/:site_id/accounts/:account_id/models", h.Admin.Account.UpstreamSiteAccountModels)

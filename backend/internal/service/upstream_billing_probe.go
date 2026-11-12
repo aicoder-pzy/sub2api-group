@@ -262,6 +262,7 @@ type UpstreamBillingProbeService struct {
 	stopped      bool
 	cycleMu      sync.Mutex
 	probeGroup   singleflight.Group
+	siteMonitors sync.Map
 	probeSlots   chan struct{}
 	now          func() time.Time
 	lockCache    LeaderLockCache

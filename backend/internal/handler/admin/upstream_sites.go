@@ -104,6 +104,20 @@ func (h *AccountHandler) UpstreamSiteAccounts(c *gin.Context) {
 	response.Success(c, accounts)
 }
 
+func (h *AccountHandler) UpstreamSiteMonitoring(c *gin.Context) {
+	site, err := h.loadUpstreamSite(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	snapshot, err := h.upstreamBillingProbe.UpstreamSiteMonitoring(c.Request.Context(), site)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, snapshot)
+}
+
 func (h *AccountHandler) LinkUpstreamSiteAccount(c *gin.Context) {
 	var input struct {
 		AccountID int64  `json:"account_id"`

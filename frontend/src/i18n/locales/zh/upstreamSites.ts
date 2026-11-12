@@ -1,4 +1,19 @@
 export default {
+  monitoring: '渠道状态',
+  monitor: {
+    readOnly: '读取上游已有监控，不发起模型请求，不消耗调用额度。',
+    v1Hint: '检测耗时、7日可用率来自上游探测；缓存率按上游提供的时间窗显示。与本地调用速度、缓存率可能不同。',
+    v2Hint: '上游分组统计（近90分钟视图）；首字和缓存按上游各自统计口径显示，可能存在聚合延迟。',
+    source: '查看上游监控', receivedAt: '成功读取时间', dataAt: '上游数据时间', noTime: '上游未提供', refreshInterval: '每 {seconds} 秒读取，隐藏页面时暂停',
+    readFailed: '监控读取失败，请检查站点授权和连接。', retained: '保留上次数据，不代表当前状态。',
+    disabled: '上游未开启渠道监控。', unsupported: '暂未提供可读取的监控接口，可前往上游站点查看。',
+    unmatched: '当前 Key 的以下分组没有明确匹配的监控，无法据此判断状态：',
+    scope: '监控范围', all: '全部上游监控', keyGroups: '当前 Key 分组', keyGroup: '当前 Key 使用', rows: '共 {count} 项',
+    channel: '分组 / 监控项目', ttft: '首字 P50', latency: '检测耗时', errorRate: '错误率', availability: '7日可用率', cache: '缓存率', windowHours: '近 {hours} 小时',
+    healthy: '正常', warning: '需要关注', critical: '异常', unknown: '未知', stale: '数据过期', undated: '时间未知', reported: '上次报告',
+    empty: '上游暂无监控记录', noMatched: '当前 Key 分组没有明确匹配的监控记录',
+    mappingHint: '仅按上游分组 ID 或唯一且完全相同的分组名匹配。未匹配不代表异常；数据超过15分钟或读取失败时不显示为当前正常状态。'
+  },
   title: '上游站点', description: '统一管理上游连接、密钥与本地账号', add: '添加站点', syncAll: '同步全部站点',
   total: '全部站点', healthy: '连接正常', attention: '需要关注', localAccounts: '关联本地账号',
   searchSites: '搜索站点', attentionOnly: '只看需要关注', noSites: '暂无上游站点', noSitesHint: '添加站点并验证管理令牌后，即可读取密钥和导入账号。',

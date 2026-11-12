@@ -1,4 +1,19 @@
 export default {
+  monitoring: 'Channel status',
+  monitor: {
+    readOnly: 'Reads existing upstream monitoring without model requests or inference quota charges.',
+    v1Hint: 'Check latency and 7-day availability come from upstream probes. Cache rate uses the upstream time window. These may differ from local requests.',
+    v2Hint: 'Upstream group statistics (90-minute view). First-token and cache metrics use upstream definitions and may have aggregation delay.',
+    source: 'View upstream monitor', receivedAt: 'Successfully fetched', dataAt: 'Upstream data time', noTime: 'Not provided', refreshInterval: 'Fetches every {seconds}s; pauses while hidden',
+    readFailed: 'Cannot read monitoring. Check site authorization and connection.', retained: 'Previous data is retained and does not establish current status.',
+    disabled: 'Channel monitoring is disabled upstream.', unsupported: 'No supported monitoring API is available. Visit the upstream site to check.',
+    unmatched: 'No monitor explicitly matches these current key groups; their status cannot be determined:',
+    scope: 'Monitor scope', all: 'All upstream monitors', keyGroups: 'Current key groups', keyGroup: 'Used by current keys', rows: '{count} items',
+    channel: 'Group / monitor', ttft: 'First-token P50', latency: 'Check latency', errorRate: 'Error rate', availability: '7-day availability', cache: 'Cache rate', windowHours: 'Last {hours} hours',
+    healthy: 'Healthy', warning: 'Needs attention', critical: 'Unhealthy', unknown: 'Unknown', stale: 'Stale data', undated: 'Time unknown', reported: 'Last reported',
+    empty: 'No upstream monitoring records', noMatched: 'No monitor explicitly matches the current key groups',
+    mappingHint: 'Matches only by upstream group ID or a unique exact group name. Unmatched does not mean unhealthy. Data older than 15 minutes or failed reads cannot establish current health.'
+  },
   title: 'Upstream sites', description: 'Manage upstream connections, keys and local accounts', add: 'Add site', syncAll: 'Sync all sites',
   total: 'All sites', healthy: 'Connected', attention: 'Needs attention', localAccounts: 'Linked local accounts',
   searchSites: 'Search sites', attentionOnly: 'Needs attention only', noSites: 'No upstream sites', noSitesHint: 'Add a site and verify its management token to read keys and import accounts.',
