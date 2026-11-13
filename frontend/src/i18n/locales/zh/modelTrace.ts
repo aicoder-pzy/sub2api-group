@@ -3,7 +3,7 @@ export default {
   intro: '生成三条随机数字挑战，固定同一账号与模型依次请求，再用内置指纹库进行归因。每轮最多三题，不自动补题，会消耗上游额度。',
   limitation: '概率仅表示在当前候选库内更像哪个模型，不是模型真实身份或降智的证明。库外模型也会被归入现有候选；结果不触发自动隔离或恢复。',
   claudeSystemWarning: 'Claude OAuth 会保留上游要求的 Claude Code 系统提示词，可能明显影响指纹；请结合其他证据判断。',
-  unsupported: '首版支持 OpenAI / Anthropic 常规文本账号；不支持 Excel/BPS、Prism、Agent Identity、影子账号及服务账号。后端会进一步核对实际通道。',
+  unsupported: '首版支持 OpenAI / Anthropic 常规文本账号；不支持 Agent Identity、影子账号及服务账号。后端会进一步核对实际通道。',
   model: '请求模型',
   modelHint: '支持账号配置的模型别名；每条样本会记录实际映射模型。未收录的模型也可测试，但无法确认其真实身份。',
   effort: '思考强度',

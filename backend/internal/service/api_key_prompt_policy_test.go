@@ -66,11 +66,50 @@ func TestPromptPolicyDefaultsAndCatalogIntegrity(t *testing.T) {
 			require.Error(t, ValidateAPIKeyPromptPolicy(map[string]string{"*": profile.ID}))
 		}
 	}
-	require.Len(t, seen, 43)
+	require.Len(t, seen, 58)
+	require.Equal(t, "b129465c69fd806a31c0590d0e3d9b4d14603d125ad8dfbbf92dbaa1b7f72b55", promptProfile("zako-default").TextHash)
 	for _, policy := range []map[string]string{{"*": "unknown"}, {"bad model": "custom:x"}, {"m": "custom:"}, {"m": "custom:" + strings.Repeat("x", 16385)}} {
 		require.Error(t, ValidateAPIKeyPromptPolicy(policy))
 	}
 	require.NoError(t, ValidateAPIKeyPromptPolicy(map[string]string{"*": "zako-default"}))
+}
+
+func TestPromptPolicyColdcoffeeTemplatesRequireExactModels(t *testing.T) {
+	templates := 0
+	for _, profile := range APIKeyPromptProfiles() {
+		if profile.ID == "zako-default" {
+			continue
+		}
+		require.NotNil(t, profile.Metadata)
+		require.Equal(t, "3249afce6b853ff2f2133e016b223db2cf38b087", profile.Metadata.SourceRevision)
+		require.Equal(t, "unverified", profile.Metadata.Validation)
+		if !profile.Template {
+			continue
+		}
+		templates++
+		require.Error(t, ValidateAPIKeyPromptPolicy(map[string]string{"*": profile.ID}))
+		for _, model := range []string{"my-actual-model", "deepseek-v4.1-flash"} {
+			require.NoError(t, ValidateAPIKeyPromptPolicy(map[string]string{model: profile.ID}))
+			body, _ := json.Marshal(map[string]string{"model": model, "instructions": "client"})
+			got, err := ApplyAPIKeyPromptPolicy(body, "/v1/responses", map[string]string{model: profile.ID})
+			require.NoError(t, err)
+			hash := profile.TextHash
+			if strings.HasPrefix(model, "deepseek-") {
+				hash = profile.DeepSeekTextHash
+				require.Contains(t, promptCatalog.Instructions[hash], "# DeepSeek API request adapter")
+			}
+			require.Equal(t, promptCatalog.Instructions[hash]+"\n\nclient", gjson.GetBytes(got, "instructions").String())
+			// Unselected models, including stale wildcard entries, stay untouched.
+			for _, policy := range []map[string]string{{"other": profile.ID}, {"*": profile.ID}} {
+				unchanged, err := ApplyAPIKeyPromptPolicy(body, "/v1/responses", policy)
+				require.NoError(t, err)
+				require.Equal(t, body, unchanged)
+			}
+		}
+	}
+	require.Equal(t, 15, templates)
+	require.Equal(t, []string{"gpt-6-astra"}, promptProfile("gpt-6-astra-v2-rc1").Models)
+	require.Equal(t, promptProfile("coldcoffee@codex").TextHash, promptProfile("gpt-6-astra-v2-rc1").TextHash)
 }
 
 func TestPromptPolicyAuthCacheRoundtrip(t *testing.T) {

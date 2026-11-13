@@ -1,7 +1,7 @@
 export default {
   prompt: {
     title: 'Prompt policies',
-    hint: 'Off by default. Match exact models after Key aliases; * is the optional fallback. Original instructions are preserved. Supports Responses, Chat Completions and Anthropic Messages. Long profiles increase input tokens and costs; evaluate results before use.',
+    hint: 'Off by default. Match exact models after Key aliases; * is the optional fallback. The 15 Coldcoffee templates require an actual model and cannot use *. Original instructions are preserved. Supports Responses, Chat Completions and Anthropic Messages. Long profiles increase input tokens and costs; evaluate results before use.',
     model: 'Exact model, or * for fallback', profile: 'Select a built-in profile', custom: 'Custom instructions', add: 'Add model policy',
     invalid: 'Enter a valid model and prompt. Each model may have only one policy.', loadFailed: 'Could not load profiles. Reopen this dialog to retry.'
   },

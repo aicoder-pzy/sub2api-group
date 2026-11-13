@@ -96,12 +96,10 @@ type openAICodexStateShot struct {
 // 两发必须都是 HTTP 200、回复流完整结束且路由不变，否则一律判「无法判断」。
 // 返回值永不为 nil。model 为空时用 gpt-6-astra，并按账号模型映射转成上游模型名。
 func (s *OpenAIGatewayService) ProbeOpenAICodexState(ctx context.Context, account *Account, model string) *OpenAICodexStateProbeResult {
-	return s.probeOpenAICodexState(ctx, account, model, false)
+	return s.probeOpenAICodexState(ctx, account, model)
 }
 
-// ignoreBPS 让手动和定时检测在启用 BPS 后仍检查原生票据通道，
-// 以便评估是否撤销自动 BPS。探针本身不经过 BPS。
-func (s *OpenAIGatewayService) probeOpenAICodexState(ctx context.Context, account *Account, model string, ignoreBPS bool) *OpenAICodexStateProbeResult {
+func (s *OpenAIGatewayService) probeOpenAICodexState(ctx context.Context, account *Account, model string) *OpenAICodexStateProbeResult {
 	started := time.Now()
 	result := &OpenAICodexStateProbeResult{Verdict: OpenAICodexStateInconclusive, StartedAt: started}
 	defer func() {
@@ -124,7 +122,7 @@ func (s *OpenAIGatewayService) probeOpenAICodexState(ctx context.Context, accoun
 	}
 	result.Model = upstreamModel
 
-	if reason := openAICodexStateProbeUnsupportedReason(account, requested, ignoreBPS); reason != "" {
+	if reason := openAICodexStateProbeUnsupportedReason(account); reason != "" {
 		result.fail(OpenAICodexStateFailureUnsupported, reason, "")
 		return result
 	}
@@ -257,7 +255,7 @@ func openAICodexStateVerdictReason(verdict OpenAICodexStateVerdict) string {
 
 // openAICodexStateProbeUnsupportedReason 返回空串表示该账号可以跑探针。
 // 凭证影子账号不单独运行探针。
-func openAICodexStateProbeUnsupportedReason(account *Account, requestedModel string, ignoreBPS bool) string {
+func openAICodexStateProbeUnsupportedReason(account *Account) string {
 	switch {
 	case account == nil:
 		return "账号不存在"
@@ -269,8 +267,6 @@ func openAICodexStateProbeUnsupportedReason(account *Account, requestedModel str
 		return "此探针不适用于影子账号或个人访问令牌"
 	case account.IsOpenAIAgentIdentity():
 		return "Agent Identity 账号不使用门票，探针不适用"
-	case !ignoreBPS && account.IsExcelBPSEnabledForModel(requestedModel):
-		return "该账号的这个模型走 Excel/BPS 通道，不经过门票，探针不适用"
 	}
 	return ""
 }
@@ -494,3 +490,22 @@ func openAICodexStateStreamErrorPayload(data []byte) []byte {
 	}
 	return nil
 }
+
+func openAIAccountProxyURL(a *Account) string {
+	if a != nil && a.ProxyID != nil && a.Proxy != nil {
+		return a.Proxy.URL()
+	}
+	return ""
+}
+
+func applyOpenAICodexTicketHarvestIdentity(h http.Header, model string) {
+	ensureCodexIdentityHeaders(h)
+	enforceCodexIdentityHeaders(h)
+	model = strings.ToLower(model)
+	if (strings.Contains(model, "gpt-6") || strings.Contains(model, "astra")) && CompareVersions(h.Get("version"), "0.153.4") < 0 {
+		h.Set("version", "0.153.4")
+		h.Set("user-agent", buildCodexCLIUserAgent("0.153.4"))
+	}
+}
+
+func jsonString(value string) string { raw, _ := json.Marshal(value); return string(raw) }

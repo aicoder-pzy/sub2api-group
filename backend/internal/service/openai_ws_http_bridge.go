@@ -431,7 +431,6 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	turn int,
 	writeClientMessage func([]byte) error,
 ) (resultOut *OpenAIForwardResult, errorOut error) {
-	defer func() { stampBPSForwardResult(c, account, payload, resultOut) }()
 	if s == nil {
 		return nil, errors.New("service is nil")
 	}
@@ -445,7 +444,6 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		return nil, errors.New("client websocket writer is nil")
 	}
 	responseModelObserver := &upstreamResponseModelObserver{}
-	ctx = withBPSRequestScope(ctx, c, payload)
 
 	body, err := prepareOpenAIWSHTTPBridgeBody(account, payload)
 	if err != nil {

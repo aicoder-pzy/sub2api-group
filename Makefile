@@ -41,8 +41,6 @@ FRONTEND_CRITICAL_VITEST := \
 	src/features/ip-risk/__tests__/IPRiskSettings.spec.ts \
 	src/features/ip-risk/__tests__/api.spec.ts \
 	src/utils/__tests__/pelicanPreview.spec.ts \
-	src/views/admin/__tests__/PrismView.spec.ts \
-	src/views/admin/__tests__/BPSTicketsView.spec.ts \
 	src/i18n/__tests__/localeKeyCompleteness.spec.ts \
 	src/api/__tests__/client.spec.ts \
 	src/api/__tests__/tokenRefresh.spec.ts \

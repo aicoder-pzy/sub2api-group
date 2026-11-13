@@ -25,7 +25,7 @@ import { useI18n } from 'vue-i18n'
 import { apiClient } from '@/api/client'
 import type { KeyModelMappingEntry } from '@/utils/keyModelMapping'
 
-interface Profile { id: string; name: string; models: string[]; bytes: number }
+interface Profile { id: string; name: string; models: string[]; bytes: number; template?: boolean }
 const props = defineProps<{ modelValue: KeyModelMappingEntry[]; admin?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [entries: KeyModelMappingEntry[]] }>()
 const { t } = useI18n()
@@ -34,10 +34,10 @@ const loadError = ref(false)
 onMounted(async () => {
   try { profiles.value = (await apiClient.get<Profile[]>(props.admin ? '/admin/api-keys/prompt-profiles' : '/keys/prompt-profiles')).data } catch { loadError.value = true }
 })
-const compatible = (model: string) => profiles.value.filter(profile => !model || profile.models.length === 0 || profile.models.includes(model))
+const compatible = (model: string) => profiles.value.filter(profile => !(profile.template && model === '*') && (!model || profile.models.length === 0 || profile.models.includes(model)))
 const update = (index: number, changes: Partial<KeyModelMappingEntry>) => emit('update:modelValue', props.modelValue.map((entry, i) => i === index ? { ...entry, ...changes } : entry))
 function choose(index: number, id: string) {
   const profile = profiles.value.find(item => item.id === id)
-  update(index, { to: id === 'custom' ? 'custom:' : id, from: props.modelValue[index].from || profile?.models[0] || '*' })
+  update(index, { to: id === 'custom' ? 'custom:' : id, from: props.modelValue[index].from || profile?.models[0] || (profile?.template ? '' : '*') })
 }
 </script>

@@ -13,11 +13,21 @@ import (
 var promptCatalogJSON []byte
 
 type PromptProfile struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Models   []string `json:"models"`
-	Bytes    int      `json:"bytes"`
-	TextHash string   `json:"text_hash"`
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name"`
+	Models           []string               `json:"models"`
+	Bytes            int                    `json:"bytes"`
+	TextHash         string                 `json:"text_hash"`
+	Template         bool                   `json:"template,omitempty"`
+	DeepSeekTextHash string                 `json:"deepseek_text_hash,omitempty"`
+	Metadata         *PromptProfileMetadata `json:"metadata,omitempty"`
+}
+
+type PromptProfileMetadata struct {
+	SourceURL      string `json:"source_url"`
+	SourceRevision string `json:"source_revision"`
+	Variant        string `json:"variant"`
+	Validation     string `json:"validation"`
 }
 
 var promptCatalog struct {
@@ -70,6 +80,9 @@ func ValidateAPIKeyPromptPolicy(policy map[string]string) error {
 		}
 		profile := promptProfile(id)
 		if profile == nil {
+			return invalid()
+		}
+		if profile.Template && model == "*" {
 			return invalid()
 		}
 		if len(profile.Models) > 0 {
@@ -126,6 +139,15 @@ func applyAPIKeyPromptPolicyForModel(body []byte, path string, policy map[string
 		instruction = strings.TrimPrefix(id, "custom:")
 	} else if profile := promptProfile(id); profile != nil {
 		instruction = promptCatalog.Instructions[profile.TextHash]
+		if profile.Template {
+			// Templates bind an exact effective model; they never act as a fallback.
+			if policy[model] != id {
+				return body, nil
+			}
+			if model == "deepseek" || strings.HasPrefix(model, "deepseek-") {
+				instruction = promptCatalog.Instructions[profile.DeepSeekTextHash]
+			}
+		}
 	}
 	if instruction == "" {
 		return body, nil

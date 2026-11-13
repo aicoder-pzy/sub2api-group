@@ -3,7 +3,7 @@ export default {
   intro: 'Send three independent randomized number challenges to the same account and model, then analyze them with the embedded fingerprint bank. No replacement questions are sent. Requests consume upstream quota.',
   limitation: 'Probabilities compare only the candidates in this bank. They do not prove model identity or degradation. Unlisted models are still assigned to existing candidates. Results do not trigger isolation or recovery.',
   claudeSystemWarning: 'Claude OAuth retains the required Claude Code system prompt, which can substantially affect fingerprints. Corroborate results with other evidence.',
-  unsupported: 'Initially supports native OpenAI / Anthropic text accounts. Excel/BPS, Prism, Agent Identity, shadow and service accounts are unsupported. The server also checks the actual route.',
+  unsupported: 'Initially supports native OpenAI / Anthropic text accounts. Agent Identity, shadow and service accounts are unsupported. The server also checks the actual route.',
   model: 'Requested model',
   modelHint: 'Configured model aliases are supported; the mapped model is recorded per sample. Unlisted models can be tested, but their actual identity cannot be confirmed.',
   effort: 'Reasoning effort',

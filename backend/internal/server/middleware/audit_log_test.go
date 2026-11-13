@@ -5,7 +5,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -32,61 +31,6 @@ func TestDeriveAuditAction(t *testing.T) {
 			t.Fatalf("deriveAuditAction(%q, %q) = %q, want %q", tc.method, tc.path, got, tc.want)
 		}
 	}
-}
-
-func TestPrismAdminAuditOmitsPrivateBodies(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	repository := &auditCaptureRepository{}
-	auditService := service.NewAuditLogService(repository, nil)
-	auditService.Start()
-	router := gin.New()
-	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
-	handler := func(c *gin.Context) {
-		var body map[string]any
-		require.NoError(t, c.ShouldBindJSON(&body))
-		require.NotEmpty(t, body)
-		c.Status(200)
-	}
-	router.PUT("/api/v1/admin/prism/settings", handler)
-	router.POST("/api/v1/admin/prism/accounts/:id/test", handler)
-	for _, req := range []*http.Request{
-		httptest.NewRequest(http.MethodPut, "/api/v1/admin/prism/settings", strings.NewReader(`{"api_key":"private-bridge-secret"}`)),
-		httptest.NewRequest(http.MethodPost, "/api/v1/admin/prism/accounts/7/test", strings.NewReader(`{"prompt":"private prompt"}`)),
-	} {
-		req.Header.Set("Content-Type", "application/json")
-		router.ServeHTTP(httptest.NewRecorder(), req)
-	}
-	auditService.Stop()
-	repository.mu.Lock()
-	defer repository.mu.Unlock()
-	require.Len(t, repository.logs, 2)
-	for _, entry := range repository.logs {
-		require.Equal(t, "<credential-bearing body omitted>", entry.RequestBody)
-	}
-}
-
-func TestMihomoSubscriptionCredentialsAreOmittedFromAudit(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	repository := &auditCaptureRepository{}
-	auditService := service.NewAuditLogService(repository, nil)
-	auditService.Start()
-	router := gin.New()
-	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
-	const payload = `{"subscriptions":["https://subscription.invalid/private-token"],"dynamic_proxies":["http://user:secret@proxy.invalid:8080"]}`
-	router.POST("/api/v1/admin/system/mihomo", func(c *gin.Context) {
-		var body map[string]any
-		require.NoError(t, c.ShouldBindJSON(&body))
-		require.Contains(t, body, "subscriptions")
-		c.Status(200)
-	})
-	req := httptest.NewRequest("POST", "/api/v1/admin/system/mihomo", strings.NewReader(payload))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(httptest.NewRecorder(), req)
-	auditService.Stop()
-	repository.mu.Lock()
-	defer repository.mu.Unlock()
-	require.Len(t, repository.logs, 1)
-	require.Equal(t, "<credential-bearing body omitted>", repository.logs[0].RequestBody)
 }
 
 type auditCaptureRepository struct {

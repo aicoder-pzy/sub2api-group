@@ -34,7 +34,7 @@ func validateCodexProbeResponse(body []byte, expectedModel ...string) error {
 				models = append(models, event.Response.Model)
 			}
 			for _, served := range models {
-				if served != "" && normalizeOpenAICodexTicketModel(served) != normalizeOpenAICodexTicketModel(expectedModel[0]) {
+				if served != "" && strings.TrimSpace(served) != strings.TrimSpace(expectedModel[0]) {
 					return errors.New("probe response model mismatch")
 				}
 			}

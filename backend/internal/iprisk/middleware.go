@@ -64,9 +64,6 @@ func credentialFailure(c *gin.Context) bool {
 // Machine callbacks retain their existing signatures / capability / worker tokens.
 // Match registered routes and methods exactly, never arbitrary URL prefixes.
 func machineCallback(method, path string) bool {
-	if path == "/api/bps-images/:token" {
-		return method == http.MethodGet || method == http.MethodHead
-	}
 	if path == "/api/v1/payment/webhook/easypay" {
 		return method == http.MethodGet || method == http.MethodPost
 	}

@@ -20,8 +20,6 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (resultOut *OpenAIForwardResult, errorOut error) {
-	defer func(raw []byte) { stampBPSForwardResult(c, account, raw, resultOut) }(body)
-	ctx = withBPSRequestScope(ctx, c, body)
 	bindingModel := gjson.GetBytes(body, "model").String()
 	ctx = prepareFastestFailoverBinding(ctx, s.cache, bindingModel)
 	ctx, timeoutAttempt := beginFastestFailoverAttempt(ctx, account, s.settingService)

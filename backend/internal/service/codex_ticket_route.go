@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"regexp"
@@ -90,4 +91,24 @@ func codex780Route(cookies []string, target string, now time.Time) ([]string, ti
 		return nil, time.Time{}, errors.New("route_gateway_mismatch: got=" + string(match[1]) + " want=" + target)
 	}
 	return []string{"__cflb=" + pair["__cflb"], "__oailb=" + pair["__oailb"]}, time.Unix(claims.Exp, 0), nil
+}
+
+func parseCodexTicketIssuedAt(value string, expected int, now time.Time) (time.Time, error) {
+	if len(value) != expected || strings.ContainsAny(value, "\r\n\t ") {
+		return time.Time{}, errors.New("ticket_length_mismatch")
+	}
+	core := strings.TrimRight(value, "=")
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(core)
+	if len(value)-len(core) > 2 || err != nil || len(raw) < 73 || raw[0] != 0x80 || (len(raw)-57)%16 != 0 {
+		return time.Time{}, errors.New("ticket_envelope_invalid")
+	}
+	issued := binary.BigEndian.Uint64(raw[1:9])
+	if issued < 1577836800 || issued >= 4102444800 {
+		return time.Time{}, errors.New("ticket_timestamp_invalid")
+	}
+	at := time.Unix(int64(issued), 0)
+	if at.After(now.Add(30*time.Second)) || !now.Before(at.Add(240*time.Second)) {
+		return time.Time{}, errors.New("ticket_expired")
+	}
+	return at, nil
 }

@@ -68,7 +68,7 @@ func TestPelicanAssessmentHTMLOnlyAndPersistence(t *testing.T) {
 		require.Equal(t, "/api/v1/tests/safe-task-id", req.URL.Path)
 		return assessmentResponse(200, `{"id":"safe-task-id","benchmark":"html","status":"succeeded","assessment":{"quality":"degraded","reason":"simple artwork","source":"source_classifier:test"}}`), nil
 	})
-	ctx := context.WithValue(context.Background(), bpsRequestScopeKey{}, "DO_NOT_FORWARD_KEY")
+	ctx := context.WithValue(context.Background(), struct{ name string }{"private-key"}, "DO_NOT_FORWARD_KEY")
 	saved, err := svc.Lookup(ctx, html)
 	require.NoError(t, err)
 	require.Nil(t, saved)

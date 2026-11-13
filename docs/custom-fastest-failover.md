@@ -64,7 +64,7 @@ disabled, expired and (for OpenAI) quarantined proxies are skipped. Direct egres
 requires an explicit `direct` fallback mode. Another egress may be tried only
 after an independently traced persistent failure before HTTP receives a
 connection, with a rewindable request body and no response. Unknown submission
-state never permits egress replay. BPS/ticket and handled plugin routes retain
+state never permits egress replay. Handled plugin routes retain
 their own egress rules and are not replayed by this native HTTP helper.
 
 Bindings retain the existing numeric Redis value. A companion `:revision` key

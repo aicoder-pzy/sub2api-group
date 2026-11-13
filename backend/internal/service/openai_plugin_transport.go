@@ -31,9 +31,6 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	if err := checkAccountRateLimitLatest(request.Context(), account.ID); err != nil {
 		return nil, err
 	}
-	if response, handled, err := s.routeBPSTicketHTTP(request, account); handled {
-		return response, err
-	}
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
@@ -57,11 +54,6 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	account *Account,
 	useTLSFallback bool,
 ) (*http.Response, error) {
-	if s.openaiGatewayService != nil {
-		if response, handled, err := s.openaiGatewayService.routeBPSTicketHTTP(request, account); handled {
-			return response, err
-		}
-	}
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {

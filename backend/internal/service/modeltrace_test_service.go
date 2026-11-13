@@ -51,7 +51,7 @@ type ModelTraceResult struct {
 
 func modelTraceEnvironmentForAccount(account *Account, model string) (modelTraceEnvironment, error) {
 	unsupported := func() (modelTraceEnvironment, error) {
-		return modelTraceEnvironment{}, infraerrors.BadRequest("MODELTRACE_UNSUPPORTED", "ModelTrace supports native OpenAI and Anthropic text accounts only; Excel/BPS, Prism, Agent Identity, shadow and service accounts are not supported")
+		return modelTraceEnvironment{}, infraerrors.BadRequest("MODELTRACE_UNSUPPORTED", "ModelTrace supports native OpenAI and Anthropic text accounts only; Agent Identity, shadow and service accounts are not supported")
 	}
 	if account == nil || account.IsSyntheticUITest() || account.IsCredentialShadow() || account.IsBedrock() || (account.Type != AccountTypeAPIKey && !account.IsOAuth()) {
 		return unsupported()
@@ -59,7 +59,7 @@ func modelTraceEnvironmentForAccount(account *Account, model string) (modelTrace
 	environment := modelTraceEnvironment{OAuth: account.IsOAuth(), SystemPrompt: "none"}
 	switch account.Platform {
 	case PlatformOpenAI:
-		if account.IsExcelBPSEnabledForModel(model) || account.IsOpenAIAgentIdentity() || isOpenAIImageModel(account.GetMappedModel(model)) {
+		if account.IsOpenAIAgentIdentity() || isOpenAIImageModel(account.GetMappedModel(model)) {
 			return unsupported()
 		}
 		environment.Protocol = "responses"

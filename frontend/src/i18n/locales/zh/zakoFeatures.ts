@@ -1,7 +1,7 @@
 export default {
   prompt: {
     title: '提示词策略',
-    hint: '默认关闭。按 Key 映射后的模型精确匹配，* 表示未匹配模型的默认策略。保留原有指令；支持 Responses、Chat Completions、Anthropic Messages。长策略会增加输入 Token 和费用，实际效果需验证。',
+    hint: '默认关闭。按 Key 映射后的模型精确匹配，* 表示未匹配模型的默认策略。冷咖啡的 15 个模板须填写实际模型，不能用于 *。保留原有指令；支持 Responses、Chat Completions、Anthropic Messages。长策略会增加输入 Token 和费用，实际效果需验证。',
     model: '模型名，或 * 作为默认策略', profile: '选择内置策略', custom: '自定义提示词', add: '添加模型策略',
     invalid: '请填写有效模型和提示词；同一模型只能设置一项策略。', loadFailed: '内置策略加载失败，请重新打开后重试。'
   },

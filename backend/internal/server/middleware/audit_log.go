@@ -159,9 +159,6 @@ var auditBodyOmittedRoutes = map[string]struct{}{
 	"PUT /api/v1/admin/accounts/upstream-balance/notifications":       {},
 	"PUT /api/v1/admin/accounts/:id/upstream-balance/newapi":          {},
 	"POST /api/v1/admin/accounts/:id/upstream-balance/newapi/preview": {},
-	"PUT /api/v1/admin/prism/settings":                                {}, // bridge secret
-	"POST /api/v1/admin/prism/accounts/:id/test":                      {}, // private test prompt
-	"POST /api/v1/admin/system/mihomo":                                {}, // subscription URLs and dynamic proxy strings contain credentials
 	"POST /api/v1/auth/passkey/login/finish":                          {},
 	"POST /api/v1/user/passkeys/register/finish":                      {},
 	"POST /api/v1/admin/accounts/import/codex-session":                {},

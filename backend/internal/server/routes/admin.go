@@ -65,18 +65,6 @@ func RegisterAdminRoutes(
 		admin.POST("/pelican-showcase/groups/:id/reset-intelligence", h.PelicanShowcase.ResetIntelligence)
 		admin.GET("/pelican-test-results", h.Admin.ScheduledTest.ListPelicanHistory)
 		admin.GET("/scheduled-test-plans/:id/results/:resultId", h.Admin.ScheduledTest.GetResult)
-		admin.GET("/prism", h.Admin.Account.GetPrismAdmin)
-		admin.PUT("/prism/settings", h.Admin.Account.SavePrismAdmin)
-		admin.POST("/prism/health", h.Admin.Account.CheckPrismAdmin)
-		admin.POST("/prism/accounts/:id/test", h.Admin.Account.TestPrismAdmin)
-		admin.GET("/bps-tickets", h.Admin.Account.GetBPSTickets)
-		admin.PUT("/bps-tickets/settings", h.Admin.Account.SaveBPSTicketSettings)
-		admin.PUT("/bps-tickets/accounts/:id", h.Admin.Account.SaveBPSTicketAccount)
-		admin.POST("/bps-tickets/accounts/:id/probe", h.Admin.Account.ProbeBPSTicket)
-		admin.POST("/bps-tickets/accounts/:id/harvest", h.Admin.Account.HarvestBPSTicket)
-		admin.GET("/system/mihomo", h.Admin.System.GetMihomo)
-		admin.POST("/system/mihomo", h.Admin.System.ManageMihomo)
-		admin.PUT("/system/mihomo/download-mode", h.Admin.System.SetMihomoDownloadMode)
 
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)

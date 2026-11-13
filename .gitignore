@@ -38,6 +38,8 @@ frontend/dist/
 *.local
 *.tsbuildinfo
 vite.config.d.ts
+vite.pelican.config.d.ts
+vite.pelican.config.js
 vite.config.js.timestamp-*
 
 # 日志
