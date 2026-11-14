@@ -71,6 +71,7 @@ export interface SiteInventory {
   keys: SiteKey[]
   errors: Record<string, string>
 }
+export type SitePurpose = '' | 'public' | 'private'
 export interface UpstreamSite {
   id: string
   name: string
@@ -78,6 +79,7 @@ export interface UpstreamSite {
   base_url: string
   inference_url: string
   purchase_note: string
+  purpose?: SitePurpose
   user_id: number
   proxy_id: number | null
   revision: number
@@ -130,6 +132,9 @@ export const upstreamSitesAPI = {
     return (await (id ? apiClient.put(sitePath(id), form, { timeout: 60_000 }) : apiClient.post(endpoint, form, { timeout: 60_000 }))).data
   },
   async delete(id: string): Promise<void> { await apiClient.delete(sitePath(id)) },
+  async setPurpose(id: string, current: SitePurpose, purpose: SitePurpose): Promise<{ purpose: SitePurpose }> {
+    return (await apiClient.put(`${sitePath(id)}/purpose`, { current_purpose: current, purpose })).data
+  },
   async sync(id: string): Promise<SiteInventory> { return (await apiClient.get(`${sitePath(id)}/inventory`, { timeout: 180_000 })).data },
   async monitoring(id: string, signal?: AbortSignal): Promise<SiteMonitor> {
     return (await apiClient.get(`${sitePath(id)}/monitoring`, { timeout: 60_000, signal })).data

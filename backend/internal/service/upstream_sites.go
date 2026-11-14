@@ -26,6 +26,7 @@ type UpstreamSite struct {
 	BaseURL       string                         `json:"base_url"`
 	InferenceURL  string                         `json:"inference_url"`
 	PurchaseNote  string                         `json:"purchase_note"`
+	Purpose       string                         `json:"purpose"`
 	Inventory     *UpstreamSiteInventory         `json:"inventory,omitempty"`
 	Catalogs      map[string]UpstreamSiteCatalog `json:"catalogs,omitempty"`
 	AccountCount  int                            `json:"account_count"`
@@ -72,7 +73,7 @@ func (s *UpstreamBillingProbeService) ListUpstreamSites(ctx context.Context) ([]
 	rows, err := s.db.QueryContext(ctx, `SELECT id,name,kind,base_url,user_id,proxy_id,revision,inference_url,purchase_note,inventory,model_catalogs,refresh_token_cipher <> '',
 		(SELECT COUNT(*) FROM accounts a WHERE a.deleted_at IS NULL AND
 		(a.extra->'upstream_import'->>'site_id'=upstream_sites.id::text OR a.extra->'upstream_site_link'->>'site_id'=upstream_sites.id::text))
-		FROM upstream_sites ORDER BY created_at,id`)
+		,purpose FROM upstream_sites ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +82,7 @@ func (s *UpstreamBillingProbeService) ListUpstreamSites(ctx context.Context) ([]
 	for rows.Next() {
 		var site UpstreamSite
 		var inventory, catalogs []byte
-		if err = rows.Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.InferenceURL, &site.PurchaseNote, &inventory, &catalogs, &site.CanRefresh, &site.AccountCount); err != nil {
+		if err = rows.Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.InferenceURL, &site.PurchaseNote, &inventory, &catalogs, &site.CanRefresh, &site.AccountCount, &site.Purpose); err != nil {
 			return nil, err
 		}
 		if err = decodeUpstreamSiteCache(&site, inventory, catalogs); err != nil {
@@ -101,7 +102,7 @@ func (s *UpstreamBillingProbeService) GetUpstreamSite(ctx context.Context, id st
 	}
 	var site UpstreamSite
 	var inventory, catalogs []byte
-	err := s.db.QueryRowContext(ctx, "SELECT id,name,kind,base_url,user_id,proxy_id,revision,token_cipher,inference_url,purchase_note,inventory,model_catalogs,refresh_token_cipher FROM upstream_sites WHERE id=$1", id).Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.cipher, &site.InferenceURL, &site.PurchaseNote, &inventory, &catalogs, &site.refreshCipher)
+	err := s.db.QueryRowContext(ctx, "SELECT id,name,kind,base_url,user_id,proxy_id,revision,token_cipher,inference_url,purchase_note,inventory,model_catalogs,refresh_token_cipher,purpose FROM upstream_sites WHERE id=$1", id).Scan(&site.ID, &site.Name, &site.Kind, &site.BaseURL, &site.UserID, &site.ProxyID, &site.Revision, &site.cipher, &site.InferenceURL, &site.PurchaseNote, &inventory, &catalogs, &site.refreshCipher, &site.Purpose)
 	site.CanRefresh = site.refreshCipher != ""
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, infraerrors.NotFound("UPSTREAM_SITE_NOT_FOUND", "Upstream site not found")
@@ -110,6 +111,31 @@ func (s *UpstreamBillingProbeService) GetUpstreamSite(ctx context.Context, id st
 		err = decodeUpstreamSiteCache(&site, inventory, catalogs)
 	}
 	return &site, err
+}
+
+// Purpose is local metadata: changing it must not contact the upstream, rotate
+// credentials, invalidate inventory, or change the identity revision.
+func (s *UpstreamBillingProbeService) SetUpstreamSitePurpose(ctx context.Context, id, current, purpose string) error {
+	if s == nil || s.db == nil {
+		return ErrUpstreamBillingProbeUnavailable
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		return upstreamSiteError("Invalid site ID")
+	}
+	for _, value := range []string{current, purpose} {
+		if value != "" && value != "public" && value != "private" {
+			return upstreamSiteError("Invalid account purpose")
+		}
+	}
+	result, err := s.db.ExecContext(ctx, "UPDATE upstream_sites SET purpose=$3,updated_at=NOW() WHERE id=$1 AND purpose=$2", id, current, purpose)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n == 0 {
+		return infraerrors.Conflict("UPSTREAM_SITE_PURPOSE_CHANGED", "Site purpose changed or site was removed; reload before editing")
+	}
+	return err
 }
 
 // Management requests share the existing validated upstream transport, refuse
@@ -238,6 +264,8 @@ func (s *UpstreamBillingProbeService) SaveUpstreamSite(ctx context.Context, inpu
 		return nil, ErrNewAPIEncryptionKey
 	}
 	input.Name = strings.TrimSpace(input.Name)
+	// Purpose is maintained through its independent metadata endpoint.
+	input.Purpose = ""
 	if err := parseUpstreamSiteAuthorization(&input); err != nil {
 		return nil, err
 	}
@@ -273,6 +301,7 @@ func (s *UpstreamBillingProbeService) SaveUpstreamSite(ctx context.Context, inpu
 		if old.Revision != input.Revision {
 			return nil, ErrUpstreamBillingProbeIdentityChanged
 		}
+		input.Purpose = old.Purpose
 		if input.AccessToken == "" {
 			if old.BaseURL != input.BaseURL || old.Kind != input.Kind || old.UserID != input.UserID {
 				return nil, upstreamSiteError("A new identity requires a new management token")

@@ -51,6 +51,30 @@ func TestUpstreamSitesConsoleLoadsCacheAndUnlinksOnlyMetadata(t *testing.T) {
 	site, err := svc.GetUpstreamSite(ctx, siteID)
 	require.NoError(t, err)
 	require.True(t, site.CanRefresh)
+	// Usage labels work even without upstream credentials/transport configured,
+	// and preserve authorization, cached inventory and the identity revision.
+	require.Empty(t, site.Purpose)
+	var siteBefore, siteAfter string
+	siteState := "SELECT (to_jsonb(s)-'purpose'-'updated_at')::text FROM upstream_sites s WHERE id=$1"
+	require.NoError(t, integrationDB.QueryRowContext(ctx, siteState, siteID).Scan(&siteBefore))
+	for _, purpose := range []string{"public", "private", ""} {
+		require.NoError(t, svc.SetUpstreamSitePurpose(ctx, siteID, site.Purpose, purpose))
+		site, err = svc.GetUpstreamSite(ctx, siteID)
+		require.NoError(t, err)
+		require.Equal(t, purpose, site.Purpose)
+		sites, err = svc.ListUpstreamSites(ctx)
+		require.NoError(t, err)
+		for _, row := range sites {
+			if row.ID == siteID {
+				require.Equal(t, purpose, row.Purpose)
+			}
+		}
+	}
+	require.Error(t, svc.SetUpstreamSitePurpose(ctx, siteID, "", "invalid"))
+	require.Error(t, svc.SetUpstreamSitePurpose(ctx, siteID, "private", "public"))
+	require.Error(t, svc.SetUpstreamSitePurpose(ctx, "bad-id", "", "public"))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, siteState, siteID).Scan(&siteAfter))
+	require.JSONEq(t, siteBefore, siteAfter)
 	accounts, err := svc.UpstreamSiteAccounts(ctx, siteID)
 	require.NoError(t, err)
 	require.Len(t, accounts, 1)

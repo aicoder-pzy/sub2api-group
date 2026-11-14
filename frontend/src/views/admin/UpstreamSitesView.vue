@@ -13,11 +13,11 @@
       <div v-if="!sites.length && !busy" class="console-empty console-panel"><Icon name="globe" size="xl" /><h2>{{ tr('noSites') }}</h2><p>{{ tr('noSitesHint') }}</p><button class="btn btn-primary" type="button" @click="openAdd">{{ tr('add') }}</button></div>
       <div v-else class="console-grid">
         <aside class="console-panel site-list">
-          <div class="site-list-tools"><input v-model="siteSearch" class="input" :placeholder="tr('searchSites')" :aria-label="tr('searchSites')" /><label class="mt-3 flex items-center gap-2 text-xs text-gray-500"><input v-model="attentionOnly" type="checkbox" />{{ tr('attentionOnly') }}</label></div>
+          <div class="site-list-tools"><input v-model="siteSearch" class="input" :placeholder="tr('searchSites')" :aria-label="tr('searchSites')" /><select v-model="purposeFilter" class="input mt-3" :aria-label="tr('allPurposes')" :disabled="working"><option value="all">{{ tr('allPurposes') }}</option><option v-for="option in purposeOptions" :key="option.value" :value="option.value">{{ tr(option.label) }}</option></select><label class="mt-3 flex items-center gap-2 text-xs text-gray-500"><input v-model="attentionOnly" type="checkbox" />{{ tr('attentionOnly') }}</label></div>
           <div class="site-list-items">
             <button v-for="item in filteredSites" :key="item.id" type="button" class="site-item" :class="{ selected: item.id === selectedId }" :disabled="working" :aria-pressed="item.id === selectedId" @click="selectedId = item.id">
               <span class="site-avatar">{{ item.name.slice(0, 1).toUpperCase() }}</span>
-              <span class="min-w-0 flex-1"><strong class="block truncate">{{ item.name }}</strong><span class="block truncate text-xs text-gray-400">{{ domain(item.base_url) }}</span><span class="mt-1 block text-xs text-gray-500">{{ item.kind === 'newapi' ? 'New API' : 'Sub2API' }} · {{ item.account_count }} {{ tr('associated') }}</span></span>
+              <span class="min-w-0 flex-1"><strong class="block truncate">{{ item.name }}</strong><span class="block truncate text-xs text-gray-400">{{ domain(item.base_url) }}</span><span class="mt-1 block text-xs text-gray-500">{{ item.kind === 'newapi' ? 'New API' : 'Sub2API' }} · {{ item.account_count }} {{ tr('associated') }}</span><span class="site-badge mt-1" :class="purposeClass(item.purpose)">{{ purposeLabel(item.purpose) }}</span></span>
               <span class="site-dot" :class="status(item)" :title="tr(status(item))"></span>
             </button>
             <p v-if="!filteredSites.length" class="p-5 text-sm text-gray-500">{{ tr('noMatch') }}</p>
@@ -28,6 +28,7 @@
             <div class="flex min-w-0 items-center gap-3"><span class="site-avatar large">{{ selected.name.slice(0, 1).toUpperCase() }}</span><div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><h2 class="break-words">{{ selected.name }}</h2><span class="site-badge">{{ selected.kind === 'newapi' ? 'New API' : 'Sub2API' }}</span><span class="site-badge" :class="status(selected)"><span class="site-dot" :class="status(selected)"></span>{{ tr(status(selected)) }}</span></div><p class="mt-1 break-all text-xs text-gray-500">{{ selected.base_url }}</p></div></div>
             <div class="flex shrink-0 gap-2"><button type="button" class="btn btn-secondary" :disabled="working" @click="tab = 'settings'"><Icon name="cog" size="sm" />{{ tr('settings') }}</button><button type="button" class="btn btn-secondary" :disabled="working" @click="syncSelected"><Icon name="refresh" size="sm" />{{ tr('sync') }}</button></div>
           </div>
+          <label class="mx-5 mb-4 flex flex-wrap items-center gap-3 text-sm text-gray-500"><span>{{ tr('purpose') }}</span><select :value="selected.purpose || ''" class="input w-auto" :class="purposeClass(selected.purpose)" :aria-label="tr('purpose')" :disabled="working" @change="changePurpose"><option v-for="option in purposeOptions" :key="option.value" :value="option.value">{{ tr(option.label) }}</option></select></label>
           <div class="site-metrics">
             <div><span>{{ tr('wallet') }}</span><strong data-site-wallet>{{ amount(selected.inventory?.wallet) }}</strong><small>{{ selected.inventory?.errors.wallet ? tr('stale') + ' · ' : '' }}{{ selected.inventory?.wallet_at ? formatTime(selected.inventory.wallet_at) : tr('walletHint') }}</small></div>
             <div><span>{{ tr('availableKeys') }}</span><strong>{{ selected.inventory ? keys.filter(key => key.available).length : '—' }}<small v-if="selected.inventory"> / {{ keys.length }}</small></strong><small>{{ tr('updated') }} · {{ formatTime(selected.inventory?.received_at) }}</small></div>
@@ -112,12 +113,16 @@ import UpstreamSiteMonitorPanel from '@/components/admin/account/UpstreamSiteMon
 import * as groupsAPI from '@/api/admin/groups'
 import * as proxiesAPI from '@/api/admin/proxies'
 import type { AdminGroup, Proxy } from '@/types'
-import { upstreamSitesAPI as api, siteError, type UpstreamSite, type SiteAccount, type SiteForm, type SiteAmount, type ModelPreview, type SiteKey, type SiteKeyGroups } from '@/api/admin/upstreamSites'
+import { upstreamSitesAPI as api, siteError, type UpstreamSite, type SiteAccount, type SiteForm, type SiteAmount, type ModelPreview, type SiteKey, type SiteKeyGroups, type SitePurpose } from '@/api/admin/upstreamSites'
 
 const { t, locale } = useI18n()
 const tr = (key: string) => t(`upstreamSites.${key}`)
 const sites = ref<UpstreamSite[]>([]), groups = ref<AdminGroup[]>([]), proxies = ref<Proxy[]>([])
 const selectedId = ref(''), siteSearch = ref(''), attentionOnly = ref(false), keySearch = ref(''), importFilter = ref('all'), availabilityFilter = ref('all'), page = ref(1)
+const purposeFilter = ref<SitePurpose | 'all'>('all')
+const purposeOptions = [{ value: '', label: 'purposeUnclassified' }, { value: 'public', label: 'purposePublic' }, { value: 'private', label: 'purposePrivate' }] as const
+const purposeLabel = (purpose?: SitePurpose) => tr(purposeOptions.find(option => option.value === (purpose || ''))!.label)
+const purposeClass = (purpose?: SitePurpose) => purpose ? `purpose-${purpose}` : ''
 const tabs = ['keys', 'accounts', 'changes', 'settings', 'monitoring'] as const
 const tab = ref<typeof tabs[number]>('keys')
 const busy = ref(false), syncing = ref(false), error = ref(''), notice = ref('')
@@ -133,7 +138,7 @@ const settingsForm = ref(emptyForm()), addForm = ref(emptyForm())
 const selected = computed(() => sites.value.find(site => site.id === selectedId.value))
 const keys = computed(() => selected.value?.inventory?.keys || [])
 const status = (site: UpstreamSite) => site.inventory?.status || 'unknown'
-const filteredSites = computed(() => sites.value.filter(site => (!attentionOnly.value || status(site) === 'attention') && `${site.name} ${site.base_url}`.toLowerCase().includes(siteSearch.value.toLowerCase())))
+const filteredSites = computed(() => sites.value.filter(site => (purposeFilter.value === 'all' || (site.purpose || '') === purposeFilter.value) && (!attentionOnly.value || status(site) === 'attention') && `${site.name} ${site.base_url}`.toLowerCase().includes(siteSearch.value.toLowerCase())))
 const summary = computed(() => [
   { label: 'total', value: sites.value.length, icon: 'globe', tone: '' },
   { label: 'healthy', value: sites.value.filter(site => status(site) === 'ok').length, icon: 'checkCircle', tone: 'green' },
@@ -170,7 +175,23 @@ async function run(action: () => Promise<void>) {
 }
 async function loadSites() {
   sites.value = await api.list()
-  if (!sites.value.some(site => site.id === selectedId.value)) selectedId.value = sites.value[0]?.id || ''
+  if (!filteredSites.value.some(site => site.id === selectedId.value)) selectedId.value = filteredSites.value[0]?.id || ''
+}
+watch(filteredSites, list => { if (!list.some(site => site.id === selectedId.value)) selectedId.value = list[0]?.id || '' })
+async function changePurpose(event: Event) {
+  const select = event.target as HTMLSelectElement
+  const site = selected.value
+  if (!site) return
+  const purpose = select.value as SitePurpose
+  select.value = site.purpose || ''
+  if (purpose === (site.purpose || '')) return
+  await run(async () => {
+    const result = await api.setPurpose(site.id, site.purpose || '', purpose)
+    site.purpose = result.purpose
+    notice.value = tr('purposeSaved')
+  })
+  await nextTick()
+  select.value = selected.value?.purpose || ''
 }
 async function loadAccounts() {
   const id = selectedId.value
@@ -223,7 +244,7 @@ async function syncAll() {
     if (failures.length) error.value = failures.join('；')
   } finally { syncing.value = false }
 }
-async function saveNew() { await run(async () => { const result = await api.save('', addForm.value); addForm.value.access_token = ''; await loadSites(); selectedId.value = result.id; closeAdd(); notice.value = tr('saved') }) }
+async function saveNew() { await run(async () => { const result = await api.save('', addForm.value); addForm.value.access_token = ''; purposeFilter.value = 'all'; siteSearch.value = ''; attentionOnly.value = false; await loadSites(); selectedId.value = result.id; closeAdd(); notice.value = tr('saved') }) }
 async function saveSelected() {
   if (!selected.value) return
   const id = selected.value.id
@@ -300,6 +321,8 @@ onMounted(() => { void run(async () => { const results = await Promise.allSettle
 .site-badge { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-500 dark:bg-dark-700 dark:text-gray-400; }
 .site-badge.ok { @apply bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-400; }
 .site-badge.attention { @apply bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400; }
+.purpose-public { @apply bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300; }
+.purpose-private { @apply bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300; }
 .site-detail { @apply overflow-hidden; }
 .site-detail-heading { @apply flex flex-wrap items-center justify-between gap-4 p-5; }
 .site-detail-heading h2 { @apply text-lg font-semibold; }

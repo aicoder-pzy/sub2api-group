@@ -1,4 +1,5 @@
 export default {
+  purpose: 'Account purpose', allPurposes: 'All purposes', purposeUnclassified: 'Unclassified', purposePublic: 'Public use', purposePrivate: 'Private use', purposeSaved: 'Account purpose saved',
   monitoring: 'Channel status',
   monitor: {
     trend: 'Availability trend', successRate: 'Success rate', score: 'Upstream health score',

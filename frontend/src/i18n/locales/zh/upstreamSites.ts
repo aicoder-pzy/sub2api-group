@@ -1,4 +1,5 @@
 export default {
+  purpose: '账号用途', allPurposes: '全部用途', purposeUnclassified: '未分类', purposePublic: '公用', purposePrivate: '私用', purposeSaved: '账号用途已保存',
   monitoring: '渠道状态',
   monitor: {
     trend: '可用性趋势', successRate: '成功率', score: '上游健康评分',

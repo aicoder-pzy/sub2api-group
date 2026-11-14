@@ -76,6 +76,22 @@ func (h *AccountHandler) DeleteUpstreamSite(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+func (h *AccountHandler) SetUpstreamSitePurpose(c *gin.Context) {
+	var input struct {
+		Current *string `json:"current_purpose"`
+		Purpose *string `json:"purpose"`
+	}
+	if c.ShouldBindJSON(&input) != nil || input.Current == nil || input.Purpose == nil {
+		response.BadRequest(c, "Current and new account purpose are required")
+		return
+	}
+	if err := h.upstreamBillingProbe.SetUpstreamSitePurpose(c.Request.Context(), c.Param("site_id"), *input.Current, *input.Purpose); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"purpose": *input.Purpose})
+}
+
 func (h *AccountHandler) UpstreamSiteInventory(c *gin.Context) {
 	site, err := h.loadUpstreamSite(c)
 	if err != nil {
