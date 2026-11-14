@@ -7,6 +7,8 @@ import (
 
 // BodyReadObservation describes the body actually read at the shared decoder.
 // DecodedBytes is -1 when decoding failed. Headers can already have been cleared.
+// For streaming gzip, ReadMillis sums wire reads and DecodeMicros covers the
+// remaining decoder/allocation work. They are additive, not sequential phases.
 type BodyReadObservation struct {
 	Encoding     string
 	EncodedBytes int

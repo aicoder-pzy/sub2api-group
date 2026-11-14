@@ -49,6 +49,16 @@ func TestOpenAIResponsesInputItemIDPrefixUsesObservedOutputContracts(t *testing.
 	}
 }
 
+func TestSanitizeOpenAIResponsesInputItemIDsEscapedKeys(t *testing.T) {
+	body := []byte(`{"input":[{"type":"message","\u0069d":"bad","call_\u0069d":"bad","content":"keep"}]}`)
+	out, changed, err := sanitizeOpenAIResponsesInputItemIDs(body)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.False(t, gjson.GetBytes(out, "input.0.id").Exists())
+	require.False(t, gjson.GetBytes(out, "input.0.call_id").Exists())
+	require.Equal(t, "keep", gjson.GetBytes(out, "input.0.content").String())
+}
+
 func TestSanitizeOpenAIResponsesInputItemIDsDoesNotCascadeAcrossIDNamespaces(t *testing.T) {
 	body := []byte(`{"input":[
 		{"type":"function_call","id":"item_bad_call","call_id":"call_valid","name":"lookup","arguments":"{}"},

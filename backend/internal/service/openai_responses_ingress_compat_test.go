@@ -24,6 +24,22 @@ func TestNormalizeOpenAIResponsesLegacyIngressMessagesOnly(t *testing.T) {
 	require.Equal(t, gjson.False, gjson.GetBytes(normalized, "stream").Type)
 }
 
+func TestNormalizeOpenAIResponsesLegacyIngressEscapedKeys(t *testing.T) {
+	for _, body := range []string{
+		`{"\u006dessages":[{"role":"user","content":"keep"}]}`,
+		`{"\u0070rompt":"keep"}`,
+		`{"input":"keep","\u0063ommands":[]}`,
+	} {
+		out, changed, err := normalizeOpenAIResponsesLegacyIngress([]byte(body))
+		require.NoError(t, err)
+		require.True(t, changed)
+		require.False(t, gjson.GetBytes(out, "messages").Exists())
+		require.False(t, gjson.GetBytes(out, "prompt").Exists())
+		require.False(t, gjson.GetBytes(out, "commands").Exists())
+		require.Contains(t, string(out), "keep")
+	}
+}
+
 func TestNormalizeOpenAIResponsesLegacyIngressConvertsChatTopLevelFields(t *testing.T) {
 	body := []byte(`{"model":"gpt-4.1","messages":[{"role":"user","content":"weather?"}],"tools":[{"type":"function","function":{"name":"lookup","description":"Lookup weather","parameters":{"type":"object"}}}],"tool_choice":{"type":"function","function":{"name":"lookup"}},"max_tokens":64,"reasoning_effort":"high","service_tier":"flex","temperature":0.2,"top_p":0.7}`)
 

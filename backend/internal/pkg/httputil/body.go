@@ -96,6 +96,10 @@ func readRequestBodyWithBudget(req *http.Request) (requestBodyBuffer, error) {
 	if preread, ok := req.Body.(*PrereadBody); ok {
 		return requestBodyBuffer{data: preread.Bytes()}, nil
 	}
+	encoding := strings.ToLower(strings.TrimSpace(req.Header.Get("Content-Encoding")))
+	if encoding == "gzip" || encoding == "x-gzip" {
+		return readGzipRequestBodyWithBudget(req)
+	}
 
 	capHint := requestBodyReadInitCap
 	if req.ContentLength > 0 {

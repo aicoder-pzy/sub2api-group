@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -63,6 +64,11 @@ func shouldStripOpenAIResponsesNonPairCallID(itemType string) bool {
 }
 
 func sanitizeOpenAIResponsesInputItemIDs(body []byte) ([]byte, bool, error) {
+	// Escaped ASCII keys require the structural path. Otherwise an absent key
+	// cannot need sanitization, even in a large image or tool history.
+	if !bytes.Contains(body, []byte(`"id"`)) && !bytes.Contains(body, []byte(`"call_id"`)) && !bytes.Contains(body, []byte(`\u00`)) {
+		return body, false, nil
+	}
 	input := parseRawJSONView(body).Get("input")
 	if !input.IsArray() {
 		return body, false, nil

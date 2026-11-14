@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -25,6 +26,15 @@ func normalizeOpenAIResponsesLegacyIngressWithConfig(cfg *config.Config, body []
 	// only when a legacy top-level field needs compatibility handling.
 	view := parseRawJSONView(body)
 	if view.IsObject() && validOpenAIRequestJSON(body) {
+		// Native image/tool histories usually contain none of these keys. Avoid
+		// walking their large input just to establish absence. Escaped ASCII keys
+		// and possible matches retain the existing structural check.
+		if !bytes.Contains(body, []byte(`"messages"`)) &&
+			!bytes.Contains(body, []byte(`"prompt"`)) &&
+			!bytes.Contains(body, []byte(`"commands"`)) &&
+			!bytes.Contains(body, []byte(`\u00`)) {
+			return body, false, nil
+		}
 		hasLegacyField := false
 		view.ForEach(func(key, _ gjson.Result) bool {
 			switch key.Str {
