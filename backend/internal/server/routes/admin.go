@@ -409,6 +409,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/upstream-sites/:site_id/keys/:key_id/groups", h.Admin.Account.UpstreamSiteKeyGroups)
 		accounts.PUT("/upstream-sites/:site_id/keys/:key_id/group", h.Admin.Account.ChangeUpstreamSiteKeyGroup)
 		accounts.POST("/upstream-sites/:site_id/keys", h.Admin.Account.CreateUpstreamSiteKey)
+		accounts.DELETE("/upstream-sites/:site_id/keys/:key_id", h.Admin.Account.DeleteUpstreamSiteKey)
 		accounts.POST("/upstream-sites/:site_id/import", h.Admin.Account.ImportUpstreamSiteKey)
 		accounts.GET("/upstream-balance/settings", h.Admin.Account.GetUpstreamBalanceSettings)
 		accounts.PUT("/upstream-balance/settings", h.Admin.Account.UpdateUpstreamBalanceSettings)

@@ -276,6 +276,31 @@ func (h *AccountHandler) ChangeUpstreamSiteKeyGroup(c *gin.Context) {
 	response.Success(c, key)
 }
 
+func (h *AccountHandler) DeleteUpstreamSiteKey(c *gin.Context) {
+	var input struct {
+		Revision  int64 `json:"revision"`
+		Confirmed bool  `json:"confirmed"`
+	}
+	if c.ShouldBindJSON(&input) != nil || !input.Confirmed {
+		response.BadRequest(c, "Explicit confirmation is required to delete an upstream key")
+		return
+	}
+	site, err := h.loadUpstreamSite(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if site.Revision != input.Revision {
+		response.ErrorFrom(c, service.ErrUpstreamBillingProbeIdentityChanged)
+		return
+	}
+	if err = h.upstreamBillingProbe.DeleteUpstreamSiteKey(c.Request.Context(), site, c.Param("key_id")); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"deleted": true})
+}
+
 func (h *AccountHandler) ImportUpstreamSiteKey(c *gin.Context) {
 	var input struct {
 		KeyID          string   `json:"key_id"`

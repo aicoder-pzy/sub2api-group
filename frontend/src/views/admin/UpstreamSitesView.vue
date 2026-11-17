@@ -10,6 +10,7 @@
       <div class="console-summary">
         <div v-for="stat in summary" :key="stat.label"><span class="stat-symbol" :class="stat.tone"><Icon :name="stat.icon" size="md" /></span><div><span>{{ tr(stat.label) }}</span><strong>{{ stat.value }}</strong></div></div>
       </div>
+      <UpstreamBalanceOverview :sites="sites" @select="selectBalanceSite" />
       <div v-if="!sites.length && !busy" class="console-empty console-panel"><Icon name="globe" size="xl" /><h2>{{ tr('noSites') }}</h2><p>{{ tr('noSitesHint') }}</p><button class="btn btn-primary" type="button" @click="openAdd">{{ tr('add') }}</button></div>
       <div v-else class="console-grid">
         <aside class="console-panel site-list">
@@ -47,7 +48,7 @@
                 <table class="console-table"><thead><tr><th class="w-9"><input type="checkbox" :checked="pageKeys.length > 0 && pageKeys.filter(key => key.available).length > 0 && pageKeys.filter(key => key.available).every(key => selectedKeys.includes(key.id))" :aria-label="tr('selectPage')" :disabled="working" @change="selectPage(($event.target as HTMLInputElement).checked)" /></th><th>{{ tr('keyName') }}</th><th>{{ tr('models') }}</th><th>{{ tr('quota') }}</th><th>{{ tr('account') }}</th><th>{{ tr('status') }}</th><th>{{ tr('actions') }}</th></tr></thead>
                   <tbody><tr v-for="key in pageKeys" :key="key.id"><td><input v-model="selectedKeys" type="checkbox" :value="key.id" :disabled="working || !key.available" :aria-label="t('upstreamSites.selectKey', { name: key.name })" /></td><td><strong>{{ key.name }}</strong><p class="table-muted">{{ key.group_name || key.group_id || '—' }}<span v-if="groupRatio(key.group_id) !== undefined"> · ×{{ groupRatio(key.group_id) }}</span></p><p class="table-muted font-mono">{{ key.suffix ? '••••' + key.suffix : '#' + key.id }}</p></td>
                     <td><template v-if="selected.catalogs?.[key.id]"><span v-for="model in selected.catalogs[key.id]!.models.slice(0, 2)" :key="model" class="model-chip">{{ model }}</span><small v-if="selected.catalogs[key.id]!.models.length > 2" class="block text-gray-400">+{{ selected.catalogs[key.id]!.models.length - 2 }}</small><p class="table-muted">{{ formatTime(selected.catalogs[key.id]!.attempt_at) }}</p></template><span v-else class="text-xs text-gray-400">{{ tr('notRead') }}</span><button type="button" class="mt-1 block text-xs text-primary-600 dark:text-primary-400" :disabled="working || !key.available" @click="readModels(key.id)">{{ tr('readModels') }}</button></td>
-                    <td class="tabular-nums">{{ amount(key.quota, true) }}</td><td><RouterLink v-for="account in keyAccounts(key.id)" :key="account.id" :to="accountLink(account.id)" class="block max-w-40 truncate text-primary-600 dark:text-primary-400" :title="account.name">#{{ account.id }} · {{ account.name }}</RouterLink><span v-if="!keyAccounts(key.id).length" class="text-gray-400">{{ accountsLoading ? tr('loading') : tr('unassociated') }}</span></td><td><span class="site-badge" :class="key.available ? 'ok' : 'attention'">{{ tr(key.status || (key.available ? 'active' : 'inactive')) }}</span></td><td><div class="flex flex-wrap gap-3"><button type="button" class="text-primary-600 dark:text-primary-400" :disabled="working" @click="openKeyGroup(key)">{{ tr('changeKeyGroup') }}</button><button type="button" class="text-primary-600 dark:text-primary-400" :disabled="working || !key.available || !!accountsError || accountsLoading" @click="openImport([key.id])">{{ tr('import') }}</button></div></td></tr>
+                    <td class="tabular-nums">{{ amount(key.quota, true) }}</td><td><RouterLink v-for="account in keyAccounts(key.id)" :key="account.id" :to="accountLink(account.id)" class="block max-w-40 truncate text-primary-600 dark:text-primary-400" :title="account.name">#{{ account.id }} · {{ account.name }}</RouterLink><span v-if="!keyAccounts(key.id).length" class="text-gray-400">{{ accountsLoading ? tr('loading') : tr('unassociated') }}</span></td><td><span class="site-badge" :class="key.available ? 'ok' : 'attention'">{{ tr(key.status || (key.available ? 'active' : 'inactive')) }}</span></td><td><div class="flex flex-wrap gap-3"><button type="button" class="text-primary-600 dark:text-primary-400" :disabled="working" @click="openKeyGroup(key)">{{ tr('changeKeyGroup') }}</button><button type="button" class="text-primary-600 dark:text-primary-400" :disabled="working || !key.available || !!accountsError || accountsLoading" @click="openImport([key.id])">{{ tr('import') }}</button><button type="button" class="text-red-600 dark:text-red-400" :disabled="working || accountsLoading || !!accountsError" @click="openDeleteKey(key)">{{ tr('deleteKey') }}</button></div></td></tr>
                     <tr v-if="!pageKeys.length"><td colspan="7" class="py-12 text-center text-gray-400">{{ keys.length ? tr('noMatch') : tr('emptyKeys') }}</td></tr>
                   </tbody></table>
               </div>
@@ -80,7 +81,7 @@
     <BaseDialog :show="showAdd" :title="tr('add')" :close-on-escape="!working" :show-close-button="!working" width="wide" @close="closeAdd"><p v-if="error" class="mb-3 text-sm text-red-600" role="alert">{{ error }}</p><UpstreamSiteForm v-model="addForm" :busy="working" is-new :proxies="proxies" @save="saveNew" /></BaseDialog>
     <BaseDialog :show="showDelete" :title="tr('delete')" width="narrow" @close="showDelete = false"><p class="text-sm text-gray-500">{{ tr('deleteConfirm') }}</p><template #footer><button class="btn btn-secondary" @click="showDelete = false">{{ tr('cancel') }}</button><button class="btn btn-primary" :disabled="working" @click="deleteSite">{{ tr('confirm') }}</button></template></BaseDialog>
     <BaseDialog :show="showLink" :title="tr('link')" :close-on-escape="!working" :show-close-button="!working" @close="showLink = false"><form class="space-y-4" @submit.prevent="linkAccount"><p class="text-sm leading-6 text-gray-500">{{ tr('linkHint') }}</p><p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p><label class="block"><span class="input-label">{{ tr('accountId') }}</span><input v-model.number="linkAccountId" type="number" required min="1" class="input" /></label><label class="block"><span class="input-label">{{ tr('keys') }}</span><select v-model="linkKeyId" required class="input" :aria-label="tr('keys')"><option value="">{{ tr('choose') }}</option><option v-for="key in keys" :key="key.id" :value="key.id">{{ key.name }} · #{{ key.id }}</option></select></label><button class="btn btn-primary" :disabled="working" type="submit">{{ tr('confirm') }}</button></form></BaseDialog>
-    <BaseDialog :show="showCreate" :title="tr('createKey')" :close-on-escape="!working" :show-close-button="!working" @close="showCreate = false; createConfirmed = false"><form class="space-y-4" @submit.prevent="createKey"><p class="text-sm leading-6 text-amber-700 dark:text-amber-400">{{ tr('createHint') }}</p><p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p><label class="block"><span class="input-label">{{ tr('newKeyName') }}</span><input v-model="newKeyName" required maxlength="100" class="input" /></label><UpstreamGroupSelect v-model="newKeyGroup" :groups="selected?.inventory?.groups || []" :disabled="working" /><label class="flex items-center gap-2 text-sm"><input v-model="createConfirmed" type="checkbox" />{{ tr('createConfirm') }}</label><button type="submit" class="btn btn-primary" :disabled="working || !createConfirmed">{{ tr('createKey') }}</button></form></BaseDialog>
+    <BaseDialog :show="showCreate" :title="tr('createKey')" :close-on-escape="!working" :show-close-button="!working" @close="showCreate = false; createConfirmed = false"><form class="space-y-4" @submit.prevent="createKey"><p class="text-sm leading-6 text-amber-700 dark:text-amber-400">{{ tr('createHint') }}</p><p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p><label class="block"><span class="input-label">{{ tr('newKeyName') }}</span><input v-model="newKeyName" required maxlength="100" class="input" /></label><UpstreamGroupSelect v-if="showCreate && selected" v-model="newKeyGroup" :groups="selected.inventory?.groups || []" :site="selected" :disabled="working" /><label class="flex items-center gap-2 text-sm"><input v-model="createConfirmed" type="checkbox" />{{ tr('createConfirm') }}</label><button type="submit" class="btn btn-primary" :disabled="working || !createConfirmed || !newKeyGroup">{{ tr('createKey') }}</button></form></BaseDialog>
     <BaseDialog :show="showKeyGroup" :title="tr('changeKeyGroup')" :close-on-escape="!working" :show-close-button="!working" @close="showKeyGroup = false">
       <form class="space-y-4" @submit.prevent="changeKeyGroup">
         <p class="break-words text-sm font-medium">{{ groupKey?.name }} · #{{ groupKey?.id }}</p>
@@ -88,13 +89,20 @@
         <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
         <template v-if="keyGroupOptions">
           <p class="text-sm text-gray-500">{{ tr('currentUpstreamGroup') }}：{{ keyGroupOptions.key.group_name || keyGroupOptions.key.group_id || tr('none') }}</p>
-          <UpstreamGroupSelect v-model="nextKeyGroup" :groups="keyGroupOptions.groups" :disabled="working" />
+          <UpstreamGroupSelect v-if="showKeyGroup && selected" v-model="nextKeyGroup" :groups="keyGroupOptions.groups" :site="selected" :disabled="working" />
           <p class="text-xs leading-5 text-gray-500">{{ tr('localGroupUnchanged') }}</p>
           <div class="flex justify-end gap-2"><button type="button" class="btn btn-secondary" :disabled="working" @click="showKeyGroup = false">{{ tr('cancel') }}</button><button type="submit" class="btn btn-primary" :disabled="working || !nextKeyGroup || nextKeyGroup === keyGroupOptions.key.group_id">{{ tr('saveKeyGroup') }}</button></div>
         </template>
         <p v-else-if="working" role="status" class="text-sm text-gray-500">{{ tr('loadingKeyGroups') }}</p>
         <button v-else type="button" class="btn btn-secondary" @click="groupKey && openKeyGroup(groupKey)">{{ tr('refresh') }}</button>
       </form>
+    </BaseDialog>
+    <BaseDialog :show="!!deleteKeyTarget" :title="tr('deleteKey')" :close-on-escape="!working" :show-close-button="!working" width="narrow" @close="deleteKeyTarget = undefined">
+      <p class="mb-3 break-words font-medium">{{ selected?.name }} · {{ deleteKeyTarget?.name }} · #{{ deleteKeyTarget?.id }}</p>
+      <p class="text-sm leading-6 text-amber-700 dark:text-amber-400">{{ tr('deleteKeyConfirm') }}</p>
+      <p v-if="deleteKeyTarget && keyAccounts(deleteKeyTarget.id).length" class="mt-3 break-words text-sm text-red-600">{{ tr('deleteKeyAccounts') }}：{{ keyAccounts(deleteKeyTarget.id).map(account => '#' + account.id + ' ' + account.name).join('、') }}</p>
+      <p v-if="error" role="alert" class="mt-3 text-sm text-red-600">{{ error }}</p>
+      <template #footer><button type="button" class="btn btn-secondary" :disabled="working" @click="deleteKeyTarget = undefined">{{ tr('cancel') }}</button><button type="button" class="btn btn-primary !bg-red-600" :disabled="working" @click="deleteUpstreamKey">{{ tr('confirmDeleteKey') }}</button></template>
     </BaseDialog>
     <UpstreamImportDrawer v-if="selected" :show="showImport" :site="selected" :keys="importKeys" :groups="groups" :accounts="accounts" @close="showImport = false" @imported="refreshAccounts" @models="storeModels" />
   </AppLayout>
@@ -108,6 +116,7 @@ import Icon from '@/components/icons/Icon.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import UpstreamSiteForm from '@/components/admin/account/UpstreamSiteForm.vue'
 import UpstreamImportDrawer from '@/components/admin/account/UpstreamImportDrawer.vue'
+import UpstreamBalanceOverview from '@/components/admin/account/UpstreamBalanceOverview.vue'
 import UpstreamGroupSelect from '@/components/admin/account/UpstreamGroupSelect.vue'
 import UpstreamSiteMonitorPanel from '@/components/admin/account/UpstreamSiteMonitorPanel.vue'
 import * as groupsAPI from '@/api/admin/groups'
@@ -132,6 +141,7 @@ const selectedKeys = ref<string[]>([]), importKeys = ref<NonNullable<UpstreamSit
 const showAdd = ref(false), showDelete = ref(false), showLink = ref(false), showCreate = ref(false), showImport = ref(false)
 const linkAccountId = ref<number>(), linkKeyId = ref(''), newKeyName = ref(''), newKeyGroup = ref(''), createConfirmed = ref(false)
 const showKeyGroup = ref(false), groupKey = ref<SiteKey>(), keyGroupOptions = ref<SiteKeyGroups>(), nextKeyGroup = ref(''), keyGroupRevision = ref(0)
+const deleteKeyTarget = ref<SiteKey>(), deleteKeyRevision = ref(0)
 const previews = ref<Record<number, ModelPreview>>({})
 const emptyForm = (): SiteForm => ({ name: '', kind: 'sub2api', base_url: '', inference_url: '', purchase_note: '', user_id: 0, proxy_id: null, revision: 0, access_token: '' })
 const settingsForm = ref(emptyForm()), addForm = ref(emptyForm())
@@ -204,7 +214,7 @@ async function loadAccounts() {
 async function refreshAccounts() { await loadAccounts(); if (selected.value && !accountsError.value) selected.value.account_count = accounts.value.length }
 function formFor(site: UpstreamSite): SiteForm { return { name: site.name, kind: site.kind, base_url: site.base_url, inference_url: site.inference_url, purchase_note: site.purchase_note, user_id: site.user_id, proxy_id: site.proxy_id, revision: site.revision, access_token: '' } }
 watch(selectedId, () => {
-  selectedKeys.value = []; accounts.value = []; previews.value = {}; page.value = 1; error.value = ''; notice.value = ''
+  deleteKeyTarget.value = undefined; selectedKeys.value = []; accounts.value = []; previews.value = {}; page.value = 1; error.value = ''; notice.value = ''
   settingsForm.value = selected.value ? formFor(selected.value) : emptyForm()
   void loadAccounts()
 })
@@ -250,6 +260,27 @@ async function saveSelected() {
   const id = selected.value.id
   await run(async () => { await api.save(id, settingsForm.value); settingsForm.value.access_token = ''; await loadSites(); settingsForm.value = formFor(selected.value!); previews.value = {}; notice.value = tr('saved') })
 }
+function selectBalanceSite(id: string) {
+  purposeFilter.value = 'all'; siteSearch.value = ''; attentionOnly.value = false; selectedId.value = id
+  void nextTick(() => document.querySelector('.site-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+}
+function openDeleteKey(key: SiteKey) {
+  if (working.value || !selected.value || accountsLoading.value || accountsError.value) return
+  error.value = ''; deleteKeyTarget.value = key; deleteKeyRevision.value = selected.value.revision
+}
+async function deleteUpstreamKey() {
+  if (!selected.value || !deleteKeyTarget.value) return
+  const site = selected.value, keyId = deleteKeyTarget.value.id
+  await run(async () => {
+    await api.deleteKey(site.id, keyId, deleteKeyRevision.value)
+    if (site.inventory) site.inventory.keys = site.inventory.keys.filter(key => key.id !== keyId)
+    if (site.catalogs) delete site.catalogs[keyId]
+    selectedKeys.value = selectedKeys.value.filter(id => id !== keyId)
+    deleteKeyTarget.value = undefined; notice.value = tr('keyDeleted')
+    try { site.inventory = await api.sync(site.id) }
+    catch { notice.value = tr('keyDeletedSyncFailed') }
+  })
+}
 async function deleteSite() { if (selected.value) await run(async () => { await api.delete(selectedId.value); showDelete.value = false; await loadSites() }) }
 async function readModels(keyId: string) { await run(async () => { storeModels(keyId, await api.models(selectedId.value, keyId)) }) }
 async function linkAccount() { if (selected.value && linkAccountId.value) await run(async () => { await api.link(selectedId.value, selected.value!.revision, linkAccountId.value!, linkKeyId.value); showLink.value = false; await refreshAccounts(); notice.value = tr('linkedSuccess') }) }
@@ -257,7 +288,7 @@ async function unlink(account: SiteAccount) { if (selected.value) await run(asyn
 async function previewModels(accountId: number) { delete previews.value[accountId]; await run(async () => { previews.value[accountId] = await api.modelPreview(selectedId.value, selected.value!.revision, accountId); await loadSites() }) }
 async function applyModels(accountId: number) { await run(async () => { await api.modelPreview(selectedId.value, selected.value!.revision, accountId, previews.value[accountId]); delete previews.value[accountId]; await refreshAccounts(); notice.value = tr('applied') }) }
 async function createKey() {
-  if (!createConfirmed.value || !selected.value) return
+  if (!createConfirmed.value || !selected.value || !newKeyGroup.value) return
   createConfirmed.value = false
   await run(async () => { await api.createKey(selectedId.value, selected.value!.revision, newKeyName.value, newKeyGroup.value); showCreate.value = false; notice.value = tr('created'); selected.value!.inventory = await api.sync(selectedId.value) })
 }

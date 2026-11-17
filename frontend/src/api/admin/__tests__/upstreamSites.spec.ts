@@ -2,9 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '@/api/client'
 import { upstreamSitesAPI, runSiteImports, type ImportDraft } from '../upstreamSites'
 
-vi.mock('@/api/client', () => ({ apiClient: { post: vi.fn(), get: vi.fn(), put: vi.fn() } }))
+vi.mock('@/api/client', () => ({ apiClient: { post: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() } }))
 const draft = (keyId: string): ImportDraft => ({ status: 'pending', idempotencyKey: `stable-${keyId}`, payload: { key_id: keyId, revision: 2, name: `account-${keyId}`, platform: 'openai', group_id: 5, concurrency: 3, rate_multiplier: 0.5, models: ['model-1'] } })
 beforeEach(() => vi.resetAllMocks())
+
+it('sends explicit deletion confirmation with the connection revision', async () => {
+  vi.mocked(apiClient.delete).mockResolvedValue({ data: { deleted: true } })
+  await upstreamSitesAPI.deleteKey('site', '3', 4)
+  expect(apiClient.delete).toHaveBeenCalledWith('/admin/accounts/upstream-sites/site/keys/3', { data: { revision: 4, confirmed: true }, timeout: 120_000 })
+})
 
 it('keeps upstream group changes separate from local group assignment', async () => {
   vi.mocked(apiClient.put).mockResolvedValue({ data: { id: '3', group_id: 'fast' } })

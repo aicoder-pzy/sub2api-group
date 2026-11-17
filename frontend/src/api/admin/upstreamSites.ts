@@ -17,7 +17,7 @@ export interface SiteKey {
   suffix?: string
   quota?: SiteAmount
 }
-export interface SiteGroup { id: string; name: string; description?: string; multiplier?: number }
+export interface SiteGroup { id: string; name: string; description?: string; multiplier?: number; status?: string }
 export interface SiteKeyGroups { key: SiteKey; groups: SiteGroup[] }
 export interface SiteMonitorPoint {
   at: string
@@ -149,6 +149,9 @@ export const upstreamSitesAPI = {
   },
   async createKey(id: string, revision: number, name: string, groupId: string): Promise<void> {
     await apiClient.post(`${sitePath(id)}/keys`, { revision, name, group_id: groupId, confirmed: true }, { timeout: 30_000 })
+  },
+  async deleteKey(id: string, keyId: string, revision: number): Promise<void> {
+    await apiClient.delete(`${sitePath(id)}/keys/${encodeURIComponent(keyId)}`, { data: { revision, confirmed: true }, timeout: 120_000 })
   },
   async keyGroups(id: string, keyId: string): Promise<SiteKeyGroups> {
     return (await apiClient.get(`${sitePath(id)}/keys/${encodeURIComponent(keyId)}/groups`, { timeout: 60_000 })).data

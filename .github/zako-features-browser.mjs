@@ -7,7 +7,7 @@ const { chromium } = createRequire(path.resolve(process.env.BROWSER_TEST_MODULES
 const output = path.resolve('zako-feature-browser-results')
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
-const errors = [], networkFailures = [], imports = [], creations = [], policies = [], modelWrites = [], links = [], groupChanges = []
+const errors = [], networkFailures = [], imports = [], creations = [], policies = [], modelWrites = [], links = [], groupChanges = [], deletions = []
 const importedAccounts = []
 let monitorReads = 0
 const monitorTime = new Date().toISOString()
@@ -34,7 +34,9 @@ try {
   const key = { id: 1, name: 'Test Key', user_id: 1, key: 'sk-browser-fixture', group_id: 1, group, status: 'active', quota: 0, quota_used: 0, rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0, ip_whitelist: [], ip_blacklist: [], model_mapping: {}, prompt_policy: {}, created_at: '2026-11-04T00:00:00Z' }
   const site = { id: '12345678-1234-4234-8234-123456789012', name: 'Test upstream', kind: 'newapi', base_url: 'https://upstream.example.invalid', user_id: 7, proxy_id: null, revision: 1, inference_url: 'https://relay.example.invalid', purchase_note: 'Browser fixture', account_count: 0, catalogs: {} }
   const inventory = { revision: 1, status: 'ok', attempt_at: '2026-11-07T01:00:00Z', received_at: '2026-11-07T01:00:00Z', wallet_at: '2026-11-07T01:00:00Z', wallet: { currency: 'QUOTA', remaining: 1234567, unlimited: false }, errors: {}, groups: [{ id: 'vip', name: 'VIP', multiplier: 0.5 }], keys: [{ id: '3', name: '主用 Key', group_id: 'vip', group_name: 'VIP', available: true, status: 'active', suffix: '3abc', quota: { currency: 'QUOTA', unlimited: true } }, { id: '4', name: '备用 Key', group_id: 'vip', group_name: 'VIP', available: true, status: 'active', suffix: '4abc' }, { id: '9', name: '额度耗尽 Key', group_id: 'vip', group_name: 'VIP', available: false, status: 'quota_exhausted', quota: { currency: 'QUOTA', remaining: 0, unlimited: false } }] }
+  site.purpose = 'private'
   site.inventory = inventory
+  const publicSite = { ...site, id: '22345678-1234-4234-8234-123456789012', name: 'Public upstream', purpose: 'public', inventory: { ...inventory, wallet: { currency: 'USD', remaining: 40, unlimited: false } } }
   inventory.groups[0].description = '当前分组的完整介绍'
   inventory.groups.push({ id: 'fast', name: '快速分组', multiplier: 0.15, description: '支持完整上下文与缓存。\n第二行：完整介绍不截断。<script>window.upstreamInjected = true</script>' })
   await context.addInitScript(user => {
@@ -59,10 +61,15 @@ try {
     if (p.includes('/groups') && !p.includes('upstream-sites')) return json([group])
     if (p === '/api/v1/admin/accounts') return json({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     const sites = '/api/v1/admin/accounts/upstream-sites'
-    if (p === sites) return json([site])
+    if (p === sites) return json([site, publicSite])
     if (p === `${sites}/${site.id}/inventory`) return json(inventory)
     if (p === `${sites}/${site.id}/monitoring`) { assert.equal(request.method(), 'GET'); monitorReads++; return json(monitoring) }
     if (p === `${sites}/${site.id}/accounts`) return json(importedAccounts)
+    if (p === `${sites}/${site.id}/keys/4` && request.method() === 'DELETE') {
+      deletions.push(request.postDataJSON())
+      inventory.keys = inventory.keys.filter(key => key.id !== '4')
+      return json({ deleted: true })
+    }
     if (p === `${sites}/${site.id}/keys/3/groups`) return json({ key: inventory.keys[0], groups: inventory.groups })
     if (p === `${sites}/${site.id}/keys/3/group` && request.method() === 'PUT') {
       const payload = request.postDataJSON(); groupChanges.push(payload)
@@ -96,6 +103,18 @@ try {
   assert.equal(await page.locator('a[href="/admin/prism"], a[href="/admin/bps-tickets"]').count(), 0)
   await page.getByRole('link', { name: '上游站点', exact: true }).last().click()
   await page.getByRole('main').getByRole('heading', { name: '上游站点', exact: true }).waitFor()
+  assert.match(await page.locator('[data-balance-purpose="private"]').textContent(), /1,234,567/)
+  assert.match(await page.locator('[data-balance-purpose="public"]').textContent(), /USD 40.00/)
+  await page.locator('[data-balance-purpose="public"]').click()
+  await page.locator(`[data-balance-site="${publicSite.id}"]`).waitFor()
+  await page.locator('[data-balance-purpose="private"]').click()
+  for (const width of [1440, 375, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.locator('[data-balance-purpose="private"]').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: path.join(output, `balance-overview-${width}.png`), animations: 'disabled' })
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), true, `Balance overview overflow at ${width}`)
+  }
+  await page.setViewportSize({ width: 1280, height: 1000 })
   await page.getByRole('checkbox', { name: '选择 Key：主用 Key', exact: true }).check()
   await page.getByRole('checkbox', { name: '选择 Key：备用 Key', exact: true }).check()
   assert.equal(await page.getByRole('checkbox', { name: '选择 Key：额度耗尽 Key', exact: true }).isDisabled(), true)
@@ -160,7 +179,9 @@ try {
   await page.getByRole('button', { name: '在上游创建 Key', exact: true }).click()
   const createDialog = page.getByRole('dialog', { name: '在上游创建 Key', exact: true })
   await createDialog.getByLabel('新密钥名称').fill('Browser fixture key')
-  await createDialog.getByLabel('上游分组', { exact: true }).selectOption('vip')
+  await createDialog.locator('[data-group-option="fast"] .group-state.healthy').waitFor()
+  assert.match(await createDialog.locator('[data-group-option="vip"]').textContent(), /未提供状态/)
+  await createDialog.getByRole('radio', { name: 'VIP', exact: true }).check()
   assert.match(await createDialog.locator('[data-upstream-group-detail]').textContent(), /当前分组的完整介绍/)
   assert.equal(await createDialog.getByRole('button', { name: '在上游创建 Key', exact: true }).isDisabled(), true)
   await createDialog.getByRole('checkbox', { name: '我确认在上游创建这把密钥', exact: true }).check()
@@ -170,7 +191,8 @@ try {
   assert.equal(creations[0].confirmed, true)
   await page.getByRole('row').filter({ has: page.getByText('主用 Key', { exact: true }) }).getByRole('button', { name: '切换分组', exact: true }).click()
   const groupDialog = page.getByRole('dialog', { name: '切换分组', exact: true })
-  await groupDialog.getByLabel('上游分组', { exact: true }).selectOption('fast')
+  await groupDialog.locator('[data-group-option="fast"] .group-state.healthy').waitFor()
+  await groupDialog.getByRole('radio', { name: '快速分组', exact: true }).check()
   assert.match(await groupDialog.locator('[data-upstream-group-detail]').textContent(), /×0.15/)
   assert.match(await groupDialog.locator('[data-upstream-group-detail]').textContent(), /第二行：完整介绍不截断/)
   assert.equal(await groupDialog.locator('script').count(), 0)
@@ -185,11 +207,11 @@ try {
   assert.deepEqual(groupChanges, [{ revision: 1, current_group_id: 'vip', group_id: 'fast' }])
   await page.reload()
   await page.getByRole('main').getByText('快速分组', { exact: false }).first().waitFor()
-  assert.equal(monitorReads, 0, 'monitoring should load only when its tab opens')
+  assert.equal(monitorReads, 2, 'only the two opened group selectors should read monitoring')
   await page.getByRole('tab', { name: '渠道状态', exact: true }).click()
   const monitorPanel = page.locator('[data-site-monitor]')
   await monitorPanel.locator('[data-monitor-row="matched"]').waitFor()
-  assert.equal(monitorReads, 1)
+  assert.equal(monitorReads, 3)
   assert.match(await monitorPanel.locator('[data-monitor-unmatched]').textContent(), /VIP/)
   assert.equal(await monitorPanel.locator('[data-monitor-row="old"] .monitor-state').textContent(), '数据过期')
   assert.equal(await monitorPanel.locator('script').count(), 0)
@@ -228,6 +250,19 @@ try {
   assert.equal(await monitorPanel.locator('.monitor-state.healthy').count(), 0)
   assert.equal(await monitorPanel.locator('[data-monitor-row]').count(), 3)
   assert.match(await monitorPanel.getByRole('alert').textContent(), /保留上次数据/)
+  await page.getByRole('tab', { name: '上游 Key', exact: false }).click()
+  const spareKeyRow = page.getByRole('row').filter({ has: page.getByText('备用 Key', { exact: true }) })
+  await spareKeyRow.getByRole('button', { name: '删除 Key', exact: true }).click()
+  const deleteDialog = page.getByRole('dialog', { name: '删除 Key', exact: true })
+  await deleteDialog.getByText('受影响的本地账号', { exact: false }).waitFor()
+  assert.equal(deletions.length, 0)
+  await deleteDialog.getByRole('button', { name: '取消', exact: true }).click()
+  assert.equal(deletions.length, 0)
+  await spareKeyRow.getByRole('button', { name: '删除 Key', exact: true }).click()
+  await deleteDialog.getByRole('button', { name: '确认删除上游 Key', exact: true }).click()
+  await page.getByText('上游 Key 已删除并核验', { exact: true }).waitFor()
+  assert.deepEqual(deletions, [{ revision: 1, confirmed: true }])
+  assert.equal(await page.getByRole('row').filter({ has: page.getByText('备用 Key', { exact: true }) }).count(), 0)
   await page.close()
   page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
@@ -250,7 +285,7 @@ try {
   assert.equal(policies.length, 1)
   assert.deepEqual(policies[0].prompt_policy, { '*': 'zako-default', 'model-1': 'coldcoffee@codex' })
   assert.equal(errors.length, 0, errors.join('\n'))
-  await writeFile(path.join(output, 'result.json'), JSON.stringify({ errors, networkFailures, imports, creations, policies, modelWrites, links, groupChanges, monitorReads, realRequests: 0 }, null, 2))
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ errors, networkFailures, imports, creations, policies, modelWrites, links, groupChanges, deletions, monitorReads, realRequests: 0 }, null, 2))
 } catch (error) {
   for (const page of browser.contexts().flatMap(context => context.pages())) {
     await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {})

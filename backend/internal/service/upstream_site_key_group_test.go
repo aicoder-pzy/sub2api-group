@@ -20,9 +20,9 @@ func TestUpstreamSiteGroupOptionsIncludeDescriptionsAndNoSecrets(t *testing.T) {
 				require.Equal(t, http.MethodGet, req.Method)
 				if strings.Contains(req.URL.Path, "groups") {
 					if kind == "newapi" {
-						return siteImportResponse(`{"success":true,"data":{"vip":{"ratio":0,"desc":"Detailed description\nSecond line"},"auto":{"ratio":"auto","desc":"Automatic"}}}`), nil
+						return siteImportResponse(`{"success":true,"data":{"vip":{"ratio":0,"status":"active","desc":"Detailed description\nSecond line"},"auto":{"ratio":"auto","desc":"Automatic"}}}`), nil
 					}
-					return siteImportResponse(`{"code":0,"data":[{"id":4,"name":"VIP","rate_multiplier":0,"description":"Detailed description\nSecond line"}]}`), nil
+					return siteImportResponse(`{"code":0,"data":[{"id":4,"name":"VIP","status":"active","rate_multiplier":0,"description":"Detailed description\nSecond line"}]}`), nil
 				}
 				return siteImportResponse(`{"code":0,"data":{"id":7,"key":"hidden-relay-secret","status":"active","group_id":4,"group":"vip"}}`), nil
 			}}
@@ -36,6 +36,7 @@ func TestUpstreamSiteGroupOptionsIncludeDescriptionsAndNoSecrets(t *testing.T) {
 					require.Equal(t, "Detailed description\nSecond line", group.Description)
 					require.NotNil(t, group.Multiplier)
 					require.Zero(t, *group.Multiplier)
+					require.Equal(t, "active", group.Status)
 				}
 			}
 			require.True(t, found)
