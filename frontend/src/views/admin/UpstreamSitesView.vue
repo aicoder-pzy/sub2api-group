@@ -10,7 +10,7 @@
       <div class="console-summary">
         <div v-for="stat in summary" :key="stat.label"><span class="stat-symbol" :class="stat.tone"><Icon :name="stat.icon" size="md" /></span><div><span>{{ tr(stat.label) }}</span><strong>{{ stat.value }}</strong></div></div>
       </div>
-      <UpstreamBalanceOverview :sites="sites" @select="selectBalanceSite" />
+      <UpstreamBalanceOverview :sites="sites" :inert="working" @select="selectBalanceSite" />
       <div v-if="!sites.length && !busy" class="console-empty console-panel"><Icon name="globe" size="xl" /><h2>{{ tr('noSites') }}</h2><p>{{ tr('noSitesHint') }}</p><button class="btn btn-primary" type="button" @click="openAdd">{{ tr('add') }}</button></div>
       <div v-else class="console-grid">
         <aside class="console-panel site-list">
@@ -261,6 +261,7 @@ async function saveSelected() {
   await run(async () => { await api.save(id, settingsForm.value); settingsForm.value.access_token = ''; await loadSites(); settingsForm.value = formFor(selected.value!); previews.value = {}; notice.value = tr('saved') })
 }
 function selectBalanceSite(id: string) {
+  if (working.value) return
   purposeFilter.value = 'all'; siteSearch.value = ''; attentionOnly.value = false; selectedId.value = id
   void nextTick(() => document.querySelector('.site-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
