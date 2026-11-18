@@ -301,6 +301,15 @@ func (h *AccountHandler) DeleteUpstreamSiteKey(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+func supportsUpstreamSiteImportPlatform(platform string) bool {
+	switch platform {
+	case service.PlatformOpenAI, service.PlatformAnthropic, service.PlatformGrok:
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *AccountHandler) ImportUpstreamSiteKey(c *gin.Context) {
 	var input struct {
 		KeyID          string   `json:"key_id"`
@@ -316,8 +325,8 @@ func (h *AccountHandler) ImportUpstreamSiteKey(c *gin.Context) {
 		response.BadRequest(c, "Choose a local group, models, concurrency (1-1000) and purchase multiplier (0-100)")
 		return
 	}
-	if input.Platform != service.PlatformOpenAI && input.Platform != service.PlatformAnthropic {
-		response.BadRequest(c, "Choose OpenAI-compatible or Anthropic-compatible account protocol")
+	if !supportsUpstreamSiteImportPlatform(input.Platform) {
+		response.BadRequest(c, "Choose OpenAI-compatible, Anthropic-compatible, or Grok account protocol")
 		return
 	}
 	if input.Name == "" || len(input.Name) > 100 {
