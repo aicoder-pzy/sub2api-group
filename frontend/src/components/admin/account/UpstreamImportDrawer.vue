@@ -4,7 +4,7 @@
     <div v-if="error" role="alert" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{{ error }}</div>
     <fieldset :disabled="frozen || working" class="grid min-w-0 gap-4 sm:grid-cols-2">
       <label class="sm:col-span-2"><span class="input-label">{{ tr('group') }}</span><select v-model="groupId" class="input"><option :value="0">{{ tr('choose') }}</option><option v-for="group in compatibleGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label>
-      <label><span class="input-label">{{ tr('platform') }}</span><select v-model="platform" class="input"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select></label>
+      <label><span class="input-label">{{ tr('platform') }}</span><select v-model="platform" class="input" :aria-label="tr('platform')"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="grok">Grok</option></select></label>
       <label><span class="input-label">{{ tr('prefix') }}</span><input v-model="prefix" maxlength="60" class="input" @input="updateNames" /></label>
       <label><span class="input-label">{{ tr('concurrency') }}</span><input v-model.number="concurrency" type="number" min="1" max="1000" class="input" /></label>
       <label><span class="input-label">{{ tr('rate') }}</span><input v-model.number="rate" type="number" min="0" max="100" step="0.01" class="input" /></label>

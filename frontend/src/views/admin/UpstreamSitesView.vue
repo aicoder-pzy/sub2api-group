@@ -38,7 +38,7 @@
           <div v-if="selected.inventory && Object.keys(selected.inventory.errors).length" class="mx-5 mb-4 rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
             <details><summary class="cursor-pointer">{{ tr('syncPartial') }} · {{ tr('connectionErrors') }}</summary><p v-for="(message, component) in selected.inventory.errors" :key="component" class="mt-2 break-words">{{ componentLabel(component) }}：{{ message }}</p></details>
           </div>
-          <div class="console-tabs" role="tablist" :aria-label="tr('title')"><button v-for="item in tabs" :id="`site-tab-${item}`" :key="item" type="button" role="tab" :aria-selected="tab === item" :tabindex="tab === item ? 0 : -1" aria-controls="site-tab-panel" :class="{ active: tab === item }" @click="tab = item" @keydown="tabKeydown($event, item)">{{ tr(item) }}<span v-if="item === 'keys'">{{ keys.length }}</span></button></div>
+          <div class="console-tabs" role="tablist" :aria-label="tr('title')"><button v-for="item in tabs" :id="`site-tab-${item}`" :key="item" type="button" role="tab" :aria-selected="tab === item" :tabindex="tab === item ? 0 : -1" aria-controls="site-tab-panel" :class="{ active: tab === item }" @click="tab = item" @keydown="tabKeydown($event, item)">{{ tr(item) }}<span v-if="item === 'keys'">{{ keys.length }}</span><span v-else-if="item === 'siteGroups'">{{ siteGroups.length }}</span></button></div>
           <div id="site-tab-panel" role="tabpanel" :aria-labelledby="`site-tab-${tab}`" class="min-w-0">
             <template v-if="tab === 'keys'">
               <div class="key-toolbar"><input v-model="keySearch" class="input key-search" :placeholder="tr('keySearch')" :aria-label="tr('keySearch')" /><select v-model="importFilter" class="input" :aria-label="tr('allImports')"><option value="all">{{ tr('allImports') }}</option><option value="yes">{{ tr('importedFilter') }}</option><option value="no">{{ tr('unimportedFilter') }}</option></select><select v-model="availabilityFilter" class="input" :aria-label="tr('allStatuses')"><option value="all">{{ tr('allStatuses') }}</option><option value="yes">{{ tr('available') }}</option><option value="no">{{ tr('unavailable') }}</option></select></div>
@@ -47,13 +47,22 @@
               <div class="console-table-scroll" tabindex="0" :aria-label="tr('keys')">
                 <table class="console-table"><thead><tr><th class="w-9"><input type="checkbox" :checked="pageKeys.length > 0 && pageKeys.filter(key => key.available).length > 0 && pageKeys.filter(key => key.available).every(key => selectedKeys.includes(key.id))" :aria-label="tr('selectPage')" :disabled="working" @change="selectPage(($event.target as HTMLInputElement).checked)" /></th><th>{{ tr('keyName') }}</th><th>{{ tr('models') }}</th><th>{{ tr('quota') }}</th><th>{{ tr('account') }}</th><th>{{ tr('status') }}</th><th>{{ tr('actions') }}</th></tr></thead>
                   <tbody><tr v-for="key in pageKeys" :key="key.id"><td><input v-model="selectedKeys" type="checkbox" :value="key.id" :disabled="working || !key.available" :aria-label="t('upstreamSites.selectKey', { name: key.name })" /></td><td><strong>{{ key.name }}</strong><p class="table-muted">{{ key.group_name || key.group_id || '—' }}<span v-if="groupRatio(key.group_id) !== undefined"> · ×{{ groupRatio(key.group_id) }}</span></p><p class="table-muted font-mono">{{ key.suffix ? '••••' + key.suffix : '#' + key.id }}</p></td>
-                    <td><template v-if="selected.catalogs?.[key.id]"><span v-for="model in selected.catalogs[key.id]!.models.slice(0, 2)" :key="model" class="model-chip">{{ model }}</span><small v-if="selected.catalogs[key.id]!.models.length > 2" class="block text-gray-400">+{{ selected.catalogs[key.id]!.models.length - 2 }}</small><p class="table-muted">{{ formatTime(selected.catalogs[key.id]!.attempt_at) }}</p></template><span v-else class="text-xs text-gray-400">{{ tr('notRead') }}</span><button type="button" class="mt-1 block text-xs text-primary-600 dark:text-primary-400" :disabled="working || !key.available" @click="readModels(key.id)">{{ tr('readModels') }}</button></td>
+                    <td><template v-if="selected.catalogs?.[key.id]"><span v-for="model in selected.catalogs[key.id]!.models.slice(0, 2)" :key="model" class="model-chip">{{ model }}</span><button v-if="selected.catalogs[key.id]!.models.length > 2" type="button" class="mt-1 block text-xs text-primary-600 dark:text-primary-400" @click="openModelCatalog(key)">{{ t('upstreamSites.viewAllModels', { count: selected.catalogs[key.id]!.models.length }) }}</button><p class="table-muted">{{ formatTime(selected.catalogs[key.id]!.attempt_at) }}</p></template><span v-else class="text-xs text-gray-400">{{ tr('notRead') }}</span><button type="button" class="mt-1 block text-xs text-primary-600 dark:text-primary-400" :disabled="working || !key.available" @click="readModels(key.id)">{{ tr('readModels') }}</button></td>
                     <td class="tabular-nums">{{ amount(key.quota, true) }}</td><td><RouterLink v-for="account in keyAccounts(key.id)" :key="account.id" :to="accountLink(account.id)" class="block max-w-40 truncate text-primary-600 dark:text-primary-400" :title="account.name">#{{ account.id }} · {{ account.name }}</RouterLink><span v-if="!keyAccounts(key.id).length" class="text-gray-400">{{ accountsLoading ? tr('loading') : tr('unassociated') }}</span></td><td><span class="site-badge" :class="key.available ? 'ok' : 'attention'">{{ tr(key.status || (key.available ? 'active' : 'inactive')) }}</span></td><td><div class="flex flex-wrap gap-3"><button type="button" class="text-primary-600 dark:text-primary-400" :disabled="working" @click="openKeyGroup(key)">{{ tr('changeKeyGroup') }}</button><button type="button" class="text-primary-600 dark:text-primary-400" :disabled="working || !key.available || !!accountsError || accountsLoading" @click="openImport([key.id])">{{ tr('import') }}</button><button type="button" class="text-red-600 dark:text-red-400" :disabled="working || accountsLoading || !!accountsError" @click="openDeleteKey(key)">{{ tr('deleteKey') }}</button></div></td></tr>
                     <tr v-if="!pageKeys.length"><td colspan="7" class="py-12 text-center text-gray-400">{{ keys.length ? tr('noMatch') : tr('emptyKeys') }}</td></tr>
                   </tbody></table>
               </div>
               <div class="console-pagination"><span>{{ t('upstreamSites.page', { page, pages, count: filteredKeys.length }) }}</span><div class="flex gap-2"><button class="btn btn-secondary" :disabled="page <= 1" @click="page--">{{ tr('previous') }}</button><button class="btn btn-secondary" :disabled="page >= pages" @click="page++">{{ tr('next') }}</button></div></div>
             </template>
+            <div v-else-if="tab === 'siteGroups'" class="p-5">
+              <p class="mb-4 text-sm text-gray-500">{{ t('upstreamSites.siteGroupSummary', { groups: siteGroups.length, keys: keys.length }) }}</p>
+              <div class="console-table-scroll" tabindex="0" :aria-label="tr('siteGroups')">
+                <table class="console-table min-w-[680px]"><thead><tr><th>{{ tr('groupName') }}</th><th>{{ tr('groupMultiplier') }}</th><th>{{ tr('groupKeys') }}</th><th>{{ tr('groupDescription') }}</th></tr></thead>
+                  <tbody><tr v-for="group in siteGroups" :key="group.id"><td><strong>{{ group.name || group.id }}</strong><p class="table-muted font-mono">#{{ group.id }}</p></td><td class="tabular-nums">{{ group.multiplier === undefined ? tr('unknownGroupRate') : `×${group.multiplier}` }}</td><td class="tabular-nums">{{ group.availableKeyCount }} / {{ group.keyCount }} {{ tr('available') }}</td><td class="max-w-xl whitespace-pre-line break-words text-gray-500">{{ group.description || tr('noGroupDescription') }}</td></tr>
+                    <tr v-if="!siteGroups.length"><td colspan="4" class="py-12 text-center text-gray-400">{{ selected.inventory ? tr('noSiteGroups') : tr('syncFirst') }}</td></tr>
+                  </tbody></table>
+              </div>
+            </div>
             <div v-else-if="tab === 'accounts' || tab === 'changes'" class="p-5">
               <div class="mb-5 flex flex-wrap items-center justify-between gap-3"><p class="max-w-xl text-sm leading-6 text-gray-500">{{ tr(tab === 'changes' ? 'changesHint' : 'linkHint') }}</p><button v-if="tab === 'accounts'" class="btn btn-secondary" :disabled="working" @click="showLink = true">{{ tr('link') }}</button></div>
               <p v-if="accountsError" role="alert" class="mb-3 text-sm text-red-600">{{ accountsError }} <button @click="loadAccounts">{{ tr('refresh') }}</button></p>
@@ -104,6 +113,15 @@
       <p v-if="error" role="alert" class="mt-3 text-sm text-red-600">{{ error }}</p>
       <template #footer><button type="button" class="btn btn-secondary" :disabled="working" @click="deleteKeyTarget = undefined">{{ tr('cancel') }}</button><button type="button" class="btn btn-primary !bg-red-600" :disabled="working" @click="deleteUpstreamKey">{{ tr('confirmDeleteKey') }}</button></template>
     </BaseDialog>
+    <BaseDialog :show="!!modelCatalog" :title="tr('allModels')" width="wide" @close="modelCatalog = undefined">
+      <template v-if="modelCatalog">
+        <p class="mb-4 break-words text-sm text-gray-500">{{ modelCatalog.keyName }} · {{ modelCatalog.groupName }} · {{ t('upstreamSites.viewAllModels', { count: modelCatalog.models.length }) }} · {{ formatTime(modelCatalog.attemptAt) }}</p>
+        <ul class="grid max-h-[65vh] grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+          <li v-for="model in modelCatalog.models" :key="model" class="min-w-0 break-all rounded-md bg-gray-50 px-3 py-2 text-xs dark:bg-dark-800">{{ model }}</li>
+        </ul>
+        <p v-if="!modelCatalog.models.length" class="py-8 text-center text-sm text-gray-500">{{ tr('emptyModels') }}</p>
+      </template>
+    </BaseDialog>
     <UpstreamImportDrawer v-if="selected" :show="showImport" :site="selected" :keys="importKeys" :groups="groups" :accounts="accounts" @close="showImport = false" @imported="refreshAccounts" @models="storeModels" />
   </AppLayout>
 </template>
@@ -132,7 +150,7 @@ const purposeFilter = ref<SitePurpose | 'all'>('all')
 const purposeOptions = [{ value: '', label: 'purposeUnclassified' }, { value: 'public', label: 'purposePublic' }, { value: 'private', label: 'purposePrivate' }] as const
 const purposeLabel = (purpose?: SitePurpose) => tr(purposeOptions.find(option => option.value === (purpose || ''))!.label)
 const purposeClass = (purpose?: SitePurpose) => purpose ? `purpose-${purpose}` : ''
-const tabs = ['keys', 'accounts', 'changes', 'settings', 'monitoring'] as const
+const tabs = ['keys', 'siteGroups', 'accounts', 'changes', 'settings', 'monitoring'] as const
 const tab = ref<typeof tabs[number]>('keys')
 const busy = ref(false), syncing = ref(false), error = ref(''), notice = ref('')
 const working = computed(() => busy.value || syncing.value)
@@ -143,10 +161,15 @@ const linkAccountId = ref<number>(), linkKeyId = ref(''), newKeyName = ref(''), 
 const showKeyGroup = ref(false), groupKey = ref<SiteKey>(), keyGroupOptions = ref<SiteKeyGroups>(), nextKeyGroup = ref(''), keyGroupRevision = ref(0)
 const deleteKeyTarget = ref<SiteKey>(), deleteKeyRevision = ref(0)
 const previews = ref<Record<number, ModelPreview>>({})
+const modelCatalog = ref<{ keyName: string; groupName: string; models: string[]; attemptAt: string }>()
 const emptyForm = (): SiteForm => ({ name: '', kind: 'sub2api', base_url: '', inference_url: '', purchase_note: '', user_id: 0, proxy_id: null, revision: 0, access_token: '' })
 const settingsForm = ref(emptyForm()), addForm = ref(emptyForm())
 const selected = computed(() => sites.value.find(site => site.id === selectedId.value))
 const keys = computed(() => selected.value?.inventory?.keys || [])
+const siteGroups = computed(() => (selected.value?.inventory?.groups || []).map(group => {
+  const groupKeys = keys.value.filter(key => key.group_id === group.id)
+  return { ...group, keyCount: groupKeys.length, availableKeyCount: groupKeys.filter(key => key.available).length }
+}))
 const status = (site: UpstreamSite) => site.inventory?.status || 'unknown'
 const filteredSites = computed(() => sites.value.filter(site => (purposeFilter.value === 'all' || (site.purpose || '') === purposeFilter.value) && (!attentionOnly.value || status(site) === 'attention') && `${site.name} ${site.base_url}`.toLowerCase().includes(siteSearch.value.toLowerCase())))
 const summary = computed(() => [
@@ -284,6 +307,10 @@ async function deleteUpstreamKey() {
 }
 async function deleteSite() { if (selected.value) await run(async () => { await api.delete(selectedId.value); showDelete.value = false; await loadSites() }) }
 async function readModels(keyId: string) { await run(async () => { storeModels(keyId, await api.models(selectedId.value, keyId)) }) }
+function openModelCatalog(key: SiteKey) {
+  const catalog = selected.value?.catalogs?.[key.id]
+  if (catalog) modelCatalog.value = { keyName: key.name, groupName: key.group_name || key.group_id, models: catalog.models, attemptAt: catalog.attempt_at }
+}
 async function linkAccount() { if (selected.value && linkAccountId.value) await run(async () => { await api.link(selectedId.value, selected.value!.revision, linkAccountId.value!, linkKeyId.value); showLink.value = false; await refreshAccounts(); notice.value = tr('linkedSuccess') }) }
 async function unlink(account: SiteAccount) { if (selected.value) await run(async () => { await api.link(selectedId.value, selected.value!.revision, account.id, account.key_id, true); delete previews.value[account.id]; await refreshAccounts() }) }
 async function previewModels(accountId: number) { delete previews.value[accountId]; await run(async () => { previews.value[accountId] = await api.modelPreview(selectedId.value, selected.value!.revision, accountId); await loadSites() }) }
