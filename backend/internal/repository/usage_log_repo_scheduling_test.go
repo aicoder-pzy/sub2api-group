@@ -16,7 +16,7 @@ func TestGetGroupModelAccountQuality(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	since := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	mock.ExpectQuery("WITH failure_requests AS").
+	mock.ExpectQuery("(?s)WITH failure_requests AS.*failures.last_failure_at > successes.last_success_at").
 		WithArgs(int64(4), "gpt-5", since).
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "successes", "failures", "latency_ms", "recent_failures", "last_success_at", "last_failure_at", "intelligence_verdict", "intelligence_reason", "intelligence_at"}).
 			AddRow(int64(12), int64(100), int64(2), 180.0, int64(1), since, since, "degraded", "drawing", since).

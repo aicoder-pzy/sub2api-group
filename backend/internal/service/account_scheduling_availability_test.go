@@ -40,6 +40,26 @@ func TestFastestFailoverAvailabilityEvidence(t *testing.T) {
 	require.EqualValues(t, 1, orderFastestFailoverCandidates(candidates, quality, 1, DefaultFastestFailoverSettings())[0].ID, "historical ranking cannot displace an eligible active channel")
 }
 
+func TestRecentFailuresOnlyDegradeWithoutSuccessfulRecovery(t *testing.T) {
+	now := time.Now()
+	lastSuccess, lastFailure := now, now.Add(-time.Second)
+	quality := GroupModelAccountQuality{
+		Successes:      20,
+		RecentFailures: 5,
+		LastSuccessAt:  &lastSuccess,
+		LastFailureAt:  &lastFailure,
+	}
+	require.Equal(t, 0, quality.reliabilityTier(10), "a later successful request clears earlier failures")
+
+	lastSuccess = now.Add(-time.Minute)
+	quality.RecentFailures = 1
+	require.Equal(t, 0, quality.reliabilityTier(10), "one transient failure after recovery does not degrade the account")
+
+	quality.RecentFailures = 2
+	lastFailure = now
+	require.Equal(t, 3, quality.reliabilityTier(10), "two failures since the latest success still trigger failover ranking")
+}
+
 func TestFastestFailoverPelicanDegradationAndRecovery(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(77)

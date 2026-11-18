@@ -228,12 +228,14 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 			       OR usage.image_count > 0 OR usage.image_output_tokens > 0)
 			GROUP BY usage.account_id
 		), failures AS (
-			SELECT account_id, COUNT(*) AS failures,
-			       COUNT(*) FILTER (WHERE last_failure_at >= NOW() - INTERVAL '15 minutes') AS recent_failures,
-			       MAX(last_failure_at) AS last_failure_at
-			FROM failure_requests
-			WHERE account_id > 0
-			GROUP BY account_id
+			SELECT failures.account_id, COUNT(*) AS failures,
+			       COUNT(*) FILTER (WHERE failures.last_failure_at >= NOW() - INTERVAL '15 minutes'
+			                         AND (successes.last_success_at IS NULL OR failures.last_failure_at > successes.last_success_at)) AS recent_failures,
+			       MAX(failures.last_failure_at) AS last_failure_at
+			FROM failure_requests failures
+			LEFT JOIN successes USING (account_id)
+			WHERE failures.account_id > 0
+			GROUP BY failures.account_id
 		), intelligence_samples AS (
 			SELECT results.id, plans.account_id, results.quality_verdict, results.quality_reason, results.finished_at, results.latency_ms
 			FROM scheduled_test_results results JOIN scheduled_test_plans plans ON plans.id = results.plan_id
