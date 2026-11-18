@@ -16,7 +16,7 @@ func (r *usageLogRepository) GetQualityPreferredAccountQuality(ctx context.Conte
  WHERE model=$2 AND (group_id=$1 OR group_id IS NULL) AND sampled_at>=NOW()-INTERVAL '7 days'`, []any{groupID, model}, &revision); err != nil {
 		return nil, err
 	}
-	key := fmt.Sprintf("quality:%s:%d", observationKey(ctx, groupID, model, effort), revision)
+	key := fmt.Sprintf("quality:%s:%d", accountQualityObservationKey(ctx, groupID, model, effort), revision)
 	if value, ok := r.schedulingQuality.Get(key); ok {
 		if samples, ok := value.(map[int64]service.GroupModelAccountQuality); ok {
 			return samples, nil

@@ -971,7 +971,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 
 // BindStickySession sets session -> account binding with standard TTL.
 func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
-	if sessionHash == "" || accountID <= 0 || s.cache == nil {
+	if sessionHash == "" || accountID <= 0 || s.cache == nil || smartChannelTemporaryRetry(ctx, derefGroupID(groupID)) {
 		return nil
 	}
 	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTL)

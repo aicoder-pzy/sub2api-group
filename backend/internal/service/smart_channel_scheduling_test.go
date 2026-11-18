@@ -20,6 +20,78 @@ func smartChannelTestContext() context.Context {
 		&Group{ID: 71, Platform: PlatformOpenAI, AccountSchedulingMode: AccountSchedulingModeSmartChannel}))
 }
 
+type smartStrikeFake struct {
+	*modelAutoCacheFake
+	strikes map[int64]bool
+}
+
+func (c *smartStrikeFake) SmartChannelStrike(_ context.Context, _ int64, _ string, id, _ int64, success bool) (bool, error) {
+	first := !c.strikes[id]
+	c.strikes[id] = !success
+	return first && !success, nil
+}
+
+func TestSmartChannelIsolated502PreservesWarmBindings(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode string
+		err        *UpstreamFailoverError
+		temporary  bool
+	}{
+		{"isolated", AccountSchedulingModeSmartChannel, &UpstreamFailoverError{StatusCode: 502}, true},
+		{"auth", AccountSchedulingModeSmartChannel, &UpstreamFailoverError{StatusCode: 502, Stage: GatewayFailureStageAccountAuth}, false},
+		{"rate", AccountSchedulingModeSmartChannel, &UpstreamFailoverError{StatusCode: 429}, false},
+		{"cooldown", AccountSchedulingModeSmartChannel, &UpstreamFailoverError{StatusCode: 504}, false},
+		{"legacy", AccountSchedulingModeModelAuto, &UpstreamFailoverError{StatusCode: 502}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := &smartStrikeFake{&modelAutoCacheFake{accountSchedulingCacheStub: &accountSchedulingCacheStub{bindings: map[string]int64{}}, sessions: map[string]int64{}, counts: map[string]int{}}, map[int64]bool{}}
+			group := &Group{ID: 18, AccountSchedulingMode: tc.mode}
+			base := withModelAutoSession(context.WithValue(context.Background(), ctxkey.Group, group), "session")
+			all := []*Account{{ID: 1}, {ID: 2}}
+			repo := accountSchedulingQualityStub{quality: map[int64]GroupModelAccountQuality{1: modelAutoSample(1000), 2: modelAutoSample(2000)}}
+			rememberGroupModelSchedulingAccount(base, cache, &group.ID, "m", 1)
+			gateway, openai := &GatewayService{cache: cache}, &OpenAIGatewayService{cache: cache}
+			bind := func(ctx context.Context, id int64) {
+				require.NoError(t, gateway.BindStickySession(ctx, &group.ID, "generic", id))
+				require.NoError(t, openai.setStickySessionAccountID(ctx, &group.ID, "oai", id, time.Hour))
+			}
+			fresh := func() context.Context { return prepareFastestFailoverBinding(base, cache, "m") }
+			pick := func(ctx context.Context, candidates []*Account) int64 {
+				return fastestFailoverCandidateOrder(ctx, repo, cache, &group.ID, "m", candidates)[0].ID
+			}
+			fail := func(ctx context.Context) {
+				for i := 0; i < 2; i++ {
+					require.Error(t, finishFastestFailoverAttempt(ctx, nil, nil, all[0], nil, nil, tc.err))
+				}
+				require.EqualValues(t, 2, pick(ctx, all[1:]))
+				bind(ctx, 2)
+				confirmGroupModelSchedulingAccount(ctx, "m", 2)
+			}
+			ctx := fresh()
+			require.EqualValues(t, 1, pick(ctx, all))
+			bind(ctx, 1)
+			fail(ctx)
+			want := int64(2)
+			if tc.temporary {
+				want = 1
+			}
+			for _, id := range []int64{cache.sessions["m:session"], cache.bindings["generic"], cache.bindings[openai.openAISessionCacheKey("oai")], cache.bindings[groupModelSchedulingStickyKey("m")]} {
+				require.Equal(t, want, id)
+			}
+			ctx = fresh()
+			require.Equal(t, want, pick(ctx, all))
+			if tc.temporary {
+				confirmGroupModelSchedulingAccount(ctx, "m", 1)
+				fail(fresh())
+				require.EqualValues(t, 1, cache.sessions["m:session"], "success resets the first strike")
+				fail(fresh())
+				require.EqualValues(t, 2, cache.sessions["m:session"])
+				require.EqualValues(t, 2, cache.bindings[groupModelSchedulingStickyKey("m")], "independent repeated failure takes over")
+			}
+		})
+	}
+}
+
 func TestSmartChannelCapabilityDeclarations(t *testing.T) {
 	ctx := smartChannelTestContext()
 	groupID := int64(71)

@@ -170,7 +170,8 @@ func newUsageLogRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *usage
 }
 
 func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, groupID int64, model string, since time.Time) (map[int64]service.GroupModelAccountQuality, error) {
-	cacheKey := fmt.Sprintf("%s:%d", observationKey(ctx, groupID, model, ""), since.Truncate(time.Minute).Unix())
+	_, _, smart := service.SchedulingObservationScope(ctx, model)
+	cacheKey := fmt.Sprintf("%s:%d", accountQualityObservationKey(ctx, groupID, model, ""), since.Truncate(time.Minute).Unix())
 	if cached, ok := r.schedulingQuality.Get(cacheKey); ok {
 		if quality, ok := cached.(map[int64]service.GroupModelAccountQuality); ok {
 			return quality, nil
@@ -230,7 +231,7 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 		), failures AS (
 			SELECT failures.account_id, COUNT(*) AS failures,
 			       COUNT(*) FILTER (WHERE failures.last_failure_at >= NOW() - INTERVAL '15 minutes'
-			                         AND (successes.last_success_at IS NULL OR failures.last_failure_at > successes.last_success_at)) AS recent_failures,
+			                         AND (NOT $4 OR successes.last_success_at IS NULL OR failures.last_failure_at > successes.last_success_at)) AS recent_failures,
 			       MAX(failures.last_failure_at) AS last_failure_at
 			FROM failure_requests failures
 			LEFT JOIN successes USING (account_id)
@@ -267,7 +268,7 @@ func (r *usageLogRepository) GetGroupModelAccountQuality(ctx context.Context, gr
 		       COALESCE(availability.recent_failures, 0), availability.last_success_at, availability.last_failure_at,
 		       COALESCE(intelligence.quality_verdict, ''), COALESCE(intelligence.quality_reason, ''), intelligence.finished_at
 		FROM availability FULL OUTER JOIN intelligence USING (account_id)
-		`, []any{groupID, model, since}, model)
+		`, []any{groupID, model, since, smart}, model)
 	rows, err := r.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

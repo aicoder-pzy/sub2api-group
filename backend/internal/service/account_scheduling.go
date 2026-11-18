@@ -58,6 +58,7 @@ type groupModelSchedulingSnapshot struct {
 type groupModelSchedulingRequestState struct {
 	preservedQualityAccountID int64
 	smartCapacityWaited       bool
+	smartFailure              smartChannelFailure
 	switchReasons             map[int64]string
 	mu                        sync.Mutex
 	snapshots                 map[groupModelSchedulingScope]groupModelSchedulingSnapshot
@@ -85,6 +86,9 @@ func prepareFastestFailoverBinding(ctx context.Context, cache GatewayCache, mode
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
 	if group != nil && fastestFailoverEnabled(ctx, &group.ID) {
 		groupModelSchedulingActiveAccount(ctx, cache, &group.ID, model)
+		if smartChannelEnabled(ctx) {
+			ctx = context.WithValue(ctx, smartChannelForwardScopeKey{}, groupModelSchedulingScope{group.ID, model})
+		}
 	}
 	return ctx
 }
@@ -123,8 +127,14 @@ func confirmGroupModelSchedulingAccount(ctx context.Context, model string, accou
 	scope := groupModelSchedulingScope{group.ID, model}
 	state.mu.Lock()
 	snapshot, ok := state.snapshots[scope]
-	preserve := state.preservedQualityAccountID == accountID
+	preserve := state.preservedQualityAccountID == accountID || (state.smartFailure.scope == scope && state.smartFailure.preserve)
 	state.mu.Unlock()
+	if smartChannelEnabled(ctx) && snapshot.valid {
+		if strikes, ok := snapshot.cache.(smartChannelStrikeCache); ok {
+			// Only a confirmed business success on this account clears its strike.
+			_, _ = strikes.SmartChannelStrike(ctx, group.ID, model, accountID, snapshot.revision, true)
+		}
+	}
 	if !ok || !snapshot.valid || snapshot.accountID == accountID || preserve {
 		return
 	}

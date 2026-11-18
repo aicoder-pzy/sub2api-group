@@ -28,6 +28,14 @@ func observationKey(ctx context.Context, groupID int64, model, effort string) st
 	return fmt.Sprintf("%d:%q:%q:%q:%q", groupID, model, public, endpoint, effort)
 }
 
+func accountQualityObservationKey(ctx context.Context, groupID int64, model, effort string) string {
+	key := observationKey(ctx, groupID, model, effort)
+	if _, _, smart := service.SchedulingObservationScope(ctx, model); smart {
+		key += ":smart-channel"
+	}
+	return key
+}
+
 // Existing synchronous readers remain available for explicit admin diagnostics.
 // Live smart scheduling reads cached natural traffic; no request starts a probe.
 // Cold/low-sample scopes retry after 5s, established evidence after 30s. Entries

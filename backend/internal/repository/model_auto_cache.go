@@ -18,6 +18,16 @@ func modelAutoReviewKey(groupID int64, model, effort string) string {
 	return fmt.Sprintf("model_auto:review:%d:%s:%s", groupID, base64.RawURLEncoding.EncodeToString([]byte(model)), base64.RawURLEncoding.EncodeToString([]byte(effort)))
 }
 
+func (c *gatewayCache) SmartChannelStrike(ctx context.Context, groupID int64, model string, accountID, revision int64, success bool) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+	key := fmt.Sprintf("smart_channel:502:%d:%s:%d:%d", groupID, base64.RawURLEncoding.EncodeToString([]byte(model)), accountID, revision)
+	if success {
+		return false, c.rdb.Del(ctx, key).Err()
+	}
+	return c.rdb.SetNX(ctx, key, 1, time.Minute).Result()
+}
+
 var reviewModelAutoScript = redis.NewScript(`
 local primary = tonumber(redis.call('GET',KEYS[2]) or '0')
 local revision = tonumber(redis.call('GET',KEYS[3]) or '0')

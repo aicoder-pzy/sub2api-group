@@ -286,7 +286,13 @@ func orderModelAutoScheduling(ctx context.Context, cache GatewayCache, groupID i
 	state.preservedQualityAccountID = 0
 	delete(state.modelAutoUpgrades, scope)
 	snapshot := state.snapshots[scope]
+	failure := state.smartFailure
 	state.mu.Unlock()
+	if failure.preserve && failure.scope == scope {
+		// Keep a same-account retry if still eligible; once excluded use a
+		// backup without changing the session, trial sequence or group primary.
+		return moveModelAutoFirst(ordered, failure.accountID)
+	}
 	activeAvailable := false
 	for _, account := range candidates {
 		activeAvailable = activeAvailable || account.ID == activeID

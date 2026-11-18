@@ -2,11 +2,66 @@ package service
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
+
+type smartChannelForwardScopeKey struct{}
+type smartChannelFailure struct {
+	scope     groupModelSchedulingScope
+	accountID int64
+	preserve  bool
+}
+
+type smartChannelStrikeCache interface {
+	SmartChannelStrike(ctx context.Context, groupID int64, model string, accountID, revision int64, success bool) (first bool, err error)
+}
+
+// The first plain 502 can spill just this request. Two independent failures
+// before a success (within the strike TTL) restore normal failover immediately.
+func recordSmartChannelFailure(ctx context.Context, accountID int64, err error) {
+	scope, ok := ctx.Value(smartChannelForwardScopeKey{}).(groupModelSchedulingScope)
+	var failure *UpstreamFailoverError
+	if !ok || scope.model == "" || !errors.As(err, &failure) || ctx.Err() != nil {
+		return
+	}
+	state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	if state == nil {
+		return
+	}
+	soft := failure.StatusCode == http.StatusBadGateway && (failure.Stage == "" || failure.Stage == GatewayFailureStageInference) && failure.Scope == "" && failure.Reason == "" && failure.ShouldRetryNextAccount()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	prior := &state.smartFailure
+	if prior.scope == scope && prior.accountID > 0 {
+		// A second submission on the same request is not independent evidence.
+		// A concrete hard failure on its original account supersedes a 502.
+		if prior.accountID == accountID && !soft && failure.Reason != "fastest_failover_retry_limit" {
+			prior.preserve = false
+		}
+		return
+	}
+	*prior = smartChannelFailure{scope: scope, accountID: accountID}
+	snapshot := state.snapshots[scope]
+	if strikes, ok := snapshot.cache.(smartChannelStrikeCache); soft && snapshot.valid && snapshot.accountID > 0 && ok {
+		first, err := strikes.SmartChannelStrike(ctx, scope.groupID, scope.model, accountID, snapshot.revision, false)
+		prior.preserve = err == nil && first
+	}
+}
+
+func smartChannelTemporaryRetry(ctx context.Context, groupID int64) bool {
+	state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	if state == nil || !smartChannelEnabled(ctx) {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.smartFailure.preserve && state.smartFailure.scope.groupID == groupID
+}
 
 func smartChannelEnabled(ctx context.Context) bool {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)

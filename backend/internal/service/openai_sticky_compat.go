@@ -152,7 +152,7 @@ func (s *OpenAIGatewayService) getStickySessionAccountID(ctx context.Context, gr
 }
 
 func (s *OpenAIGatewayService) setStickySessionAccountID(ctx context.Context, groupID *int64, sessionHash string, accountID int64, ttl time.Duration) error {
-	if s == nil || s.cache == nil || accountID <= 0 {
+	if s == nil || s.cache == nil || accountID <= 0 || smartChannelTemporaryRetry(ctx, derefGroupID(groupID)) {
 		return nil
 	}
 	primaryKey := s.openAISessionCacheKey(sessionHash)

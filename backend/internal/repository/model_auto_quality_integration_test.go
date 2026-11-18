@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -116,4 +117,20 @@ INSERT INTO upstream_quality_samples VALUES(1,1,6,'mapped','medium','pelican','n
 	require.NoError(t, err)
 	require.Greater(t, chat[1].Successes, observed[1].Successes, "different ingress cannot reuse the responses cache")
 	require.EqualValues(t, 1, chat[1].Quality.Normal)
+	_, err = tx.ExecContext(ctx, `INSERT INTO usage_logs (id,created_at,account_id,api_key_id,group_id,request_id,model,duration_ms,input_tokens) VALUES (50,NOW()-INTERVAL '2 minutes',50,1,6,'warm','strikes',200,10);
+INSERT INTO ops_error_logs (created_at,account_id,api_key_id,group_id,request_id,model,error_phase) VALUES
+(NOW()-INTERVAL '3 minutes',50,1,6,'before','strikes','upstream'), (NOW()-INTERVAL '1 minute',50,1,6,'after','strikes','upstream'),(NOW()-INTERVAL '1 minute',51,1,6,'no-success','strikes','upstream');`)
+	require.NoError(t, err)
+	for _, mode := range []string{service.AccountSchedulingModeSmartChannel, service.AccountSchedulingModeModelAuto} {
+		scope := context.WithValue(context.Background(), ctxkey.Group, &service.Group{ID: 6, AccountSchedulingMode: mode})
+		q, err := repo.GetGroupModelAccountQuality(scope, 6, "strikes", time.Now().Add(-24*time.Hour))
+		require.NoError(t, err)
+		require.EqualValues(t, 2, q[50].Failures)
+		require.EqualValues(t, 1, q[51].RecentFailures)
+		if mode == service.AccountSchedulingModeSmartChannel {
+			require.EqualValues(t, 1, q[50].RecentFailures)
+		} else {
+			require.EqualValues(t, 2, q[50].RecentFailures)
+		}
+	}
 }

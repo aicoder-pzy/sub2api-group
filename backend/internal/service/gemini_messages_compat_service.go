@@ -208,7 +208,7 @@ func (s *GeminiMessagesCompatService) SelectAccountForModelWithExclusions(ctx co
 
 	// 5. 设置粘性会话绑定
 	// Set sticky session binding
-	if sessionHash != "" {
+	if sessionHash != "" && !smartChannelTemporaryRetry(ctx, derefGroupID(groupID)) {
 		_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), cacheKey, selected.ID, geminiStickySessionTTL)
 	}
 

@@ -13,6 +13,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSmartChannelStrikeWindow(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	c := &gatewayCache{rdb: client}
+	check := func(model string, account, rev int64, success, want bool) {
+		t.Helper()
+		first, err := c.SmartChannelStrike(context.Background(), 18, model, account, rev, success)
+		require.NoError(t, err)
+		require.Equal(t, want, first)
+	}
+	check("m", 1, 1, false, true)
+	check("other", 1, 1, false, true)
+	check("m", 1, 2, false, true)
+	check("m", 2, 1, true, false)
+	check("m", 1, 1, false, false)
+	check("m", 1, 1, true, false)
+	check("m", 1, 1, false, true)
+	server.FastForward(time.Minute)
+	check("m", 1, 1, false, true)
+}
+
 func TestModelAutoRedisTrialsAreAtomicAndIsolated(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})

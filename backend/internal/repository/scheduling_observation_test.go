@@ -52,3 +52,13 @@ func TestSmartChannelObservationBudgetAndUnknownExpiry(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, got, "expired observations cannot be renewed by reads")
 }
+
+func TestAccountQualityObservationCacheSeparatesSmartChannelOnly(t *testing.T) {
+	plain := context.Background()
+	modelAuto := context.WithValue(plain, ctxkey.Group, &service.Group{ID: 7, AccountSchedulingMode: service.AccountSchedulingModeModelAuto})
+	smart := context.WithValue(plain, ctxkey.Group, &service.Group{ID: 7, AccountSchedulingMode: service.AccountSchedulingModeSmartChannel})
+
+	plainKey := accountQualityObservationKey(plain, 7, "model", "")
+	require.Equal(t, plainKey, accountQualityObservationKey(modelAuto, 7, "model", ""))
+	require.NotEqual(t, plainKey, accountQualityObservationKey(smart, 7, "model", ""))
+}
