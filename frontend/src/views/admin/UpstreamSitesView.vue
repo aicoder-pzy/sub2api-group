@@ -181,7 +181,7 @@ const emptyForm = (): SiteForm => ({ name: '', kind: 'sub2api', base_url: '', in
 const settingsForm = ref(emptyForm()), addForm = ref(emptyForm())
 const selected = computed(() => sites.value.find(site => site.id === selectedId.value))
 const poolEnabled = computed(() => selected.value?.purpose === 'public' && selected.value.kind === 'sub2api' && selected.value.base_url === 'https://aishenji.top')
-const tabs = computed(() => poolEnabled.value ? siteTabs : siteTabs.filter(item => item !== 'accountPool'))
+const tabs = computed<readonly (typeof siteTabs)[number][]>(() => poolEnabled.value ? siteTabs : siteTabs.filter(item => item !== 'accountPool'))
 watch(poolEnabled, enabled => { if (!enabled && tab.value === 'accountPool') tab.value = 'keys' })
 const keys = computed(() => selected.value?.inventory?.keys || [])
 const siteGroups = computed(() => (selected.value?.inventory?.groups || []).map(group => {
