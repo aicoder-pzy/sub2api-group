@@ -382,6 +382,16 @@
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
               <button
+                v-if="row.status === 'active'"
+                type="button"
+                data-testid="group-account-pool"
+                @click="poolGroup = row"
+                class="flex flex-col items-center gap-0.5 whitespace-nowrap rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+              >
+                <Icon name="database" size="sm" />
+                <span class="text-xs">{{ t('upstreamSites.accountPoolPreview') }}</span>
+              </button>
+              <button
                 @click="handleEdit(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
@@ -4308,6 +4318,15 @@
       </template>
     </BaseDialog>
 
+    <BaseDialog
+      :show="poolGroup !== null"
+      :title="t('upstreamSites.accountPoolPreviewTitle', { group: poolGroup?.name ?? '' })"
+      width="wide"
+      @close="poolGroup = null"
+    >
+      <UpstreamAccountPoolPanel v-if="poolGroup" :key="poolGroup.id" :group-id="poolGroup.id" />
+    </BaseDialog>
+
     <!-- Group Rate Multipliers Modal -->
     <GroupRateMultipliersModal
       :show="showRateMultipliersModal"
@@ -4363,6 +4382,7 @@ import PlatformIcon from "@/components/common/PlatformIcon.vue";
 import { platformLabel } from "@/utils/platformColors";
 import Icon from "@/components/icons/Icon.vue";
 import GroupI18nField from "@/components/admin/group/GroupI18nField.vue";
+import UpstreamAccountPoolPanel from "@/components/admin/account/UpstreamAccountPoolPanel.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
@@ -4899,6 +4919,7 @@ let abortController: AbortController | null = null;
 
 const showCreateModal = ref(false);
 const showEditModal = ref(false);
+const poolGroup = ref<AdminGroup | null>(null);
 const showDeleteDialog = ref(false);
 const pendingLiveForm = ref<"create" | "edit" | null>(null);
 const showUnsupportedLiveConfirm = computed(

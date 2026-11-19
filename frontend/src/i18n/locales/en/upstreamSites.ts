@@ -1,5 +1,7 @@
 export default {
   accountPool: 'Account pools', accountPoolSnapshot: '{count} accounts · Updated {time}', accountPoolEmpty: 'No account pool snapshot',
+  accountPoolPreview: 'Pool preview', accountPoolPreviewTitle: '{group} · Combined pool', accountPoolPartial: 'Pool data is incomplete: some keys are not synced or their upstream groups are not covered by the snapshot.',
+  accountPoolLoading: 'Loading account pools', accountPoolReload: 'Reload', accountPoolPlans: 'Plan counts',
   accountPoolRefresh: 'Refresh pools', accountPoolRefreshing: 'Refreshing account pools…', accountPoolManage: 'Manage display names',
   accountPoolName: 'Display name', accountPoolSave: 'Save', accountPoolSourceGroup: 'Upstream group', accountPoolAll: 'All upstream groups', accountPoolAllPlatforms: 'All platforms',
   accountPoolNumber: 'Account', accountPoolPlatform: 'Platform', accountPoolStatus: 'Status',

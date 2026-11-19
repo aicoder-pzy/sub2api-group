@@ -2,13 +2,17 @@
   <div class="space-y-4 px-1 py-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <p class="text-sm text-gray-500" role="status">
-        {{ snapshot?.updated ? tr('accountPoolSnapshot', { count: snapshot.rows.length, time: new Date(snapshot.updated).toLocaleString() }) : tr('accountPoolEmpty') }}
+        {{ updated ? tr('accountPoolSnapshot', { count: total, time: formatDateTime(updated) }) : tr(busy ? 'accountPoolLoading' : 'accountPoolEmpty') }}
       </p>
-      <button class="btn btn-secondary" type="button" :disabled="busy || refreshing" @click="load(true)">
-        <Icon name="refresh" size="sm" :class="{ 'animate-spin': refreshing }" />{{ tr(refreshing ? 'accountPoolRefreshing' : 'accountPoolRefresh') }}
+      <button class="btn btn-secondary" type="button" :disabled="busy || refreshing" @click="load(!groupMode)">
+        <Icon name="refresh" size="sm" :class="{ 'animate-spin': refreshing }" />{{ tr(groupMode ? 'accountPoolReload' : refreshing ? 'accountPoolRefreshing' : 'accountPoolRefresh') }}
       </button>
     </div>
     <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
+    <p v-if="groupSnapshot && !groupSnapshot.complete" role="status" class="rounded-lg border border-amber-200 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:text-amber-300">{{ tr('accountPoolPartial') }}</p>
+    <ul v-if="groupSnapshot?.plans.length" class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700 dark:text-gray-300" :aria-label="tr('accountPoolPlans')">
+      <li v-for="plan in groupSnapshot.plans" :key="plan.code">{{ plan.name }} <span class="tabular-nums text-gray-500 dark:text-gray-400">{{ plan.count }}</span></li>
+    </ul>
     <details v-if="snapshot?.pools.length" class="rounded-lg border border-gray-200 px-3 py-2 dark:border-dark-700">
       <summary class="cursor-pointer text-sm font-medium">{{ tr('accountPoolManage') }}</summary>
       <ul class="mt-2 divide-y divide-gray-200 dark:divide-dark-700">
@@ -19,8 +23,8 @@
         </li>
       </ul>
     </details>
-    <template v-if="snapshot?.updated">
-      <div class="flex flex-wrap gap-2">
+    <template v-if="groupSnapshot || snapshot?.updated">
+      <div v-if="snapshot && !groupMode" class="flex flex-wrap gap-2">
         <select v-model="selectedPool" class="input w-auto max-w-full" :aria-label="tr('accountPoolSourceGroup')">
           <option value="">{{ tr('accountPoolAll') }}</option>
           <option v-for="pool in snapshot.pools" :key="pool.id" :value="pool.id">
@@ -65,9 +69,9 @@
       </DataTable>
       <p v-else class="text-sm text-gray-500">{{ tr('accountPoolNoResults') }}</p>
       <div v-if="pages > 1" class="flex flex-wrap items-center justify-end gap-2 text-sm">
-        <button class="btn btn-secondary" type="button" :disabled="page === 1" :aria-label="tr('accountPoolPrevious')" :title="tr('accountPoolPrevious')" @click="page--">‹</button>
+        <button class="btn btn-secondary" type="button" :disabled="busy || page === 1" :aria-label="tr('accountPoolPrevious')" :title="tr('accountPoolPrevious')" @click="page--">‹</button>
         <span class="px-1 tabular-nums" aria-live="polite">{{ page }} / {{ pages }}</span>
-        <button class="btn btn-secondary" type="button" :disabled="page === pages" :aria-label="tr('accountPoolNext')" :title="tr('accountPoolNext')" @click="page++">›</button>
+        <button class="btn btn-secondary" type="button" :disabled="busy || page >= pages" :aria-label="tr('accountPoolNext')" :title="tr('accountPoolNext')" @click="page++">›</button>
       </div>
     </template>
   </div>
@@ -76,7 +80,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { upstreamSitesAPI, siteError, type SitePool, type SitePoolDisplay } from '@/api/admin/upstreamSites'
+import { upstreamSitesAPI, siteError, type GroupPoolDisplay, type SitePool, type SitePoolDisplay } from '@/api/admin/upstreamSites'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -84,17 +88,21 @@ import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 
-const props = defineProps<{ siteId: string }>()
+const props = defineProps<{ siteId?: string; groupId?: number }>()
 const { t: translate } = useI18n()
 const tr = (key: string, params: Record<string, string | number> = {}) => translate(`upstreamSites.${key}`, params)
 const snapshot = ref<SitePoolDisplay>(), drafts = ref<Record<string, string>>({})
+const groupSnapshot = ref<GroupPoolDisplay>()
+const groupMode = computed(() => props.groupId != null)
+const updated = computed(() => groupSnapshot.value?.updated ?? snapshot.value?.updated)
+const total = computed(() => groupSnapshot.value?.total ?? snapshot.value?.rows.length ?? 0)
 const busy = ref(false), refreshing = ref(false), error = ref('')
 const selectedPool = ref(''), selectedPlatform = ref(''), page = ref(1)
 const size = 30
 const platforms = computed(() => [...new Set(snapshot.value?.rows.map(row => row.platform))].sort())
 const filtered = computed(() => (snapshot.value?.rows || []).filter(row => (!selectedPool.value || row.pools?.includes(selectedPool.value)) && (!selectedPlatform.value || row.platform === selectedPlatform.value)))
-const pages = computed(() => Math.max(1, Math.ceil(filtered.value.length / size)))
-const shown = computed(() => filtered.value.slice((page.value - 1) * size, page.value * size))
+const pages = computed(() => groupSnapshot.value?.pages ?? Math.max(1, Math.ceil(filtered.value.length / size)))
+const shown = computed(() => groupSnapshot.value?.rows ?? filtered.value.slice((page.value - 1) * size, page.value * size))
 const platformLabel = (id: string) => ({ openai: 'OpenAI', grok: 'Grok', anthropic: 'Anthropic', gemini: 'Gemini' }[id] || tr('accountPoolState_unknown'))
 const columns = computed(() => [
   { key: 'number', label: tr('accountPoolNumber') },
@@ -107,6 +115,7 @@ const columns = computed(() => [
 const statusBadge: Record<string, string> = { active: 'badge-success', rate_limited: 'badge-warning', temp_unschedulable: 'badge-warning', overload: 'badge-danger', error: 'badge-danger' }
 watch([selectedPool, selectedPlatform], () => { page.value = 1 })
 watch(pages, count => { page.value = Math.min(page.value, count) })
+watch(page, () => { if (groupMode.value) void load(false) })
 
 let timer: number | undefined
 let unmounted = false
@@ -119,6 +128,12 @@ async function load(refresh: boolean) {
   if (refresh) refreshing.value = true
   busy.value = true; error.value = ''
   try {
+    if (props.groupId != null) {
+      const next = await upstreamSitesAPI.groupAccountPool(props.groupId, page.value, size)
+      groupSnapshot.value = next
+      return
+    }
+    if (!props.siteId) return
     if (refresh) await upstreamSitesAPI.refreshAccountPool(props.siteId)
     const next = await upstreamSitesAPI.accountPool(props.siteId)
     const changed = snapshot.value?.updated !== next.updated
@@ -134,7 +149,7 @@ async function load(refresh: boolean) {
 
 async function rename(pool: SitePool) {
   const name = (drafts.value[pool.id] || '').trim()
-  if (busy.value || name === (pool.alias || '')) return
+  if (!props.siteId || busy.value || name === (pool.alias || '')) return
   busy.value = true; error.value = ''
   try {
     snapshot.value = await upstreamSitesAPI.renameAccountPool(props.siteId, pool.id, name)

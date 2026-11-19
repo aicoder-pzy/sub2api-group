@@ -15,6 +15,7 @@
 
 ## 聚合 Sub2 分组的上游号池
 
+- 管理员可从「分组管理 → 号池预览」查看与导出一致的结果，不需要启用导出或配置令牌。
 - `GET /api/v1/integrations/account-pools/{group_id}?page=1&page_size=20`，只在 Sub2 提供接口。以 Sub2 分组的当前名称为展示名。
 - Sub2 容器环境设置 `SUB2_ACCOUNT_POOLS_GROUP_IDS`（明确允许的 Sub2 分组 ID，逗号分隔）和 `SUB2_ACCOUNT_POOLS_EXPORT_TOKEN`（至少 32 字符的独立随机令牌，不可复用旧接口令牌）。默认关闭。仅对接服务端通过 `Authorization: Bearer <令牌>` 使用，禁止把令牌放进浏览器；HTTPS，响应 `Cache-Control: no-store`。
 - 按组内启用且可调度的接入账号，取公用神鸡、秋 API 的 Key 最近一次成功同步的上游分组 ID，只合并对应分组的 OAuth 账号。同站账号只计一次，跨站不猜测身份。私用及其他上游不计入。组内限流等实时调度状态不改变展示成员。

@@ -6,7 +6,7 @@ import en from '@/i18n/locales/en'
 import { upstreamSitesAPI as api, type SitePoolDisplay } from '@/api/admin/upstreamSites'
 
 vi.mock('@/api/admin/upstreamSites', () => ({
-  upstreamSitesAPI: { accountPool: vi.fn(), refreshAccountPool: vi.fn(), renameAccountPool: vi.fn() },
+  upstreamSitesAPI: { accountPool: vi.fn(), groupAccountPool: vi.fn(), refreshAccountPool: vi.fn(), renameAccountPool: vi.fn() },
   siteError: (err: Error) => err.message
 }))
 
@@ -60,6 +60,33 @@ it('shows native OAuth rows and filters by upstream membership even when display
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toBe('Refresh failed')
     expect(wrapper.findAll('tbody tr')).toHaveLength(30)
+  } finally {
+    wrapper.unmount()
+  }
+})
+
+it('previews the same paginated group pool without offering single-site controls', async () => {
+  const page = {
+    group_id: 47, name: 'ultra', updated: '2026-11-19T09:13:00Z', verified_at: null,
+    complete: false, total: 31, plans: [{ code: 'pro_500', name: 'Pro 500', count: 31 }], pages: 2,
+    rows: [{ number: 1, platform: 'openai', plan: 'Pro 500', status: 'active' }],
+  }
+  vi.mocked(api.groupAccountPool).mockResolvedValueOnce(page).mockResolvedValueOnce({ ...page, rows: [{ ...page.rows[0]!, number: 31 }] })
+  const wrapper = mount(UpstreamAccountPoolPanel, {
+    props: { groupId: 47 },
+    global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] },
+  })
+  try {
+    await flushPromises()
+    expect(api.groupAccountPool).toHaveBeenCalledWith(47, 1, 30)
+    expect(wrapper.text()).toContain('31 accounts')
+    expect(wrapper.text()).toContain('Pool data is incomplete')
+    expect(wrapper.get('tbody tr').text()).toMatch(/OpenAI.*OAuth.*Pro 500/s)
+    expect(wrapper.find('[aria-label="Upstream group"]').exists()).toBe(false)
+    await wrapper.get('[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+    expect(api.groupAccountPool).toHaveBeenCalledWith(47, 2, 30)
+    expect(wrapper.get('tbody tr').text()).toContain('#31')
   } finally {
     wrapper.unmount()
   }

@@ -93,6 +93,20 @@ func (h *AccountHandler) ExportGroupAccountPools(c *gin.Context) {
 		response.NotFound(c, "Group account pool not found")
 		return
 	}
+	h.serveGroupAccountPools(c, groupID)
+}
+
+func (h *AccountHandler) PreviewGroupAccountPools(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.NotFound(c, "Group account pool not found")
+		return
+	}
+	h.serveGroupAccountPools(c, groupID)
+}
+
+func (h *AccountHandler) serveGroupAccountPools(c *gin.Context, groupID int64) {
 	page, size := response.ParsePagination(c)
 	data, err := h.upstreamBillingProbe.ExportGroupAccountPools(c.Request.Context(), groupID, page, size)
 	if !response.ErrorFrom(c, err) {

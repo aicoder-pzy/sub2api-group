@@ -140,7 +140,21 @@ export interface SitePoolDisplay {
   pools: SitePool[]
   rows: { number: number; platform: string; plan: string; status: string; current?: number; limit?: number; pools?: string[]; last_used?: string; windows?: { name: string; used: number }[] }[]
 }
+export interface GroupPoolDisplay {
+  group_id: number
+  name: string
+  complete: boolean
+  updated: string | null
+  verified_at: string | null
+  total: number
+  plans: { code: string; name: string; count: number }[]
+  rows: SitePoolDisplay['rows']
+  pages: number
+}
 export const upstreamSitesAPI = {
+  async groupAccountPool(id: number, page: number, pageSize: number): Promise<GroupPoolDisplay> {
+    return (await apiClient.get(`/admin/groups/${id}/account-pool`, { params: { page, page_size: pageSize } })).data
+  },
   async accountPool(id: string): Promise<SitePoolDisplay> { return (await apiClient.get(`${sitePath(id)}/account-pool`)).data },
   async refreshAccountPool(id: string): Promise<void> { await apiClient.post(`${sitePath(id)}/account-pool/refresh`) },
   async renameAccountPool(id: string, pool: string, name: string): Promise<SitePoolDisplay> { return (await apiClient.put(`${sitePath(id)}/account-pool/${encodeURIComponent(pool)}`, { name })).data },
