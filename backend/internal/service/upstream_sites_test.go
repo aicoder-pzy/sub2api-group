@@ -91,7 +91,7 @@ func TestUpstreamSiteInventoryKeepsSecretsServerSideAndRevealsSelectedKey(t *tes
 func TestUpstreamSiteRevealAllowsDisabledKeysButRejectsStaleSites(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	upstream := &siteImportHTTP{call: func(req *http.Request) (*http.Response, error) {
 		require.Equal(t, "GET", req.Method)
 		return siteImportResponse(`{"success":true,"data":{"items":[{"id":3,"name":"disabled","key":"sk-fixture-key","status":2}],"total":1}}`), nil
