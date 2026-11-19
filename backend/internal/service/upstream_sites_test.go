@@ -104,7 +104,7 @@ func TestUpstreamSiteRevealAllowsDisabledKeysButRejectsStaleSites(t *testing.T) 
 	for _, revision := range []int64{1, 2} {
 		mock.ExpectQuery("SELECT .* FROM upstream_sites WHERE id=").WithArgs(site.ID).WillReturnRows(
 			sqlmock.NewRows([]string{"id", "name", "kind", "base_url", "user_id", "proxy_id", "revision", "token_cipher", "inference_url", "purchase_note", "inventory", "model_catalogs", "refresh_token_cipher", "purpose"}).
-				AddRow(site.ID, site.Name, site.Kind, site.BaseURL, site.UserID, nil, revision, "encrypted", site.BaseURL, "", nil, nil, "", ""))
+				AddRow(site.ID, site.Name, site.Kind, site.BaseURL, site.UserID, nil, revision, "encrypted", site.BaseURL, "", []byte("{}"), []byte("{}"), "", ""))
 		secret, err := svc.RevealUpstreamSiteKey(context.Background(), site, "3")
 		if revision == site.Revision {
 			require.NoError(t, err)
