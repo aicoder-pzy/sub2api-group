@@ -179,7 +179,7 @@ func (s *UpstreamBillingProbeService) StartAccountPoolRefresh(site *UpstreamSite
 	}
 	s.accountPoolSite, s.accountPoolRunning, s.accountPoolError = site.ID, true, ""
 	go func() {
-		ctx, cancel := context.WithTimeout(s.parentCtx, 5*time.Minute)
+		ctx, cancel := context.WithTimeout(s.parentCtx, 7*time.Minute)
 		defer cancel()
 		fetch := &accountPoolFetcher{ctx: ctx, request: func(path string) ([]byte, error) {
 			return s.upstreamSiteRequestWithStatus(ctx, site, http.MethodGet, path, nil)
@@ -319,26 +319,34 @@ func collectAccountPool(get func(string) ([]byte, error), previous []accountPool
 		out.Groups[i].Count = 0
 	}
 	seen := map[json.Number]bool{}
-	total, pages := 0, 1
-	for page := 1; page <= pages; page++ {
+	total, pages := -1, 1
+	read := func(page int) error {
 		data, err := get(fmt.Sprintf("/api/v1/account-pool?page=%d&page_size=%d", page, size))
 		if err != nil {
-			return accountPoolSnapshot{}, err
+			return err
 		}
 		var result upstreamPoolPage
 		if json.Unmarshal(data, &result) != nil || result.Total == nil || result.Items == nil || *result.Total < 0 || *result.Total > size*maxPages {
-			return accountPoolSnapshot{}, errPoolChanged
+			return errPoolChanged
 		}
-		if page == 1 {
+		if total < 0 {
 			total = *result.Total
 			pages = max(1, (total+size-1)/size)
 		}
 		if result.Page != page || result.Size != size || *result.Total != total || result.Pages != pages || len(result.Items) != min(size, total-(page-1)*size) {
-			return accountPoolSnapshot{}, errPoolChanged
+			return errPoolChanged
 		}
+		inPage := make(map[json.Number]bool, len(result.Items))
 		for _, item := range result.Items {
-			if item.ID == "" || seen[item.ID] {
-				return accountPoolSnapshot{}, errPoolChanged
+			if item.ID == "" || inPage[item.ID] {
+				return errPoolChanged
+			}
+			inPage[item.ID] = true
+			if seen[item.ID] {
+				continue
+			}
+			if len(seen) == total {
+				return errPoolChanged
 			}
 			seen[item.ID] = true
 			row := accountPoolRow{Number: len(out.Rows) + 1, Platform: poolEnum(item.Platform, "openai", "grok", "anthropic", "gemini"),
@@ -355,14 +363,14 @@ func collectAccountPool(get func(string) ([]byte, error), previous []accountPool
 			}
 			for _, group := range item.Groups {
 				if group.ID == "" {
-					return accountPoolSnapshot{}, errPoolChanged
+					return errPoolChanged
 				}
 				id := group.ID.String()
 				i, ok := groupIndex[id]
 				if !ok {
 					i = len(out.Groups)
 					if i >= 1000 {
-						return accountPoolSnapshot{}, errPoolChanged
+						return errPoolChanged
 					}
 					groupIndex[id] = i
 					out.Groups = append(out.Groups, accountPoolSourceGroup{SourceID: id, ID: uuid.NewString()})
@@ -388,6 +396,21 @@ func collectAccountPool(get func(string) ([]byte, error), previous []accountPool
 			}
 			out.Rows = append(out.Rows, row)
 		}
+		return nil
+	}
+	for page := 1; page <= pages; page++ {
+		if err := read(page); err != nil {
+			return accountPoolSnapshot{}, err
+		}
+	}
+	// ponytail: upstream has no snapshot cursor; check a second sweep for coverage, then keep the old snapshot if still incomplete.
+	for page := 1; page <= pages && len(seen) < total; page++ {
+		if err := read(page); err != nil {
+			return accountPoolSnapshot{}, err
+		}
+	}
+	if len(seen) != total {
+		return accountPoolSnapshot{}, errPoolChanged
 	}
 	now := time.Now().UTC()
 	out.Updated = &now

@@ -70,6 +70,18 @@ func TestCollectAccountPool(t *testing.T) {
 		require.NotContains(t, string(data), hidden)
 	}
 	require.Equal(t, "original-pool", second.display(aliases, true).Pools[0].Original)
+	calls := 0
+	recovered, err := collectAccountPool(func(path string) ([]byte, error) {
+		calls++
+		if calls <= 2 {
+			return get(100, 101)(path)
+		}
+		return get(101, 101)(path)
+	}, first.Groups)
+	require.NoError(t, err)
+	require.Equal(t, 4, calls)
+	require.Len(t, recovered.Rows, 101)
+	require.Equal(t, 101, recovered.Groups[0].Count)
 	for _, edge := range []struct{ id, total int }{{100, 101}, {101, 102}} {
 		incomplete, err := collectAccountPool(get(edge.id, edge.total), first.Groups)
 		require.ErrorIs(t, err, errPoolChanged)
