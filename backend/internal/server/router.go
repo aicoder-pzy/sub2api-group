@@ -133,6 +133,7 @@ func registerRoutes(
 	routes.RegisterModelPlazaRoutes(v1, h, optionalJWTAuth, settingService, panelRateLimiter)
 	routes.RegisterPublicPelicanShowcaseRoutes(v1, h, apiKeyAuth, panelRateLimiter)
 	v1.GET("/integrations/account-pool", panelRateLimiter.PublicIP(), h.Admin.Account.ExportUpstreamAccountPool)
+	v1.GET("/integrations/account-pools/:group_id", panelRateLimiter.PublicIP(), h.Admin.Account.ExportGroupAccountPools)
 	routes.RegisterAdminRoutes(v1, h, adminAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
 	routes.RegisterMCPRoutes(v1, h, auditLog, stepUpAuth, settingService, panelRateLimiter, cfg.CORS.AllowedOrigins, redisClient)
 	routes.RegisterMCPOAuthRoutes(r, v1, h, redisClient)

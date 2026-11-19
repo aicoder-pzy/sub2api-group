@@ -53,9 +53,10 @@ type accountPoolSourceGroup struct {
 }
 
 type accountPoolSnapshot struct {
-	Updated *time.Time               `json:"updated"`
-	Groups  []accountPoolSourceGroup `json:"groups"`
-	Rows    []accountPoolRow         `json:"rows"`
+	SiteRevision int64                    `json:"site_revision,omitempty"`
+	Updated      *time.Time               `json:"updated"`
+	Groups       []accountPoolSourceGroup `json:"groups"`
+	Rows         []accountPoolRow         `json:"rows"`
 }
 
 type accountPoolGroup struct {
@@ -275,13 +276,14 @@ func (s *UpstreamBillingProbeService) refreshAccountPool(ctx context.Context, si
 	if err != nil {
 		return err
 	}
+	snapshot.SiteRevision = site.Revision
 	raw, err := json.Marshal(snapshot)
 	if err != nil {
 		return err
 	}
 	result, err := s.db.ExecContext(ctx, `INSERT INTO upstream_site_account_pools(site_id,snapshot)
-		SELECT id,$2::jsonb FROM upstream_sites WHERE id=$1 AND base_url=$3 AND kind='sub2api' AND purpose='public'
-		ON CONFLICT (site_id) DO UPDATE SET snapshot=EXCLUDED.snapshot`, site.ID, string(raw), site.BaseURL)
+		SELECT id,$2::jsonb FROM upstream_sites WHERE id=$1 AND base_url=$3 AND kind='sub2api' AND purpose='public' AND revision=$4
+		ON CONFLICT (site_id) DO UPDATE SET snapshot=EXCLUDED.snapshot`, site.ID, string(raw), site.BaseURL, site.Revision)
 	if err != nil {
 		return err
 	}
@@ -370,8 +372,12 @@ func collectAccountPool(get func(string) ([]byte, error), previous []accountPool
 				return errPoolChanged
 			}
 			seen[item.ID] = true
+			plan := item.Plan
+			if strings.EqualFold(plan, "Pro Max") || strings.EqualFold(plan, "promax") {
+				plan = "promax"
+			}
 			row := accountPoolRow{Number: len(out.Rows) + 1, Platform: poolEnum(item.Platform, "openai", "grok", "anthropic", "gemini"),
-				Plan:   poolEnum(item.Plan, "promax", "Pro", "Plus", "Team", "Free", "go", "SuperGrok Heavy", "pro20", "SuperGrok"),
+				Plan:   poolEnum(plan, "promax", "Pro", "Plus", "Team", "Free", "go", "SuperGrok Heavy", "pro20", "SuperGrok"),
 				Status: poolEnum(item.Status, "active", "error", "rate_limited", "paused", "disabled", "inactive"), Current: poolNumber(item.Current), Limit: poolNumber(item.Limit)}
 			if t, err := time.Parse(time.RFC3339, item.LastUsed); err == nil {
 				row.LastUsed = &t

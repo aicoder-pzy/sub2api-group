@@ -35,3 +35,36 @@ func TestPoolExportRequiresDedicatedBearer(t *testing.T) {
 		require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 	}
 }
+
+func TestGroupPoolExportRequiresDedicatedBearerAndAllowedGroup(t *testing.T) {
+	h := &AccountHandler{}
+	router := gin.New()
+	router.GET("/account-pool", h.ExportUpstreamAccountPool)
+	router.GET("/account-pools/:group_id", h.ExportGroupAccountPools)
+	legacy, token := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	t.Setenv("SUB2_ACCOUNT_POOL_SITE_ID", "d5fe06a4-d164-4b71-a204-ce79a0f043a5")
+	t.Setenv("SUB2_ACCOUNT_POOL_EXPORT_TOKEN", legacy)
+	for _, tc := range []struct {
+		allow, configured, supplied, path string
+		status                            int
+	}{
+		{"", token, token, "/account-pools/24", 404},
+		{"24", "short", "short", "/account-pools/24", 404},
+		{"24", legacy, legacy, "/account-pools/24", 404},
+		{"24", token, legacy, "/account-pools/24", 401},
+		{"24", token, token, "/account-pool", 401},
+		{"124, 42", token, token, "/account-pools/24", 404},
+		{"24", token, token, "/account-pools/024", 404},
+		{"24", token, token, "/account-pools/9223372036854775808", 404},
+		{"124, 24", token, token, "/account-pools/24", 503},
+	} {
+		t.Setenv("SUB2_ACCOUNT_POOLS_GROUP_IDS", tc.allow)
+		t.Setenv("SUB2_ACCOUNT_POOLS_EXPORT_TOKEN", tc.configured)
+		r := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		r.Header.Set("Authorization", "Bearer "+tc.supplied)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		require.Equal(t, tc.status, w.Code, w.Body.String())
+		require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	}
+}
