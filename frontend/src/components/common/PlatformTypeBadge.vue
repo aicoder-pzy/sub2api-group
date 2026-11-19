@@ -81,6 +81,7 @@ interface Props {
   type: AccountType
   authMode?: string
   planType?: string
+  displayPlanLabel?: string
   privacyMode?: string
   subscriptionExpiresAt?: string
 }
@@ -117,6 +118,7 @@ const typeLabel = computed(() => {
 const normalizedPlanType = computed(() => normalizePlanType(props.planType))
 
 const planLabel = computed(() => {
+  if (props.displayPlanLabel) return props.displayPlanLabel
   if (!normalizedPlanType.value) return ''
   // ChatGPT 档位命名（Pro 100 / Pro 200 / Pro 500、Business / Business Premium）只适用于
   // OpenAI：Antigravity 与 Grok 各自的 pro/team 沿用下面的通用标签。

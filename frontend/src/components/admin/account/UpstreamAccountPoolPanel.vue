@@ -37,7 +37,13 @@
           <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
         </template>
         <template #cell-platform_type="{ row }">
-          <PlatformTypeBadge v-if="row.platform !== 'unknown'" :platform="row.platform" type="oauth" :plan-type="row.plan === 'unknown' ? undefined : row.plan" />
+          <PlatformTypeBadge
+            v-if="row.platform !== 'unknown'"
+            :platform="row.platform"
+            type="oauth"
+            :plan-type="row.plan === 'unknown' ? undefined : row.plan"
+            :display-plan-label="row.plan === 'unknown' ? undefined : row.plan"
+          />
           <span v-else class="badge badge-gray text-xs">{{ tr('accountPoolState_unknown') }}</span>
         </template>
         <template #cell-status="{ row }">

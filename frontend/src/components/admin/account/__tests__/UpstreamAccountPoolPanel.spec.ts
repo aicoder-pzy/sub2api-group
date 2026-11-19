@@ -36,6 +36,7 @@ it('shows native OAuth rows and filters by upstream membership even when display
     await flushPromises()
     expect(wrapper.findAll('tbody tr')).toHaveLength(30)
     expect(wrapper.get('tbody tr').text()).toMatch(/OpenAI.*OAuth.*Pro.*25%/s)
+    expect(wrapper.get('tbody tr').text()).not.toContain('Pro 200')
     expect(wrapper.get('tbody tr .badge-success').text()).toBe('Available')
     expect(wrapper.find('tbody button').exists()).toBe(false)
     await wrapper.get('[aria-label="Next page"]').trigger('click')
