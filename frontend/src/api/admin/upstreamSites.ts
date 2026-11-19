@@ -126,7 +126,22 @@ export interface ImportDraft {
 }
 const endpoint = '/admin/accounts/upstream-sites'
 const sitePath = (id: string) => `${endpoint}/${encodeURIComponent(id)}`
+export interface SitePool {
+  id: string
+  name: string
+  count: number
+  original?: string
+  alias?: string
+}
+export interface SitePoolDisplay {
+  updated: string | null
+  pools: SitePool[]
+  rows: { number: number; platform: string; plan: string; status: string; current?: number; limit?: number; pools?: string[]; last_used?: string; windows?: { name: string; used: number }[] }[]
+}
 export const upstreamSitesAPI = {
+  async accountPool(id: string): Promise<SitePoolDisplay> { return (await apiClient.get(`${sitePath(id)}/account-pool`)).data },
+  async refreshAccountPool(id: string): Promise<SitePoolDisplay> { return (await apiClient.post(`${sitePath(id)}/account-pool/refresh`, null, { timeout: 250_000 })).data },
+  async renameAccountPool(id: string, pool: string, name: string): Promise<SitePoolDisplay> { return (await apiClient.put(`${sitePath(id)}/account-pool/${encodeURIComponent(pool)}`, { name })).data },
   async list(): Promise<UpstreamSite[]> { return (await apiClient.get(endpoint)).data },
   async save(id: string, form: SiteForm): Promise<UpstreamSite> {
     return (await (id ? apiClient.put(sitePath(id), form, { timeout: 60_000 }) : apiClient.post(endpoint, form, { timeout: 60_000 }))).data

@@ -88,6 +88,7 @@
               </section>
             </div>
             <UpstreamSiteMonitorPanel v-else-if="tab === 'monitoring'" :site="selected" />
+            <UpstreamAccountPoolPanel v-else-if="tab === 'accountPool' && poolEnabled" :key="selected.id" :site-id="selected.id" />
             <div v-else class="p-5">
               <p v-if="selected.kind === 'sub2api'" class="mb-4 text-sm" :class="selected.can_refresh ? 'text-primary-600' : 'text-amber-600'" data-site-authorization>{{ tr(selected.can_refresh ? 'automaticRefresh' : 'manualRefresh') }}</p>
               <UpstreamSiteForm v-model="settingsForm" :busy="working" :proxies="proxies" @save="saveSelected"><button type="button" class="btn btn-secondary text-red-600" :disabled="working" @click="showDelete = true">{{ tr('delete') }}</button></UpstreamSiteForm>
@@ -149,6 +150,7 @@ import UpstreamImportDrawer from '@/components/admin/account/UpstreamImportDrawe
 import UpstreamBalanceOverview from '@/components/admin/account/UpstreamBalanceOverview.vue'
 import UpstreamGroupSelect from '@/components/admin/account/UpstreamGroupSelect.vue'
 import UpstreamSiteMonitorPanel from '@/components/admin/account/UpstreamSiteMonitorPanel.vue'
+import UpstreamAccountPoolPanel from '@/components/admin/account/UpstreamAccountPoolPanel.vue'
 import * as groupsAPI from '@/api/admin/groups'
 import * as proxiesAPI from '@/api/admin/proxies'
 import type { AdminGroup, Proxy } from '@/types'
@@ -163,8 +165,8 @@ const purposeFilter = ref<SitePurpose | 'all'>('all')
 const purposeOptions = [{ value: '', label: 'purposeUnclassified' }, { value: 'public', label: 'purposePublic' }, { value: 'private', label: 'purposePrivate' }] as const
 const purposeLabel = (purpose?: SitePurpose) => tr(purposeOptions.find(option => option.value === (purpose || ''))!.label)
 const purposeClass = (purpose?: SitePurpose) => purpose ? `purpose-${purpose}` : ''
-const tabs = ['keys', 'siteGroups', 'accounts', 'changes', 'settings', 'monitoring'] as const
-const tab = ref<typeof tabs[number]>('keys')
+const siteTabs = ['keys', 'siteGroups', 'accounts', 'changes', 'settings', 'monitoring', 'accountPool'] as const
+const tab = ref<typeof siteTabs[number]>('keys')
 const busy = ref(false), syncing = ref(false), error = ref(''), notice = ref('')
 const working = computed(() => busy.value || syncing.value)
 const accounts = ref<SiteAccount[]>([]), accountsLoading = ref(false), accountsError = ref('')
@@ -178,6 +180,9 @@ const modelCatalog = ref<{ keyName: string; groupName: string; models: string[];
 const emptyForm = (): SiteForm => ({ name: '', kind: 'sub2api', base_url: '', inference_url: '', purchase_note: '', user_id: 0, proxy_id: null, revision: 0, access_token: '' })
 const settingsForm = ref(emptyForm()), addForm = ref(emptyForm())
 const selected = computed(() => sites.value.find(site => site.id === selectedId.value))
+const poolEnabled = computed(() => selected.value?.purpose === 'public' && selected.value.kind === 'sub2api' && selected.value.base_url === 'https://aishenji.top')
+const tabs = computed(() => poolEnabled.value ? siteTabs : siteTabs.filter(item => item !== 'accountPool'))
+watch(poolEnabled, enabled => { if (!enabled && tab.value === 'accountPool') tab.value = 'keys' })
 const keys = computed(() => selected.value?.inventory?.keys || [])
 const siteGroups = computed(() => (selected.value?.inventory?.groups || []).map(group => {
   const groupKeys = keys.value.filter(key => key.group_id === group.id)
@@ -274,11 +279,12 @@ watch(selectedId, () => {
 })
 watch([keySearch, importFilter, availabilityFilter], () => { page.value = 1 })
 watch(pages, count => { page.value = Math.min(page.value, count) })
-function tabKeydown(event: KeyboardEvent, item: typeof tabs[number]) {
+function tabKeydown(event: KeyboardEvent, item: typeof siteTabs[number]) {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
   event.preventDefault()
-  const index = tabs.indexOf(item)
-  tab.value = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]!
+  const list = tabs.value
+  const index = list.indexOf(item)
+  tab.value = list[event.key === 'Home' ? 0 : event.key === 'End' ? list.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + list.length) % list.length]!
   void nextTick(() => document.getElementById(`site-tab-${tab.value}`)?.focus())
 }
 function selectPage(checked: boolean) {

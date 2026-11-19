@@ -268,6 +268,9 @@ type UpstreamBillingProbeService struct {
 	lockCache    LeaderLockCache
 	db           *sql.DB
 	instanceID   string
+
+	accountPoolMu      sync.Mutex
+	accountPoolRetryAt time.Time
 }
 
 type upstreamBillingProbeSnapshotWriter interface {
