@@ -7,6 +7,7 @@ export default {
   accountPoolPrevious: '上一页', accountPoolNext: '下一页', accountPoolState_active: '可用', accountPoolState_error: '异常',
   accountPoolState_rate_limited: '限流', accountPoolState_paused: '暂停', accountPoolState_disabled: '禁用',
   accountPoolState_inactive: '不活跃', accountPoolState_unknown: '未知',
+  accountPoolState_overload: '过载', accountPoolState_temp_unschedulable: '暂不可用', accountPoolState_expired: '已过期',
   copyBaseURL: '复制 Base URL', openSite: '在新标签页打开网站', copyKey: '复制完整 Key',
   copyNamedKey: '复制 {name} 的完整 Key', copyKeyFailed: '无法获取完整 Key，请检查上游授权或同步站点后重试。',
   balanceOverview: '站点余额总览',

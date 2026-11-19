@@ -17,7 +17,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const accountPoolBaseURL = "https://aishenji.top"
+const (
+	accountPoolBaseURL = "https://aishenji.top"
+	vulcanPoolBaseURL  = "https://vulcanapi.com"
+)
 
 var (
 	errPoolSite    = infraerrors.NotFound("ACCOUNT_POOL_SITE", "Account pool is not enabled for this site")
@@ -72,15 +75,17 @@ type AccountPoolDisplay struct {
 }
 
 func accountPoolEnabled(site *UpstreamSite) bool {
-	return site != nil && site.Kind == "sub2api" && site.Purpose == "public" && site.BaseURL == accountPoolBaseURL
+	return site != nil && site.Kind == "sub2api" && site.Purpose == "public" &&
+		(site.BaseURL == accountPoolBaseURL || site.BaseURL == vulcanPoolBaseURL)
 }
 
-func (s *UpstreamBillingProbeService) readAccountPool(ctx context.Context, siteID string) (accountPoolSnapshot, map[string]string, error) {
+func (s *UpstreamBillingProbeService) readAccountPool(ctx context.Context, siteID string, allowVulcan bool) (accountPoolSnapshot, map[string]string, error) {
 	var snapshot accountPoolSnapshot
 	var raw, names []byte
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(p.snapshot,'{}'), COALESCE(p.aliases,'{}')
 		FROM upstream_sites s LEFT JOIN upstream_site_account_pools p ON s.id=p.site_id
-		WHERE s.id=$1 AND s.base_url=$2 AND s.kind='sub2api' AND s.purpose='public'`, siteID, accountPoolBaseURL).Scan(&raw, &names)
+		WHERE s.id=$1 AND (s.base_url=$2 OR ($3 AND s.base_url=$4)) AND s.kind='sub2api' AND s.purpose='public'`,
+		siteID, accountPoolBaseURL, allowVulcan, vulcanPoolBaseURL).Scan(&raw, &names)
 	if errors.Is(err, sql.ErrNoRows) {
 		return snapshot, nil, errPoolSite
 	}
@@ -133,7 +138,7 @@ func (s *UpstreamBillingProbeService) AccountPoolDisplay(ctx context.Context, si
 		}
 		s.accountPoolMu.Unlock()
 	}
-	snapshot, aliases, err := s.readAccountPool(ctx, siteID)
+	snapshot, aliases, err := s.readAccountPool(ctx, siteID, admin)
 	if err != nil {
 		return AccountPoolDisplay{}, err
 	}
@@ -155,7 +160,7 @@ func (s *UpstreamBillingProbeService) RenameAccountPool(ctx context.Context, sit
 	}
 	result, err := s.db.ExecContext(ctx, `UPDATE upstream_site_account_pools p SET aliases=aliases || jsonb_build_object($2::text,$3::text)
 		FROM upstream_sites s WHERE p.site_id=$1 AND p.site_id=s.id AND s.base_url=$4 AND s.kind='sub2api' AND s.purpose='public'
-		AND p.snapshot->'groups' @> jsonb_build_array(jsonb_build_object('id',$2::text))`, site.ID, id, name, accountPoolBaseURL)
+		AND p.snapshot->'groups' @> jsonb_build_array(jsonb_build_object('id',$2::text))`, site.ID, id, name, site.BaseURL)
 	if err != nil {
 		return err
 	}
@@ -182,6 +187,9 @@ func (s *UpstreamBillingProbeService) StartAccountPoolRefresh(site *UpstreamSite
 		ctx, cancel := context.WithTimeout(s.parentCtx, 7*time.Minute)
 		defer cancel()
 		fetch := &accountPoolFetcher{ctx: ctx, request: func(path string) ([]byte, error) {
+			if site.BaseURL == vulcanPoolBaseURL {
+				return s.upstreamSiteRequestWithToken(ctx, site, http.MethodGet, path, nil, "")
+			}
 			return s.upstreamSiteRequestWithStatus(ctx, site, http.MethodGet, path, nil)
 		}}
 		err := s.refreshAccountPool(ctx, site, fetch.get)
@@ -243,28 +251,27 @@ func (f *accountPoolFetcher) get(path string) ([]byte, error) {
 		f.retryAt = now.Add(accountPoolRetryDelay(status.retryAfter, now))
 		deadline, _ := f.ctx.Deadline()
 		if attempt == 1 || f.retryAt.After(deadline) {
-			return nil, infraerrors.TooManyRequests("ACCOUNT_POOL_UPSTREAM_RATE_LIMIT", "神鸡上游限流，已保留上一份快照，请稍后重试")
+			return nil, infraerrors.TooManyRequests("ACCOUNT_POOL_UPSTREAM_RATE_LIMIT", "上游限流，已保留上一份快照，请稍后重试")
 		}
 		f.next = f.retryAt
 	}
 }
 
 func (s *UpstreamBillingProbeService) refreshAccountPool(ctx context.Context, site *UpstreamSite, get func(string) ([]byte, error)) error {
-	previous, _, err := s.readAccountPool(ctx, site.ID)
+	previous, _, err := s.readAccountPool(ctx, site.ID, true)
 	if err != nil {
 		return err
 	}
-	data, err := get("/api/v1/account-pool/access")
-	if err != nil {
-		return err
+	var snapshot accountPoolSnapshot
+	if site.BaseURL == vulcanPoolBaseURL {
+		var raw []byte
+		raw, err = get("/api/v1/public/account-pool")
+		if err == nil {
+			snapshot, err = collectVulcanPool(raw, previous.Groups)
+		}
+	} else {
+		snapshot, err = collectShenjiPool(get, previous.Groups)
 	}
-	var access struct {
-		Verified bool `json:"verified"`
-	}
-	if json.Unmarshal(data, &access) != nil || !access.Verified {
-		return upstreamSiteError("The saved upstream login does not have account pool access")
-	}
-	snapshot, err := collectAccountPool(get, previous.Groups)
 	if err != nil {
 		return err
 	}
@@ -274,7 +281,7 @@ func (s *UpstreamBillingProbeService) refreshAccountPool(ctx context.Context, si
 	}
 	result, err := s.db.ExecContext(ctx, `INSERT INTO upstream_site_account_pools(site_id,snapshot)
 		SELECT id,$2::jsonb FROM upstream_sites WHERE id=$1 AND base_url=$3 AND kind='sub2api' AND purpose='public'
-		ON CONFLICT (site_id) DO UPDATE SET snapshot=EXCLUDED.snapshot`, site.ID, string(raw), accountPoolBaseURL)
+		ON CONFLICT (site_id) DO UPDATE SET snapshot=EXCLUDED.snapshot`, site.ID, string(raw), site.BaseURL)
 	if err != nil {
 		return err
 	}
@@ -284,6 +291,20 @@ func (s *UpstreamBillingProbeService) refreshAccountPool(ctx context.Context, si
 		return errPoolSite
 	}
 	return nil
+}
+
+func collectShenjiPool(get func(string) ([]byte, error), previous []accountPoolSourceGroup) (accountPoolSnapshot, error) {
+	data, err := get("/api/v1/account-pool/access")
+	if err != nil {
+		return accountPoolSnapshot{}, err
+	}
+	var access struct {
+		Verified bool `json:"verified"`
+	}
+	if json.Unmarshal(data, &access) != nil || !access.Verified {
+		return accountPoolSnapshot{}, upstreamSiteError("The saved upstream login does not have account pool access")
+	}
+	return collectAccountPool(get, previous)
 }
 
 type upstreamPoolPage struct {
@@ -376,12 +397,7 @@ func collectAccountPool(get func(string) ([]byte, error), previous []accountPool
 					out.Groups = append(out.Groups, accountPoolSourceGroup{SourceID: id, ID: uuid.NewString()})
 				}
 				entry := &out.Groups[i]
-				if strings.Contains(group.Name, "@") {
-					entry.Original = ""
-				} else {
-					name := []rune(strings.TrimSpace(group.Name))
-					entry.Original = string(name[:min(100, len(name))])
-				}
+				entry.Original = accountPoolGroupName(group.Name)
 				duplicate := false
 				for _, assigned := range row.Groups {
 					if assigned == entry.ID {
@@ -415,6 +431,14 @@ func collectAccountPool(get func(string) ([]byte, error), previous []accountPool
 	now := time.Now().UTC()
 	out.Updated = &now
 	return out, nil
+}
+
+func accountPoolGroupName(value string) string {
+	if strings.Contains(value, "@") {
+		return ""
+	}
+	name := []rune(strings.TrimSpace(value))
+	return string(name[:min(100, len(name))])
 }
 
 func poolEnum(value string, allowed ...string) string {

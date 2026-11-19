@@ -104,7 +104,7 @@ const columns = computed(() => [
   { key: 'usage', label: translate('admin.accounts.columns.usageWindows') },
   { key: 'last_used', label: tr('accountPoolLastUsed') },
 ])
-const statusBadge: Record<string, string> = { active: 'badge-success', rate_limited: 'badge-warning', error: 'badge-danger' }
+const statusBadge: Record<string, string> = { active: 'badge-success', rate_limited: 'badge-warning', temp_unschedulable: 'badge-warning', overload: 'badge-danger', error: 'badge-danger' }
 watch([selectedPool, selectedPlatform], () => { page.value = 1 })
 watch(pages, count => { page.value = Math.min(page.value, count) })
 

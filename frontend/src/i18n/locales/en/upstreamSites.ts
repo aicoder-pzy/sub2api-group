@@ -7,6 +7,7 @@ export default {
   accountPoolPrevious: 'Previous page', accountPoolNext: 'Next page', accountPoolState_active: 'Available', accountPoolState_error: 'Error',
   accountPoolState_rate_limited: 'Rate limited', accountPoolState_paused: 'Paused', accountPoolState_disabled: 'Disabled',
   accountPoolState_inactive: 'Inactive', accountPoolState_unknown: 'Unknown',
+  accountPoolState_overload: 'Overloaded', accountPoolState_temp_unschedulable: 'Temporarily unavailable', accountPoolState_expired: 'Expired',
   copyBaseURL: 'Copy Base URL', openSite: 'Open website in a new tab', copyKey: 'Copy full key',
   copyNamedKey: 'Copy full key for {name}', copyKeyFailed: 'Could not retrieve the full key. Check upstream permissions or sync the site and try again.',
   balanceOverview: "Site balance overview",

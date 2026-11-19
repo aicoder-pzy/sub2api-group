@@ -6,11 +6,46 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestCollectVulcanPool(t *testing.T) {
+	const raw = `{"updated_at":"2026-11-19T13:21:09Z","groups":[
+		{"id":1,"name":"source A","account_count":1,"accounts":[{"id":"hidden-token","email_masked":"u***@example.test","account_type":"oauth","plan_type_label":"Pro 5x","status":"available","used_percent_5h":23,"current_concurrency":0,"concurrency_limit":2}]},
+		{"id":2,"name":"source B","account_count":2,"accounts":[{"id":"hidden-token","account_type":"oauth"},{"id":"second-account","account_type":"oauth","status":"temp_unschedulable"}]}
+	]}`
+	snapshot, err := collectVulcanPool([]byte(raw), nil)
+	require.NoError(t, err)
+	require.Equal(t, "2026-11-19T13:21:09Z", snapshot.Updated.Format(time.RFC3339))
+	require.Len(t, snapshot.Rows, 2)
+	require.Len(t, snapshot.Groups, 2)
+	require.Equal(t, []string{snapshot.Groups[0].ID, snapshot.Groups[1].ID}, snapshot.Rows[0].Groups)
+	require.Equal(t, 2, snapshot.Groups[1].Count)
+	require.Equal(t, "Pro 5x", snapshot.Rows[0].Plan)
+	require.Equal(t, "active", snapshot.Rows[0].Status)
+	require.Equal(t, 23.0, *snapshot.Rows[0].Windows[0].Used)
+	require.Equal(t, "temp_unschedulable", snapshot.Rows[1].Status)
+	encoded, err := json.Marshal(snapshot.display(nil, true))
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "hidden-token")
+	require.NotContains(t, string(encoded), "example.test")
+	other, err := collectVulcanPool([]byte(raw), snapshot.Groups)
+	require.NoError(t, err)
+	require.Equal(t, snapshot, other)
+	_, err = collectVulcanPool([]byte(strings.Replace(raw, `"account_count":1`, `"account_count":2`, 1)), nil)
+	require.ErrorIs(t, err, errPoolChanged)
+}
+
+func TestVulcanAccountPoolPublicOnly(t *testing.T) {
+	site := &UpstreamSite{BaseURL: vulcanPoolBaseURL, Kind: "sub2api", Purpose: "public"}
+	require.True(t, accountPoolEnabled(site))
+	site.Purpose = "private"
+	require.False(t, accountPoolEnabled(site))
+}
 
 func TestAccountPoolRetryDelay(t *testing.T) {
 	now := time.Date(2026, 11, 19, 11, 0, 0, 0, time.UTC)

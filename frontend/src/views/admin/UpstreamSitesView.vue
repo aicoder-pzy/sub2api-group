@@ -180,7 +180,7 @@ const modelCatalog = ref<{ keyName: string; groupName: string; models: string[];
 const emptyForm = (): SiteForm => ({ name: '', kind: 'sub2api', base_url: '', inference_url: '', purchase_note: '', user_id: 0, proxy_id: null, revision: 0, access_token: '' })
 const settingsForm = ref(emptyForm()), addForm = ref(emptyForm())
 const selected = computed(() => sites.value.find(site => site.id === selectedId.value))
-const poolEnabled = computed(() => selected.value?.purpose === 'public' && selected.value.kind === 'sub2api' && selected.value.base_url === 'https://aishenji.top')
+const poolEnabled = computed(() => selected.value?.purpose === 'public' && selected.value.kind === 'sub2api' && ['https://aishenji.top', 'https://vulcanapi.com'].includes(selected.value.base_url))
 const tabs = computed<readonly (typeof siteTabs)[number][]>(() => poolEnabled.value ? siteTabs : siteTabs.filter(item => item !== 'accountPool'))
 watch(poolEnabled, enabled => { if (!enabled && tab.value === 'accountPool') tab.value = 'keys' })
 const keys = computed(() => selected.value?.inventory?.keys || [])
