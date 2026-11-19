@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -139,6 +140,11 @@ func (s *SettingService) modelAccountCapability(ctx context.Context, groupID *in
 		requestedModel = model
 	} else if publicModel, ok := RequestedPublicModelFromContext(ctx); ok {
 		requestedModel = publicModel
+	}
+	if smartChannelEnabled(ctx) && !qualityProbe(ctx) {
+		if order := s.schedulingPolicy(ctx, *groupID).order(strings.TrimSpace(requestedModel)); len(order) > 0 && !slices.Contains(order, accountID) {
+			return false, "fixed_order"
+		}
 	}
 	s.modelAccountRoutingMu.Lock()
 	defer s.modelAccountRoutingMu.Unlock()

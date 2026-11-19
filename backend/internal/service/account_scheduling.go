@@ -57,6 +57,10 @@ type groupModelSchedulingSnapshot struct {
 
 type groupModelSchedulingRequestState struct {
 	preservedQualityAccountID int64
+	fixed                     bool
+	fixedBackup               int64
+	fixedSession              fixedSessionSnapshot
+	agentEffect               schedulingActionEffect
 	smartCapacityWaited       bool
 	smartFailure              smartChannelFailure
 	switchReasons             map[int64]string
@@ -128,7 +132,14 @@ func confirmGroupModelSchedulingAccount(ctx context.Context, model string, accou
 	state.mu.Lock()
 	snapshot, ok := state.snapshots[scope]
 	preserve := state.preservedQualityAccountID == accountID || (state.smartFailure.scope == scope && state.smartFailure.preserve)
+	fixed, session := state.fixed, state.fixedSession
+	capacity := state.preservedQualityAccountID == accountID
 	state.mu.Unlock()
+	if fixed {
+		recordSchedulingActionOutcome(ctx, accountID, true)
+		session.confirm(ctx, group.ID, accountID, capacity)
+		return
+	}
 	if smartChannelEnabled(ctx) && snapshot.valid {
 		if strikes, ok := snapshot.cache.(smartChannelStrikeCache); ok {
 			// Only a confirmed business success on this account clears its strike.
@@ -203,6 +214,9 @@ func rememberGroupModelSchedulingAccount(ctx context.Context, cache GatewayCache
 
 // A degraded binding cannot bypass the full candidate ranking via a sticky hit.
 func groupModelSchedulingUsableActiveAccount(ctx context.Context, repo UsageLogRepository, cache GatewayCache, groupID *int64, model string) int64 {
+	if len(fixedScheduling(ctx).order) > 0 {
+		return 0
+	}
 	activeID := groupModelSchedulingActiveAccount(ctx, cache, groupID, model)
 	if qualityPreferredEnabled(ctx) {
 		return 0 // Validate quality and reliability before preserving the binding.
@@ -218,8 +232,11 @@ func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository,
 	if len(ordered) == 0 {
 		return ordered
 	}
-	activeID := groupModelSchedulingActiveAccount(ctx, cache, groupID, model)
 	quality := groupModelAccountQuality(ctx, repo, groupID, model)
+	if scope := fixedScheduling(ctx); len(scope.order) > 0 {
+		return orderFixedScheduling(ctx, scope, cache, ordered, quality)
+	}
+	activeID := groupModelSchedulingActiveAccount(ctx, cache, groupID, model)
 	settings := DefaultFastestFailoverSettings()
 	if len(configured) > 0 {
 		settings = configured[0]

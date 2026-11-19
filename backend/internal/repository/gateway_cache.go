@@ -43,6 +43,17 @@ func buildOpenAIResponsesSessionWindowKey(groupID int64, sessionHash string) str
 	return fmt.Sprintf("%s%d:%s", openAIResponsesSessionWindowPrefix, groupID, sessionHash)
 }
 
+var fixedSessionCAS = redis.NewScript(`
+local current = redis.call('GET', KEYS[1]) or '0'
+if current ~= ARGV[1] then return 0 end
+redis.call('PSETEX', KEYS[1], ARGV[3], ARGV[2])
+return 1
+`)
+
+func (c *gatewayCache) CompareAndSwapFixedSession(ctx context.Context, group int64, key string, previous, account int64, ttl time.Duration) error {
+	return fixedSessionCAS.Run(ctx, c.rdb, []string{buildSessionKey(group, key)}, previous, account, ttl.Milliseconds()).Err()
+}
+
 func (c *gatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
 	key := buildSessionKey(groupID, sessionHash)
 	accountID, err := c.rdb.Get(ctx, key).Int64()

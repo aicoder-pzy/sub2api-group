@@ -210,6 +210,12 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 	defer func() {
 		recordSchedulingSwitchFailure(ctx, account.ID, resultErr)
 		recordSmartChannelFailure(ctx, account.ID, resultErr)
+		var failure *UpstreamFailoverError
+		if ctx.Err() == nil && errors.As(resultErr, &failure) {
+			if failure.StatusCode == 429 || failure.StatusCode >= 500 {
+				recordSchedulingActionOutcome(ctx, account.ID, false)
+			}
+		}
 	}()
 	forwardErr = limitFastestFailoverRetry(ctx, forwardErr, 1, account.ID)
 	if attempt == nil {

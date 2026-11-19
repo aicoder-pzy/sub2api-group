@@ -118,6 +118,8 @@ type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[i
 
 // SettingService 系统设置服务
 type SettingService struct {
+	schedulingAgent             *schedulingAgentRuntime
+	schedulingIndex             schedulingAgentIndex
 	IPRisk                      *iprisk.Manager
 	modelAccountRoutingMu       sync.Mutex
 	modelAccountRoutingCache    map[int64]*cachedModelAccountRouting

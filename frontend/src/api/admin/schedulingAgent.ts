@@ -1,0 +1,67 @@
+import { apiClient } from '../client'
+
+export interface SchedulingPolicy {
+  accounts: number[] | null
+  models: Record<string, number[]> | null
+  agent_mode: '' | 'off' | 'observe' | 'auto'
+  daily_calls: number
+  min_wait_ms: number
+}
+
+export interface SchedulingEvidence {
+  model: string
+  account_id: number
+  successes: number
+  failures: number
+  first_event_ms: number
+  full_slots: number
+  waited_ms: number
+  cache_ratio?: number
+  quality_tier?: string
+  speed?: { output_tps: number; p95_ms: number }
+}
+
+export interface SchedulingRun {
+  at: string
+  state: string
+  calls: number
+  input_tokens: number
+  output_tokens: number
+  expires: string
+  decision?: { action: string; model: string; account_id: number; wait_ms: number; reason: string }
+  evidence?: SchedulingEvidence[]
+  feedback?: SchedulingEvidence[]
+  applied_requests?: number
+  completed_attempts?: number
+  failed_attempts?: number
+}
+
+export interface SchedulingStatus {
+  policy: SchedulingPolicy
+  run: SchedulingRun
+  history?: SchedulingRun[]
+  accounts: { id: number; name: string; site: string; upstream_group: string; rate?: number }[]
+}
+
+export interface SchedulingConnection {
+  url: string
+  model: string
+  effort: string
+  api_key?: string
+  key_configured: boolean
+  daily_calls: number
+  interval_minutes: number
+  clear_key?: boolean
+}
+
+const connectionPath = '/admin/settings/scheduling-agent'
+const groupPath = (id: number) => `/admin/groups/${id}/scheduling-agent`
+export const schedulingAgentAPI = {
+  async status(id: number) { return (await apiClient.get<SchedulingStatus>(groupPath(id))).data },
+  async save(id: number, policy: SchedulingPolicy) { return (await apiClient.put<SchedulingStatus>(groupPath(id), policy)).data },
+  async run(id: number) { return (await apiClient.post<SchedulingStatus>(groupPath(id), undefined, { timeout: 60000 })).data },
+  async revoke(id: number) { return (await apiClient.delete<SchedulingStatus>(groupPath(id))).data },
+  async connection() { return (await apiClient.get<SchedulingConnection>(connectionPath)).data },
+  async saveConnection(config: SchedulingConnection) { return (await apiClient.put<SchedulingConnection>(connectionPath, config)).data },
+  async testConnection() { return (await apiClient.post<SchedulingRun>(`${connectionPath}/test`)).data },
+}

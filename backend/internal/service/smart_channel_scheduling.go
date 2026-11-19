@@ -152,7 +152,8 @@ func acquireSmartChannelSlot(ctx context.Context, account *Account, concurrency 
 		return result, err
 	}
 	defer concurrency.DecrementAccountWaitCount(context.WithoutCancel(ctx), account.ID)
-	timer := time.NewTimer(2 * time.Second)
+	started := time.Now()
+	timer := time.NewTimer(schedulingAgentWait(ctx, account.ID))
 	defer timer.Stop()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -161,6 +162,7 @@ func acquireSmartChannelSlot(ctx context.Context, account *Account, concurrency 
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-timer.C:
+			recordSchedulingQueue(ctx, account.ID, time.Since(started))
 			return result, nil
 		case <-ticker.C:
 			next, acquireErr := acquire(ctx, account.ID, account.Concurrency)

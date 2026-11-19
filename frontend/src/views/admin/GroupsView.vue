@@ -2204,6 +2204,11 @@
           <Select v-model="editForm.account_scheduling_mode" :options="accountSchedulingModeOptions" />
           <p class="input-hint">{{ t(editForm.account_scheduling_mode === "smart_channel" ? "admin.groups.form.accountSchedulingSmartChannelHint" : editForm.account_scheduling_mode === "model_auto" ? "admin.groups.form.accountSchedulingModelAutoHint" : "admin.groups.form.accountSchedulingModeHint") }}</p>
         </div>
+        <GroupSchedulingAgent
+          v-if="editingGroup.account_scheduling_mode === 'smart_channel'"
+          :key="editingGroup.id"
+          :group-id="editingGroup.id"
+        />
         <template v-if="!authStore.isSimpleMode">
         <!-- 从分组复制账号（编辑时） -->
         <div v-if="copyAccountsGroupOptionsForEdit.length > 0">
@@ -4369,6 +4374,7 @@ import {
   GROUP_PLATFORM_OPTIONS,
 } from "@/constants/platforms";
 import type { Column } from "@/components/common/types";
+import GroupSchedulingAgent from "@/components/admin/group/GroupSchedulingAgent.vue";
 import AppLayout from "@/components/layout/AppLayout.vue";
 import TablePageLayout from "@/components/layout/TablePageLayout.vue";
 import DataTable from "@/components/common/DataTable.vue";

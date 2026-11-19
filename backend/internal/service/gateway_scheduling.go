@@ -65,7 +65,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 		platform = PlatformAnthropic
 	}
 	ctx = s.withGatewayProfitControlGate(ctx, groupID)
-	ctx = withModelAutoSession(ctx, sessionHash)
+	ctx = withModelAutoSession(s.settingService.withFixedScheduling(ctx, groupID, requestedModel), sessionHash)
 	if qualityPreferredEnabled(ctx) && !modelAutoEnabled(ctx) && !qualityProbe(ctx) && s.cache != nil && sessionHash != "" {
 		if accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash); err == nil {
 			ctx = context.WithValue(ctx, qualitySessionBindingKey{}, accountID)
@@ -146,7 +146,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 	}
 	if group != nil && usesFailoverScheduling(group.AccountSchedulingMode) {
-		ctx = withModelAutoSession(ctx, sessionHash)
+		ctx = withModelAutoSession(s.settingService.withFixedScheduling(ctx, groupID, requestedModel), sessionHash)
 		if qualityPreferredEnabled(ctx) && !modelAutoEnabled(ctx) && !qualityProbe(ctx) {
 			ctx = context.WithValue(ctx, qualitySessionBindingKey{}, stickyAccountID)
 		}
@@ -2091,7 +2091,12 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		}
 
 		if fastestFailover && len(qualityCandidates) > 0 {
-			selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))[0]
+			ordered := fastestFailoverCandidateOrder(s.settingService.withFixedScheduling(ctx, groupID, requestedModel), s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))
+			if len(ordered) > 0 {
+				selected = ordered[0]
+			} else {
+				selected = nil
+			}
 		}
 		if selected != nil {
 			if sessionHash != "" && s.cache != nil {
@@ -2216,7 +2221,12 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 	}
 
 	if fastestFailover && len(qualityCandidates) > 0 {
-		selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))[0]
+		ordered := fastestFailoverCandidateOrder(s.settingService.withFixedScheduling(ctx, groupID, requestedModel), s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))
+		if len(ordered) > 0 {
+			selected = ordered[0]
+		} else {
+			selected = nil
+		}
 	}
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, false)
@@ -2378,7 +2388,12 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		}
 
 		if fastestFailover && len(qualityCandidates) > 0 {
-			selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))[0]
+			ordered := fastestFailoverCandidateOrder(s.settingService.withFixedScheduling(ctx, groupID, requestedModel), s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))
+			if len(ordered) > 0 {
+				selected = ordered[0]
+			} else {
+				selected = nil
+			}
 		}
 		if selected != nil {
 			if sessionHash != "" && s.cache != nil {
@@ -2504,7 +2519,12 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 	}
 
 	if fastestFailover && len(qualityCandidates) > 0 {
-		selected = fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))[0]
+		ordered := fastestFailoverCandidateOrder(s.settingService.withFixedScheduling(ctx, groupID, requestedModel), s.usageLogRepo, s.cache, groupID, requestedModel, qualityCandidates, s.settingService.FastestFailoverSettings(ctx))
+		if len(ordered) > 0 {
+			selected = ordered[0]
+		} else {
+			selected = nil
+		}
 	}
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, nativePlatform, accounts, excludedIDs, true)

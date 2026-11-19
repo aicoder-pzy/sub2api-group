@@ -1086,7 +1086,11 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		return nil, compactBlocked, filterStats
 	}
 	if fastestFailoverEnabled(ctx, groupID) {
-		return fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, eligible, s.settingService.FastestFailoverSettings(ctx))[0], compactBlocked, filterStats
+		ordered := fastestFailoverCandidateOrder(s.settingService.withFixedScheduling(ctx, groupID, requestedModel), s.usageLogRepo, s.cache, groupID, requestedModel, eligible, s.settingService.FastestFailoverSettings(ctx))
+		if len(ordered) == 0 {
+			return nil, compactBlocked, filterStats
+		}
+		return ordered[0], compactBlocked, filterStats
 	}
 	rateOrder := openAILegacyUpstreamRateOrder{}
 	if preferLowUpstreamRate {
@@ -1168,7 +1172,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	}
 	ctx = withOpenAIImageSizeStickyAccount(ctx, stickyAccountID)
 	if fastestFailoverEnabled(ctx, groupID) {
-		ctx = withModelAutoSession(ctx, sessionHash)
+		ctx = withModelAutoSession(s.settingService.withFixedScheduling(ctx, groupID, requestedModel), sessionHash)
 		if qualityPreferredEnabled(ctx) && !modelAutoEnabled(ctx) && !qualityProbe(ctx) {
 			ctx = context.WithValue(ctx, qualitySessionBindingKey{}, stickyAccountID)
 		}
@@ -1332,7 +1336,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		return nil, noAvailableOpenAISelectionError(requestedModel, false, filterStats.summary(""))
 	}
 	if fastestFailoverEnabled(ctx, groupID) {
-		ordered := fastestFailoverCandidateOrder(ctx, s.usageLogRepo, s.cache, groupID, requestedModel, candidates, s.settingService.FastestFailoverSettings(ctx))
+		ordered := fastestFailoverCandidateOrder(s.settingService.withFixedScheduling(ctx, groupID, requestedModel), s.usageLogRepo, s.cache, groupID, requestedModel, candidates, s.settingService.FastestFailoverSettings(ctx))
 		var waitAccount *Account
 		for _, account := range ordered {
 			account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
