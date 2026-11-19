@@ -1,9 +1,9 @@
 export default {
   accountPool: '号池展示', accountPoolSnapshot: '{count} 个账号 · 更新于 {time}', accountPoolEmpty: '暂无号池快照',
   accountPoolRefresh: '刷新号池', accountPoolRefreshing: '正在采集号池…', accountPoolManage: '管理展示名称',
-  accountPoolName: '展示名称', accountPoolSave: '保存', accountPoolAll: '全部号池', accountPoolAllPlatforms: '全部平台',
-  accountPoolNumber: '账号', accountPoolPlatform: '平台', accountPoolPlan: '套餐', accountPoolStatus: '状态',
-  accountPoolConcurrency: '并发', accountPoolUsage: '用量', accountPoolLastUsed: '最近使用', accountPoolNoResults: '没有匹配的账号',
+  accountPoolName: '展示名称', accountPoolSave: '保存', accountPoolSourceGroup: '上游分组', accountPoolAll: '全部上游分组', accountPoolAllPlatforms: '全部平台',
+  accountPoolNumber: '账号', accountPoolPlatform: '平台', accountPoolStatus: '状态',
+  accountPoolConcurrency: '并发', accountPoolLastUsed: '最近使用', accountPoolNoResults: '没有匹配的账号',
   accountPoolPrevious: '上一页', accountPoolNext: '下一页', accountPoolState_active: '可用', accountPoolState_error: '异常',
   accountPoolState_rate_limited: '限流', accountPoolState_paused: '暂停', accountPoolState_disabled: '禁用',
   accountPoolState_inactive: '不活跃', accountPoolState_unknown: '未知',

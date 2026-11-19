@@ -44,7 +44,7 @@ import CapacityBadge from '@/components/account/CapacityBadge.vue'
 import QuotaBadge from '@/components/account/QuotaBadge.vue'
 
 const props = defineProps<{
-  account: Account
+  account: Pick<Account, 'platform' | 'type' | 'concurrency'> & Partial<Account>
 }>()
 
 const { t } = useI18n()

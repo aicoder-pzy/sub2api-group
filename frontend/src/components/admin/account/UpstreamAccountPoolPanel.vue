@@ -21,33 +21,42 @@
     </details>
     <template v-if="snapshot?.updated">
       <div class="flex flex-wrap gap-2">
-        <select v-model="selectedPool" class="input w-auto max-w-full" :aria-label="tr('accountPool')">
+        <select v-model="selectedPool" class="input w-auto max-w-full" :aria-label="tr('accountPoolSourceGroup')">
           <option value="">{{ tr('accountPoolAll') }}</option>
-          <option v-for="pool in snapshot.pools" :key="pool.id" :value="pool.id">{{ pool.name }} ({{ pool.count }})</option>
+          <option v-for="pool in snapshot.pools" :key="pool.id" :value="pool.id">
+            {{ pool.original || pool.name }}<template v-if="pool.original && pool.alias && pool.alias !== pool.original"> · {{ pool.alias }}</template> ({{ pool.count }})
+          </option>
         </select>
         <select v-model="selectedPlatform" class="input w-auto max-w-full" :aria-label="tr('accountPoolPlatform')">
           <option value="">{{ tr('accountPoolAllPlatforms') }}</option>
           <option v-for="platform in platforms" :key="platform" :value="platform">{{ platformLabel(platform) }}</option>
         </select>
       </div>
-      <div v-if="shown.length" class="overflow-x-auto">
-        <table class="w-full whitespace-nowrap text-left text-sm">
-          <thead class="bg-gray-50 text-gray-600 dark:bg-dark-800 dark:text-gray-300">
-            <tr><th v-for="label in ['accountPoolNumber', 'accountPoolPlatform', 'accountPoolPlan', 'accountPoolStatus', 'accountPoolConcurrency', 'accountPoolUsage', 'accountPoolLastUsed']" :key="label" class="px-3 py-2" scope="col">{{ tr(label) }}</th></tr>
-          </thead>
-          <tbody class="divide-y divide-gray-200 dark:divide-dark-700">
-            <tr v-for="row in shown" :key="row.number">
-              <td class="px-3 py-2 tabular-nums">#{{ row.number }}</td>
-              <td class="px-3 py-2">{{ platformLabel(row.platform) }}</td>
-              <td class="px-3 py-2">{{ row.plan === 'unknown' ? '—' : row.plan }}</td>
-              <td class="px-3 py-2" :class="row.status === 'active' ? 'text-emerald-700 dark:text-emerald-400' : row.status === 'rate_limited' ? 'text-amber-700 dark:text-amber-400' : ''">{{ tr(`accountPoolState_${row.status}`) }}</td>
-              <td class="px-3 py-2 tabular-nums">{{ row.limit == null ? '—' : `${row.current ?? '—'} / ${row.limit}` }}</td>
-              <td class="px-3 py-2 tabular-nums">{{ row.windows?.map(w => `${w.name} ${percent(w.used)}`).join(' · ') || '—' }}</td>
-              <td class="px-3 py-2 tabular-nums">{{ row.last_used ? new Date(row.last_used).toLocaleString() : '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <DataTable v-if="shown.length" :columns="columns" :data="shown" row-key="number">
+        <template #cell-number="{ value }">
+          <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
+        </template>
+        <template #cell-platform_type="{ row }">
+          <PlatformTypeBadge v-if="row.platform !== 'unknown'" :platform="row.platform" type="oauth" :plan-type="row.plan === 'unknown' ? undefined : row.plan" />
+          <span v-else class="badge badge-gray text-xs">{{ tr('accountPoolState_unknown') }}</span>
+        </template>
+        <template #cell-status="{ row }">
+          <span :class="['badge text-xs', statusBadge[row.status] || 'badge-gray']">{{ tr(`accountPoolState_${row.status}`) }}</span>
+        </template>
+        <template #cell-capacity="{ row }">
+          <AccountCapacityCell v-if="row.current != null && row.limit != null" class="!inline-flex" :account="{ platform: row.platform, type: 'oauth', current_concurrency: row.current, concurrency: row.limit }" />
+          <span v-else class="font-mono text-xs text-gray-500">{{ row.limit == null ? '—' : `— / ${row.limit}` }}</span>
+        </template>
+        <template #cell-usage="{ row }">
+          <div v-if="row.windows?.length" class="inline-flex flex-col gap-1">
+            <UsageProgressBar v-for="(usageWindow, index) in row.windows" :key="index" :label="usageWindow.name" :utilization="usageWindow.used" :color="usageWindow.name === '5h' ? 'indigo' : 'emerald'" :label-width="usageWindow.name.length > 2 ? 'auto' : 'fixed'" />
+          </div>
+          <span v-else class="text-gray-400">—</span>
+        </template>
+        <template #cell-last_used="{ value }">
+          <span class="text-sm text-gray-500 dark:text-dark-400" :title="value ? formatDateTime(value) : undefined">{{ value ? formatRelativeTime(value) : '—' }}</span>
+        </template>
+      </DataTable>
       <p v-else class="text-sm text-gray-500">{{ tr('accountPoolNoResults') }}</p>
       <div v-if="pages > 1" class="flex flex-wrap items-center justify-end gap-2 text-sm">
         <button class="btn btn-secondary" type="button" :disabled="page === 1" :aria-label="tr('accountPoolPrevious')" :title="tr('accountPoolPrevious')" @click="page--">‹</button>
@@ -62,7 +71,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { upstreamSitesAPI, siteError, type SitePool, type SitePoolDisplay } from '@/api/admin/upstreamSites'
+import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
+import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
+import DataTable from '@/components/common/DataTable.vue'
+import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { formatDateTime, formatRelativeTime } from '@/utils/format'
 
 const props = defineProps<{ siteId: string }>()
 const { t: translate } = useI18n()
@@ -76,8 +90,15 @@ const filtered = computed(() => (snapshot.value?.rows || []).filter(row => (!sel
 const pages = computed(() => Math.max(1, Math.ceil(filtered.value.length / size)))
 const shown = computed(() => filtered.value.slice((page.value - 1) * size, page.value * size))
 const platformLabel = (id: string) => ({ openai: 'OpenAI', grok: 'Grok', anthropic: 'Anthropic', gemini: 'Gemini' }[id] || tr('accountPoolState_unknown'))
-const formatPercent = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1, style: 'percent' })
-const percent = (value: number) => formatPercent.format(value / 100)
+const columns = computed(() => [
+  { key: 'number', label: tr('accountPoolNumber') },
+  { key: 'platform_type', label: translate('admin.accounts.columns.platformType') },
+  { key: 'status', label: tr('accountPoolStatus') },
+  { key: 'capacity', label: tr('accountPoolConcurrency') },
+  { key: 'usage', label: translate('admin.accounts.columns.usageWindows') },
+  { key: 'last_used', label: tr('accountPoolLastUsed') },
+])
+const statusBadge: Record<string, string> = { active: 'badge-success', rate_limited: 'badge-warning', error: 'badge-danger' }
 watch([selectedPool, selectedPlatform], () => { page.value = 1 })
 watch(pages, count => { page.value = Math.min(page.value, count) })
 

@@ -1,9 +1,9 @@
 export default {
   accountPool: 'Account pools', accountPoolSnapshot: '{count} accounts · Updated {time}', accountPoolEmpty: 'No account pool snapshot',
   accountPoolRefresh: 'Refresh pools', accountPoolRefreshing: 'Refreshing account pools…', accountPoolManage: 'Manage display names',
-  accountPoolName: 'Display name', accountPoolSave: 'Save', accountPoolAll: 'All pools', accountPoolAllPlatforms: 'All platforms',
-  accountPoolNumber: 'Account', accountPoolPlatform: 'Platform', accountPoolPlan: 'Plan', accountPoolStatus: 'Status',
-  accountPoolConcurrency: 'Concurrency', accountPoolUsage: 'Usage', accountPoolLastUsed: 'Last used', accountPoolNoResults: 'No matching accounts',
+  accountPoolName: 'Display name', accountPoolSave: 'Save', accountPoolSourceGroup: 'Upstream group', accountPoolAll: 'All upstream groups', accountPoolAllPlatforms: 'All platforms',
+  accountPoolNumber: 'Account', accountPoolPlatform: 'Platform', accountPoolStatus: 'Status',
+  accountPoolConcurrency: 'Concurrency', accountPoolLastUsed: 'Last used', accountPoolNoResults: 'No matching accounts',
   accountPoolPrevious: 'Previous page', accountPoolNext: 'Next page', accountPoolState_active: 'Available', accountPoolState_error: 'Error',
   accountPoolState_rate_limited: 'Rate limited', accountPoolState_paused: 'Paused', accountPoolState_disabled: 'Disabled',
   accountPoolState_inactive: 'Inactive', accountPoolState_unknown: 'Unknown',
