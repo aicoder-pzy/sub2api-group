@@ -574,13 +574,32 @@ func (s *UpstreamBillingProbeService) UpstreamSiteKeys(ctx context.Context, site
 }
 
 func (s *UpstreamBillingProbeService) ResolveUpstreamSiteKey(ctx context.Context, site *UpstreamSite, keyID string) (*UpstreamSiteKey, error) {
+	return s.resolveUpstreamSiteKey(ctx, site, keyID, true)
+}
+
+func (s *UpstreamBillingProbeService) RevealUpstreamSiteKey(ctx context.Context, site *UpstreamSite, keyID string) (string, error) {
+	key, err := s.resolveUpstreamSiteKey(ctx, site, keyID, false)
+	if err != nil {
+		return "", err
+	}
+	current, err := s.GetUpstreamSite(ctx, site.ID)
+	if err != nil {
+		return "", err
+	}
+	if current.Revision != site.Revision {
+		return "", ErrUpstreamBillingProbeIdentityChanged
+	}
+	return key.secret, nil
+}
+
+func (s *UpstreamBillingProbeService) resolveUpstreamSiteKey(ctx context.Context, site *UpstreamSite, keyID string, requireAvailable bool) (*UpstreamSiteKey, error) {
 	keys, err := s.UpstreamSiteKeys(ctx, site)
 	if err != nil {
 		return nil, err
 	}
 	for _, key := range keys {
 		if key.ID == keyID {
-			if !key.Available {
+			if requireAvailable && !key.Available {
 				return nil, upstreamSiteError("Selected upstream key is not available")
 			}
 			if site.Kind == "newapi" && (key.secret == "" || strings.Contains(key.secret, "*")) {

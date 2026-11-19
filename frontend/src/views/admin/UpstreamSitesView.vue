@@ -16,17 +16,28 @@
         <aside class="console-panel site-list">
           <div class="site-list-tools"><input v-model="siteSearch" class="input" :placeholder="tr('searchSites')" :aria-label="tr('searchSites')" /><select v-model="purposeFilter" class="input mt-3" :aria-label="tr('allPurposes')" :disabled="working"><option value="all">{{ tr('allPurposes') }}</option><option v-for="option in purposeOptions" :key="option.value" :value="option.value">{{ tr(option.label) }}</option></select><label class="mt-3 flex items-center gap-2 text-xs text-gray-500"><input v-model="attentionOnly" type="checkbox" />{{ tr('attentionOnly') }}</label></div>
           <div class="site-list-items">
-            <button v-for="item in filteredSites" :key="item.id" type="button" class="site-item" :class="{ selected: item.id === selectedId }" :disabled="working" :aria-pressed="item.id === selectedId" @click="selectedId = item.id">
-              <span class="site-avatar">{{ item.name.slice(0, 1).toUpperCase() }}</span>
-              <span class="min-w-0 flex-1"><strong class="block truncate">{{ item.name }}</strong><span class="block truncate text-xs text-gray-400">{{ domain(item.base_url) }}</span><span class="mt-1 block text-xs text-gray-500">{{ item.kind === 'newapi' ? 'New API' : 'Sub2API' }} · {{ item.account_count }} {{ tr('associated') }}</span><span class="site-badge mt-1" :class="purposeClass(item.purpose)">{{ purposeLabel(item.purpose) }}</span></span>
+            <div v-for="item in filteredSites" :key="item.id" class="site-item relative" :class="{ selected: item.id === selectedId }">
+              <span class="site-avatar" aria-hidden="true">{{ item.name.slice(0, 1).toUpperCase() }}</span>
+              <div class="min-w-0 flex-1">
+                <button type="button" class="block w-full truncate text-left text-sm font-medium after:absolute after:inset-0 after:rounded-xl" :disabled="working" :aria-pressed="item.id === selectedId" @click="selectedId = item.id">{{ item.name }}</button>
+                <a v-if="siteHref(item.base_url)" :href="siteHref(item.base_url)" target="_blank" rel="noopener noreferrer" class="relative z-10 inline-flex max-w-full items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-400" :title="tr('openSite')"><span class="truncate">{{ domain(item.base_url) }}</span><Icon name="externalLink" size="xs" class="shrink-0" /></a>
+                <span v-else class="block truncate text-xs text-gray-400">{{ domain(item.base_url) }}</span>
+                <span class="mt-1 block text-xs text-gray-500">{{ item.kind === 'newapi' ? 'New API' : 'Sub2API' }} · {{ item.account_count }} {{ tr('associated') }}</span><span class="site-badge mt-1" :class="purposeClass(item.purpose)">{{ purposeLabel(item.purpose) }}</span>
+              </div>
               <span class="site-dot" :class="status(item)" :title="tr(status(item))"></span>
-            </button>
+            </div>
             <p v-if="!filteredSites.length" class="p-5 text-sm text-gray-500">{{ tr('noMatch') }}</p>
           </div>
         </aside>
         <section v-if="selected" class="console-panel site-detail">
           <div class="site-detail-heading">
-            <div class="flex min-w-0 items-center gap-3"><span class="site-avatar large">{{ selected.name.slice(0, 1).toUpperCase() }}</span><div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><h2 class="break-words">{{ selected.name }}</h2><span class="site-badge">{{ selected.kind === 'newapi' ? 'New API' : 'Sub2API' }}</span><span class="site-badge" :class="status(selected)"><span class="site-dot" :class="status(selected)"></span>{{ tr(status(selected)) }}</span></div><p class="mt-1 break-all text-xs text-gray-500">{{ selected.base_url }}</p></div></div>
+            <div class="flex min-w-0 items-center gap-3"><span class="site-avatar large">{{ selected.name.slice(0, 1).toUpperCase() }}</span><div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><h2 class="break-words">{{ selected.name }}</h2><span class="site-badge">{{ selected.kind === 'newapi' ? 'New API' : 'Sub2API' }}</span><span class="site-badge" :class="status(selected)"><span class="site-dot" :class="status(selected)"></span>{{ tr(status(selected)) }}</span></div>
+              <div class="mt-1 flex items-center gap-1 text-xs">
+                <a v-if="selectedSiteHref" :href="selectedSiteHref" target="_blank" rel="noopener noreferrer" class="min-w-0 break-all text-primary-600 hover:underline dark:text-primary-400" :title="tr('openSite')">{{ selected.base_url }} <Icon name="externalLink" size="xs" class="inline" /></a>
+                <span v-else class="min-w-0 break-all text-gray-500">{{ selected.base_url }}</span>
+                <button type="button" class="shrink-0 rounded p-1 text-primary-600 hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-dark-700" :title="tr('copyBaseURL')" :aria-label="tr('copyBaseURL')" @click="copyToClipboard(selected.base_url)"><Icon name="copy" size="sm" /></button>
+              </div>
+            </div></div>
             <div class="flex shrink-0 gap-2"><button type="button" class="btn btn-secondary" :disabled="working" @click="tab = 'settings'"><Icon name="cog" size="sm" />{{ tr('settings') }}</button><button type="button" class="btn btn-secondary" :disabled="working" @click="syncSelected"><Icon name="refresh" size="sm" />{{ tr('sync') }}</button></div>
           </div>
           <label class="mx-5 mb-4 flex flex-wrap items-center gap-3 text-sm text-gray-500"><span>{{ tr('purpose') }}</span><select :value="selected.purpose || ''" class="input w-auto" :class="purposeClass(selected.purpose)" :aria-label="tr('purpose')" :disabled="working" @change="changePurpose"><option v-for="option in purposeOptions" :key="option.value" :value="option.value">{{ tr(option.label) }}</option></select></label>
@@ -46,7 +57,7 @@
               <div v-if="accountsError" role="alert" class="mx-5 mb-3 flex flex-wrap gap-2 text-sm text-red-600">{{ accountsError }}<button type="button" class="text-primary-600 underline" @click="loadAccounts">{{ tr('refresh') }}</button></div>
               <div class="console-table-scroll" tabindex="0" :aria-label="tr('keys')">
                 <table class="console-table"><thead><tr><th class="w-9"><input type="checkbox" :checked="pageKeys.length > 0 && pageKeys.filter(key => key.available).length > 0 && pageKeys.filter(key => key.available).every(key => selectedKeys.includes(key.id))" :aria-label="tr('selectPage')" :disabled="working" @change="selectPage(($event.target as HTMLInputElement).checked)" /></th><th>{{ tr('keyName') }}</th><th>{{ tr('models') }}</th><th>{{ tr('quota') }}</th><th>{{ tr('account') }}</th><th>{{ tr('status') }}</th><th>{{ tr('actions') }}</th></tr></thead>
-                  <tbody><tr v-for="key in pageKeys" :key="key.id"><td><input v-model="selectedKeys" type="checkbox" :value="key.id" :disabled="working || !key.available" :aria-label="t('upstreamSites.selectKey', { name: key.name })" /></td><td><strong>{{ key.name }}</strong><p class="table-muted">{{ key.group_name || key.group_id || '—' }}<span v-if="groupRatio(key.group_id) !== undefined"> · ×{{ groupRatio(key.group_id) }}</span></p><p class="table-muted font-mono">{{ key.suffix ? '••••' + key.suffix : '#' + key.id }}</p></td>
+                  <tbody><tr v-for="key in pageKeys" :key="key.id"><td><input v-model="selectedKeys" type="checkbox" :value="key.id" :disabled="working || !key.available" :aria-label="t('upstreamSites.selectKey', { name: key.name })" /></td><td><strong>{{ key.name }}</strong><p class="table-muted">{{ key.group_name || key.group_id || '—' }}<span v-if="groupRatio(key.group_id) !== undefined"> · ×{{ groupRatio(key.group_id) }}</span></p><div class="flex items-center gap-1"><span class="table-muted font-mono">{{ key.suffix ? '••••' + key.suffix : '#' + key.id }}</span><button type="button" class="shrink-0 rounded p-1 text-primary-600 hover:bg-primary-50 disabled:opacity-50 dark:text-primary-400 dark:hover:bg-dark-700" :title="tr('copyKey')" :aria-label="t('upstreamSites.copyNamedKey', { name: key.name })" :disabled="working" @click="copyKey(key.id)"><Icon name="copy" size="sm" /></button></div></td>
                     <td><template v-if="selected.catalogs?.[key.id]"><span v-for="model in selected.catalogs[key.id]!.models.slice(0, 2)" :key="model" class="model-chip">{{ model }}</span><button v-if="selected.catalogs[key.id]!.models.length > 2" type="button" class="mt-1 block text-xs text-primary-600 dark:text-primary-400" @click="openModelCatalog(key)">{{ t('upstreamSites.viewAllModels', { count: selected.catalogs[key.id]!.models.length }) }}</button><p class="table-muted">{{ formatTime(selected.catalogs[key.id]!.attempt_at) }}</p></template><span v-else class="text-xs text-gray-400">{{ tr('notRead') }}</span><button type="button" class="mt-1 block text-xs text-primary-600 dark:text-primary-400" :disabled="working || !key.available" @click="readModels(key.id)">{{ tr('readModels') }}</button></td>
                     <td class="tabular-nums">{{ amount(key.quota, true) }}</td><td><RouterLink v-for="account in keyAccounts(key.id)" :key="account.id" :to="accountLink(account.id)" class="block max-w-40 truncate text-primary-600 dark:text-primary-400" :title="account.name">#{{ account.id }} · {{ account.name }}</RouterLink><span v-if="!keyAccounts(key.id).length" class="text-gray-400">{{ accountsLoading ? tr('loading') : tr('unassociated') }}</span></td><td><span class="site-badge" :class="key.available ? 'ok' : 'attention'">{{ tr(key.status || (key.available ? 'active' : 'inactive')) }}</span></td><td><div class="flex flex-wrap gap-3"><button type="button" class="text-primary-600 dark:text-primary-400" :disabled="working" @click="openKeyGroup(key)">{{ tr('changeKeyGroup') }}</button><button type="button" class="text-primary-600 dark:text-primary-400" :disabled="working || !key.available || !!accountsError || accountsLoading" @click="openImport([key.id])">{{ tr('import') }}</button><button type="button" class="text-red-600 dark:text-red-400" :disabled="working || accountsLoading || !!accountsError" @click="openDeleteKey(key)">{{ tr('deleteKey') }}</button></div></td></tr>
                     <tr v-if="!pageKeys.length"><td colspan="7" class="py-12 text-center text-gray-400">{{ keys.length ? tr('noMatch') : tr('emptyKeys') }}</td></tr>
@@ -129,6 +140,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useClipboard } from '@/composables/useClipboard'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -144,6 +156,7 @@ import { upstreamSitesAPI as api, siteError, type UpstreamSite, type SiteAccount
 
 const { t, locale } = useI18n()
 const tr = (key: string) => t(`upstreamSites.${key}`)
+const { copyToClipboard } = useClipboard()
 const sites = ref<UpstreamSite[]>([]), groups = ref<AdminGroup[]>([]), proxies = ref<Proxy[]>([])
 const selectedId = ref(''), siteSearch = ref(''), attentionOnly = ref(false), keySearch = ref(''), importFilter = ref('all'), availabilityFilter = ref('all'), page = ref(1)
 const purposeFilter = ref<SitePurpose | 'all'>('all')
@@ -188,6 +201,13 @@ const pageKeys = computed(() => filteredKeys.value.slice((page.value - 1) * 15, 
 const groupRatio = (id: string) => selected.value?.inventory?.groups.find(group => group.id === id)?.multiplier
 const accountLink = (id: number) => ({ path: '/admin/accounts', query: { account_id: String(id) } })
 const domain = (url: string) => { try { return new URL(url).host } catch { return url } }
+function siteHref(value: string): string | undefined {
+  try {
+    const url = new URL(value)
+    if ((url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password) return url.href
+  } catch { /* Invalid URLs remain plain text. */ }
+}
+const selectedSiteHref = computed(() => selected.value && siteHref(selected.value.base_url))
 const componentLabel = (component: string | number) => tr(({ wallet: 'walletCheck', groups: 'groupsCheck', keys: 'keysCheck' } as Record<string, string>)[component] || 'modelsCheck')
 function formatTime(value?: string) {
   if (!value) return tr('never')
@@ -205,6 +225,17 @@ async function run(action: () => Promise<void>) {
   busy.value = true; error.value = ''; notice.value = ''
   try { await action() } catch (cause) { error.value = siteError(cause) }
   finally { busy.value = false }
+}
+async function copyKey(keyId: string) {
+  const site = selected.value
+  if (!site) return
+  await run(async () => {
+    try {
+      await copyToClipboard(await api.revealKey(site.id, keyId, site.revision))
+    } catch {
+      error.value = tr('copyKeyFailed')
+    }
+  })
 }
 async function loadSites() {
   sites.value = await api.list()
@@ -371,7 +402,6 @@ onMounted(() => { void run(async () => { const results = await Promise.allSettle
 .site-list-items { @apply flex gap-2 overflow-x-auto p-2 xl:block xl:max-h-[900px] xl:overflow-y-auto; }
 .site-item { @apply flex w-56 shrink-0 items-center gap-3 rounded-xl border border-transparent p-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-dark-800 xl:mb-1 xl:w-full; }
 .site-item.selected { @apply border-primary-200 bg-primary-50/70 dark:border-primary-800 dark:bg-primary-950/30; }
-.site-item strong { @apply text-sm font-medium; }
 .site-avatar { @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary-100 bg-primary-50 text-sm font-semibold text-primary-700 dark:border-primary-900 dark:bg-primary-950/40 dark:text-primary-400; }
 .site-avatar.large { @apply h-12 w-12 text-xl; }
 .site-dot { @apply inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-gray-400; }

@@ -4,15 +4,58 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import UpstreamSitesView from '../UpstreamSitesView.vue'
 import UpstreamBalanceOverview from '@/components/admin/account/UpstreamBalanceOverview.vue'
 import zh from '@/i18n/locales/zh/upstreamSites'
+import { ref } from 'vue'
 import { upstreamSitesAPI as api, type UpstreamSite } from '@/api/admin/upstreamSites'
+import { useClipboard } from '@/composables/useClipboard'
 
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<div><slot /></div>' } }))
 vi.mock('@/api/admin/groups', () => ({ getAll: vi.fn().mockResolvedValue([]) }))
 vi.mock('@/api/admin/proxies', () => ({ getAll: vi.fn().mockResolvedValue([]) }))
-vi.mock('@/api/admin/upstreamSites', async () => ({ ...await vi.importActual('@/api/admin/upstreamSites'), upstreamSitesAPI: { list: vi.fn(), accounts: vi.fn(), sync: vi.fn(), models: vi.fn(), modelPreview: vi.fn(), keyGroups: vi.fn(), changeKeyGroup: vi.fn(), setPurpose: vi.fn(), monitoring: vi.fn().mockResolvedValue({ status: "unsupported", rows: [], refresh_seconds: 60, stale: false }), deleteKey: vi.fn() } }))
+vi.mock('@/api/admin/upstreamSites', async () => ({ ...await vi.importActual('@/api/admin/upstreamSites'), upstreamSitesAPI: { list: vi.fn(), accounts: vi.fn(), sync: vi.fn(), models: vi.fn(), revealKey: vi.fn(), modelPreview: vi.fn(), keyGroups: vi.fn(), changeKeyGroup: vi.fn(), setPurpose: vi.fn(), monitoring: vi.fn().mockResolvedValue({ status: "unsupported", rows: [], refresh_seconds: 60, stale: false }), deleteKey: vi.fn() } }))
+vi.mock('@/composables/useClipboard', () => ({ useClipboard: vi.fn() }))
 const fixture = (): UpstreamSite => ({ id: 'site-1', name: 'Test upstream', kind: 'newapi', base_url: 'https://console.example.invalid', inference_url: 'https://relay.example.invalid', purchase_note: '', user_id: 7, proxy_id: null, revision: 1, account_count: 0, inventory: { status: 'attention', revision: 1, attempt_at: '2026-11-07T00:00:00Z', received_at: '2026-11-06T00:00:00Z', wallet_at: '2026-11-06T00:00:00Z', wallet: { currency: 'QUOTA', remaining: 23456, unlimited: false }, groups: [{ id: 'vip', name: 'VIP', description: 'Priority access', multiplier: 0.5 }, { id: 'fast', name: 'Fast', multiplier: 0.15 }], keys: [{ id: '3', name: 'relay key', group_id: 'vip', group_name: 'VIP', available: true, status: 'active' }], errors: { wallet: 'Permission denied' } } })
 const view = () => mount(UpstreamSitesView, { global: { plugins: [createI18n({ legacy: false, locale: 'zh', messages: { zh: { upstreamSites: zh } } })], stubs: { RouterLink: true, BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /><slot name="footer" /></div>' }, UpstreamImportDrawer: true } } })
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.list).mockResolvedValue([fixture()]); vi.mocked(api.accounts).mockResolvedValue([]) })
+const copyToClipboard = vi.fn().mockResolvedValue(true)
+vi.mocked(useClipboard).mockReturnValue({ copied: ref(false), copyToClipboard })
+it('copies the exact base URL and opens the selected website in a new tab', async () => {
+  const base_url = 'https://console.example.invalid/tenant'
+  vi.mocked(api.list).mockResolvedValue([{ ...fixture(), base_url }])
+  const wrapper = view(); await flushPromises()
+  for (const link of [wrapper.get('.site-item a'), wrapper.get('.site-detail-heading a')]) {
+    expect(link.attributes('href')).toBe(base_url)
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toBe('noopener noreferrer')
+  }
+  await wrapper.get(`button[aria-label="${zh.copyBaseURL}"]`).trigger('click')
+  expect(copyToClipboard).toHaveBeenCalledWith(base_url)
+  wrapper.unmount()
+})
+it('leaves non-web addresses non-clickable', async () => {
+  vi.mocked(api.list).mockResolvedValue([{ ...fixture(), base_url: 'javascript:alert(1)' }])
+  const wrapper = view(); await flushPromises()
+  expect(wrapper.find('.site-item a').exists()).toBe(false)
+  expect(wrapper.find('.site-detail-heading a').exists()).toBe(false)
+  wrapper.unmount()
+})
+it('fetches only the clicked key and never renders its complete value', async () => {
+  const site = fixture()
+  site.inventory!.keys[0]!.suffix = 'wxyz'
+  vi.mocked(api.list).mockResolvedValue([site])
+  vi.mocked(api.revealKey).mockResolvedValueOnce('sk-example-secret-wxyz')
+  const wrapper = view(); await flushPromises()
+  expect(api.revealKey).not.toHaveBeenCalled()
+  const button = wrapper.get(`button[title="${zh.copyKey}"]`)
+  await button.trigger('click'); await flushPromises()
+  expect(vi.mocked(api.revealKey).mock.calls).toEqual([['site-1', '3', 1]])
+  expect(copyToClipboard.mock.calls).toEqual([['sk-example-secret-wxyz']])
+  expect(wrapper.html()).not.toContain('sk-example-secret-wxyz')
+  vi.mocked(api.revealKey).mockRejectedValueOnce(new Error('upstream error'))
+  await button.trigger('click'); await flushPromises()
+  expect(wrapper.text()).toContain(zh.copyKeyFailed)
+  expect(copyToClipboard).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})
 it('labels and filters account purposes without mixing a hidden site into the detail panel', async () => {
   vi.mocked(api.list).mockResolvedValue([fixture(), { ...fixture(), id: 'site-2', name: 'Private account', purpose: 'private' }])
   const wrapper = view(); await flushPromises()

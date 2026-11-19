@@ -1,4 +1,6 @@
 export default {
+  copyBaseURL: '复制 Base URL', openSite: '在新标签页打开网站', copyKey: '复制完整 Key',
+  copyNamedKey: '复制 {name} 的完整 Key', copyKeyFailed: '无法获取完整 Key，请检查上游授权或同步站点后重试。',
   balanceOverview: '站点余额总览',
   privateBalance: '私用站点总余额',
   publicBalance: '公用站点总余额',

@@ -1,4 +1,6 @@
 export default {
+  copyBaseURL: 'Copy Base URL', openSite: 'Open website in a new tab', copyKey: 'Copy full key',
+  copyNamedKey: 'Copy full key for {name}', copyKeyFailed: 'Could not retrieve the full key. Check upstream permissions or sync the site and try again.',
   balanceOverview: "Site balance overview",
   privateBalance: "Private site balances",
   publicBalance: "Public site balances",

@@ -140,6 +140,9 @@ export const upstreamSitesAPI = {
     return (await apiClient.get(`${sitePath(id)}/monitoring`, { timeout: 60_000, signal })).data
   },
   async models(id: string, keyId: string): Promise<string[]> { return (await apiClient.get(`${sitePath(id)}/keys/${encodeURIComponent(keyId)}/models`, { timeout: 120_000 })).data },
+  async revealKey(id: string, keyId: string, revision: number): Promise<string> {
+    return (await apiClient.post<{ key: string }>(`${sitePath(id)}/keys/${encodeURIComponent(keyId)}/reveal`, { revision }, { timeout: 120_000 })).data.key
+  },
   async accounts(id: string): Promise<SiteAccount[]> { return (await apiClient.get(`${sitePath(id)}/accounts`)).data },
   async link(id: string, revision: number, accountId: number, keyId: string, unlink = false): Promise<void> {
     await apiClient.post(`${sitePath(id)}/accounts/link`, { revision, account_id: accountId, key_id: keyId, unlink }, { timeout: 120_000 })

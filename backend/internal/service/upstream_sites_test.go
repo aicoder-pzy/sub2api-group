@@ -88,6 +88,35 @@ func TestUpstreamSiteInventoryKeepsSecretsServerSideAndRevealsSelectedKey(t *tes
 	require.Equal(t, "POST /api/token/3/key", paths[len(paths)-1])
 }
 
+func TestUpstreamSiteRevealAllowsDisabledKeysButRejectsStaleSites(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	upstream := &siteImportHTTP{call: func(req *http.Request) (*http.Response, error) {
+		require.Equal(t, "GET", req.Method)
+		return siteImportResponse(`{"success":true,"data":{"items":[{"id":3,"name":"disabled","key":"sk-fixture-key","status":2}],"total":1}}`), nil
+	}}
+	svc := newUpstreamBillingProbeTestService(nil, upstream, nil)
+	svc.db = db
+	site := &UpstreamSite{ID: "9d2c08b1-7766-4fe7-9fc9-352ce6edd4ff", Name: "test", Kind: "newapi", BaseURL: "https://example.com", UserID: 7, AccessToken: "management", Revision: 1}
+	_, err = svc.ResolveUpstreamSiteKey(context.Background(), site, "3")
+	require.ErrorContains(t, err, "not available")
+	for _, revision := range []int64{1, 2} {
+		mock.ExpectQuery("SELECT .* FROM upstream_sites WHERE id=").WithArgs(site.ID).WillReturnRows(
+			sqlmock.NewRows([]string{"id", "name", "kind", "base_url", "user_id", "proxy_id", "revision", "token_cipher", "inference_url", "purchase_note", "inventory", "model_catalogs", "refresh_token_cipher", "purpose"}).
+				AddRow(site.ID, site.Name, site.Kind, site.BaseURL, site.UserID, nil, revision, "encrypted", site.BaseURL, "", nil, nil, "", ""))
+		secret, err := svc.RevealUpstreamSiteKey(context.Background(), site, "3")
+		if revision == site.Revision {
+			require.NoError(t, err)
+			require.Equal(t, "sk-fixture-key", secret)
+		} else {
+			require.ErrorIs(t, err, ErrUpstreamBillingProbeIdentityChanged)
+			require.Empty(t, secret)
+		}
+	}
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUpstreamSitePaginationCompatibilityAndCompleteness(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

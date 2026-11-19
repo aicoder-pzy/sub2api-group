@@ -206,6 +206,32 @@ func (h *AccountHandler) UpstreamSiteModels(c *gin.Context) {
 	response.Success(c, models)
 }
 
+func (h *AccountHandler) RevealUpstreamSiteKey(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
+	var input struct {
+		Revision int64 `json:"revision"`
+	}
+	if c.ShouldBindJSON(&input) != nil || input.Revision <= 0 {
+		response.BadRequest(c, "A current site revision is required")
+		return
+	}
+	site, err := h.loadUpstreamSite(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if input.Revision != site.Revision {
+		response.ErrorFrom(c, service.ErrUpstreamBillingProbeIdentityChanged)
+		return
+	}
+	key, err := h.upstreamBillingProbe.RevealUpstreamSiteKey(c.Request.Context(), site, c.Param("key_id"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"key": key})
+}
+
 func (h *AccountHandler) CreateUpstreamSiteKey(c *gin.Context) {
 	var input struct {
 		Name      string `json:"name"`
