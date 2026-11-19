@@ -16,19 +16,19 @@ func TestExportGroupAccountPools(t *testing.T) {
 	s := &UpstreamBillingProbeService{db: db}
 	const shenji = `{
 	  "updated":"2026-11-19T10:00:00Z",
-	  "groups":[{"source_id":"10","id":"old","count":2},{"source_id":"20","id":"new","count":1},{"source_id":"30","id":"other","count":1}],
+	  "groups":[{"source_id":"10","id":"old","count":2},{"source_id":"20","id":"new","count":1},{"source_id":"97","id":"other","count":1}],
 	  "rows":[{"number":1,"platform":"openai","plan":"promax","status":"active","pools":["old","new"]},
 	          {"number":2,"plan":"Plus","pools":["old"]},{"number":3,"plan":"Free","pools":["other"]}]
 	}`
 	const vulcan = `{
 	  "updated":"2026-11-19T09:00:00Z","site_revision":2,
-	  "groups":[{"source_id":"20","id":"stock","count":1}],
+	  "groups":[{"source_id":"97","id":"stock","count":1}],
 	  "rows":[{"number":1,"platform":"openai","plan":"Pro 500","status":"rate_limited","current":0,"limit":10,"windows":[{"name":"5h","used":25}],"pools":["stock"]}]
 	}`
 	const initial = `{"revision":1,"received_at":"2026-11-19T10:12:00Z","keys":[{"id":"1","group_id":"10","available":true},{"id":"2","group_id":"20","available":true}]}`
 	const switched = `{"revision":1,"received_at":"2026-11-19T10:14:00Z","keys":[{"id":"1","group_id":"20","available":true},{"id":"2","group_id":"10","available":false}]}`
-	const other = `{"revision":2,"received_at":"2026-11-19T09:15:00Z","errors":{"wallet":"unavailable"},"keys":[{"id":"1","group_id":"20","available":true}]}`
-	columns := []string{"name", "revision", "keys", "inventory", "snapshot"}
+	const other = `{"revision":2,"received_at":"2026-11-19T09:15:00Z","errors":{"wallet":"unavailable"},"keys":[{"id":"1","group_id":"141","available":true}]}`
+	columns := []string{"name", "base_url", "revision", "keys", "inventory", "snapshot"}
 	for _, tc := range []struct {
 		name, inventory, keys, second, secondSnapshot string
 		complete                                      bool
@@ -40,13 +40,14 @@ func TestExportGroupAccountPools(t *testing.T) {
 		{"disabled Key gone", switched, `["1","2"]`, other, vulcan, false, 2},
 		{"Key sync error invalidates retained mappings", `{"revision":1,"received_at":"2026-11-19T10:12:00Z","errors":{"keys":"failed"},"keys":[{"id":"1","group_id":"10","available":true}]}`, `["1"]`, other, vulcan, false, 1},
 		{"unknown group and missing snapshot", `{"revision":1,"received_at":"2026-11-19T10:12:00Z","keys":[{"id":"1","group_id":"404","available":true}]}`, `["1"]`, other, `{}`, false, 0},
+		{"Vulcan mapping does not apply to Shenji", `{"revision":1,"received_at":"2026-11-19T10:12:00Z","keys":[{"id":"1","group_id":"141","available":true}]}`, `["1"]`, other, vulcan, false, 1},
 		{"wrong snapshot revision", initial, `["2"]`, other, shenji, false, 1},
 		{"dangling or missing Key", initial, `[null,"999"]`, other, vulcan, false, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mock.ExpectQuery(regexp.QuoteMeta(groupAccountPoolsQuery)).WithArgs(int64(24), accountPoolBaseURL, vulcanPoolBaseURL).
-				WillReturnRows(sqlmock.NewRows(columns).AddRow("Ultra", 1, tc.keys, tc.inventory, shenji).
-					AddRow("Ultra", 2, `["1"]`, tc.second, tc.secondSnapshot))
+				WillReturnRows(sqlmock.NewRows(columns).AddRow("Ultra", accountPoolBaseURL, 1, tc.keys, tc.inventory, shenji).
+					AddRow("Ultra", vulcanPoolBaseURL, 2, `["1"]`, tc.second, tc.secondSnapshot))
 			out, err := s.ExportGroupAccountPools(t.Context(), 24, 2, 1)
 			require.NoError(t, err)
 			require.Equal(t, tc.count, out.Total)
@@ -77,7 +78,7 @@ func TestExportGroupAccountPools(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(groupAccountPoolsQuery)).WillReturnRows(sqlmock.NewRows(columns))
 	_, err = s.ExportGroupAccountPools(t.Context(), 24, 1, 20)
 	require.ErrorIs(t, err, ErrGroupNotFound)
-	mock.ExpectQuery(regexp.QuoteMeta(groupAccountPoolsQuery)).WillReturnRows(sqlmock.NewRows(columns).AddRow("Empty", 0, `[]`, `{}`, `{}`))
+	mock.ExpectQuery(regexp.QuoteMeta(groupAccountPoolsQuery)).WillReturnRows(sqlmock.NewRows(columns).AddRow("Empty", "", 0, `[]`, `{}`, `{}`))
 	out, err := s.ExportGroupAccountPools(t.Context(), 24, 1, 20)
 	require.NoError(t, err)
 	require.True(t, out.Complete)

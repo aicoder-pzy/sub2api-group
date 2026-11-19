@@ -20,12 +20,12 @@ const groupAccountPoolsQuery = `WITH linked AS (
 ), by_site AS (
   SELECT site_id,jsonb_agg(DISTINCT key_id) AS keys FROM linked WHERE site_id IS NOT NULL GROUP BY site_id
 ), sources AS (
-  SELECT b.site_id,b.keys,s.revision,s.inventory,p.snapshot
+  SELECT b.site_id,b.keys,s.base_url,s.revision,s.inventory,p.snapshot
   FROM by_site b LEFT JOIN upstream_sites s ON s.id::text=b.site_id
   LEFT JOIN upstream_site_account_pools p ON p.site_id=s.id
   WHERE s.id IS NULL OR (s.purpose='public' AND s.kind='sub2api' AND s.base_url IN ($2,$3))
 )
-SELECT g.name,COALESCE(s.revision,0),COALESCE(s.keys,'[]'),COALESCE(s.inventory,'{}'),COALESCE(s.snapshot,'{}')
+SELECT g.name,COALESCE(s.base_url,''),COALESCE(s.revision,0),COALESCE(s.keys,'[]'),COALESCE(s.inventory,'{}'),COALESCE(s.snapshot,'{}')
 FROM groups g LEFT JOIN sources s ON true
 WHERE g.id=$1 AND g.deleted_at IS NULL AND g.status='active'
 ORDER BY s.site_id`
@@ -69,9 +69,10 @@ func (s *UpstreamBillingProbeService) ExportGroupAccountPools(ctx context.Contex
 	found := false
 	for rows.Next() {
 		found = true
+		var baseURL string
 		var revision int64
 		var keysJSON, inventoryJSON, snapshotJSON []byte
-		if err := rows.Scan(&out.Name, &revision, &keysJSON, &inventoryJSON, &snapshotJSON); err != nil {
+		if err := rows.Scan(&out.Name, &baseURL, &revision, &keysJSON, &inventoryJSON, &snapshotJSON); err != nil {
 			return GroupAccountPools{}, err
 		}
 		var keys []string
@@ -81,7 +82,7 @@ func (s *UpstreamBillingProbeService) ExportGroupAccountPools(ctx context.Contex
 			out.Complete = false
 			continue
 		}
-		out.addSite(revision, keys, inventory, snapshot)
+		out.addSite(baseURL, revision, keys, inventory, snapshot)
 	}
 	if err := rows.Err(); err != nil {
 		return GroupAccountPools{}, err
@@ -93,7 +94,7 @@ func (s *UpstreamBillingProbeService) ExportGroupAccountPools(ctx context.Contex
 	return out, nil
 }
 
-func (out *GroupAccountPools) addSite(revision int64, keyIDs []string, inventory UpstreamSiteInventory, snapshot accountPoolSnapshot) {
+func (out *GroupAccountPools) addSite(baseURL string, revision int64, keyIDs []string, inventory UpstreamSiteInventory, snapshot accountPoolSnapshot) {
 	if len(keyIDs) == 0 {
 		return
 	}
@@ -119,6 +120,10 @@ func (out *GroupAccountPools) addSite(revision int64, keyIDs []string, inventory
 	for _, id := range keyIDs {
 		key := keys[id]
 		poolID := groups[key.GroupID]
+		// Vulcan's 6.1 exclusive group uses its published Pro mixed pool.
+		if poolID == "" && baseURL == vulcanPoolBaseURL && key.GroupID == "141" {
+			poolID = groups["97"]
+		}
 		if id == "" || !key.Available || key.GroupID == "" || poolID == "" {
 			out.Complete = false
 			continue
