@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -63,9 +64,11 @@ type accountPoolGroup struct {
 }
 
 type AccountPoolDisplay struct {
-	Updated *time.Time         `json:"updated"`
-	Pools   []accountPoolGroup `json:"pools"`
-	Rows    []accountPoolRow   `json:"rows"`
+	Updated      *time.Time         `json:"updated"`
+	Pools        []accountPoolGroup `json:"pools"`
+	Rows         []accountPoolRow   `json:"rows"`
+	Refreshing   bool               `json:"refreshing,omitempty"`
+	RefreshError string             `json:"refresh_error,omitempty"`
 }
 
 func accountPoolEnabled(site *UpstreamSite) bool {
@@ -121,11 +124,22 @@ func (s *UpstreamBillingProbeService) AccountPoolDisplay(ctx context.Context, si
 	if _, err := uuid.Parse(siteID); err != nil {
 		return AccountPoolDisplay{}, errPoolSite
 	}
+	var running bool
+	var refreshError string
+	if admin {
+		s.accountPoolMu.Lock()
+		if s.accountPoolSite == siteID {
+			running, refreshError = s.accountPoolRunning, s.accountPoolError
+		}
+		s.accountPoolMu.Unlock()
+	}
 	snapshot, aliases, err := s.readAccountPool(ctx, siteID)
 	if err != nil {
 		return AccountPoolDisplay{}, err
 	}
-	return snapshot.display(aliases, admin), nil
+	out := snapshot.display(aliases, admin)
+	out.Refreshing, out.RefreshError = running, refreshError
+	return out, nil
 }
 
 func (s *UpstreamBillingProbeService) RenameAccountPool(ctx context.Context, site *UpstreamSite, id, name string) error {
@@ -153,69 +167,123 @@ func (s *UpstreamBillingProbeService) RenameAccountPool(ctx context.Context, sit
 	return nil
 }
 
-func (s *UpstreamBillingProbeService) RefreshAccountPool(ctx context.Context, site *UpstreamSite) (AccountPoolDisplay, error) {
+func (s *UpstreamBillingProbeService) StartAccountPoolRefresh(site *UpstreamSite) error {
 	if !accountPoolEnabled(site) {
-		return AccountPoolDisplay{}, errPoolSite
+		return errPoolSite
 	}
-	// ponytail: one refresh at a time per process; add distributed locking if this is deployed with multiple writers.
-	if !s.accountPoolMu.TryLock() {
-		return AccountPoolDisplay{}, errPoolBusy
-	}
+	// ponytail: one refresh per process; add distributed locking for a multi-writer deployment.
+	s.accountPoolMu.Lock()
 	defer s.accountPoolMu.Unlock()
-	if time.Now().Before(s.accountPoolRetryAt) {
-		return AccountPoolDisplay{}, errPoolBusy
+	if s.accountPoolRunning || time.Now().Before(s.accountPoolRetryAt) {
+		return errPoolBusy
 	}
-	defer func() { s.accountPoolRetryAt = time.Now().Add(time.Minute) }()
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
-	defer cancel()
-	previous, _, err := s.readAccountPool(ctx, site.ID)
-	if err != nil {
-		return AccountPoolDisplay{}, err
+	s.accountPoolSite, s.accountPoolRunning, s.accountPoolError = site.ID, true, ""
+	go func() {
+		ctx, cancel := context.WithTimeout(s.parentCtx, 5*time.Minute)
+		defer cancel()
+		fetch := &accountPoolFetcher{ctx: ctx, request: func(path string) ([]byte, error) {
+			return s.upstreamSiteRequestWithStatus(ctx, site, http.MethodGet, path, nil)
+		}}
+		err := s.refreshAccountPool(ctx, site, fetch.get)
+		s.accountPoolMu.Lock()
+		defer s.accountPoolMu.Unlock()
+		if err != nil {
+			_, status := infraerrors.ToHTTP(err)
+			s.accountPoolError = status.Message
+		}
+		s.accountPoolRetryAt = time.Now().Add(time.Minute)
+		if fetch.retryAt.After(s.accountPoolRetryAt) {
+			s.accountPoolRetryAt = fetch.retryAt
+		}
+		s.accountPoolRunning = false
+	}()
+	return nil
+}
+
+type accountPoolFetcher struct {
+	ctx           context.Context
+	request       func(string) ([]byte, error)
+	next, retryAt time.Time
+}
+
+func accountPoolRetryDelay(value string, now time.Time) time.Duration {
+	delay := time.Minute
+	if seconds, err := strconv.ParseInt(value, 10, 32); err == nil && seconds >= 0 {
+		delay = time.Duration(seconds) * time.Second
+	} else if when, err := http.ParseTime(value); err == nil {
+		delay = when.Sub(now)
 	}
-	var next time.Time
-	get := func(path string) ([]byte, error) {
-		if wait := time.Until(next); wait > 0 {
+	if delay < 6*time.Second {
+		return 6 * time.Second
+	}
+	return delay
+}
+
+func (f *accountPoolFetcher) get(path string) ([]byte, error) {
+	for attempt := 0; ; attempt++ {
+		if wait := time.Until(f.next); wait > 0 {
 			timer := time.NewTimer(wait)
-			defer timer.Stop()
 			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
+			case <-f.ctx.Done():
+				timer.Stop()
+				return nil, f.ctx.Err()
 			case <-timer.C:
 			}
 		}
-		next = time.Now().Add(2 * time.Second)
-		return s.upstreamSiteRequest(ctx, site, http.MethodGet, path, nil)
+		f.next = time.Now().Add(6 * time.Second)
+		data, err := f.request(path)
+		var status *upstreamSiteHTTPError
+		if !errors.As(err, &status) {
+			return data, err
+		}
+		if status.code != http.StatusTooManyRequests {
+			return nil, upstreamSiteError(status.Error())
+		}
+		now := time.Now()
+		f.retryAt = now.Add(accountPoolRetryDelay(status.retryAfter, now))
+		deadline, _ := f.ctx.Deadline()
+		if attempt == 1 || f.retryAt.After(deadline) {
+			return nil, infraerrors.TooManyRequests("ACCOUNT_POOL_UPSTREAM_RATE_LIMIT", "神鸡上游限流，已保留上一份快照，请稍后重试")
+		}
+		f.next = f.retryAt
+	}
+}
+
+func (s *UpstreamBillingProbeService) refreshAccountPool(ctx context.Context, site *UpstreamSite, get func(string) ([]byte, error)) error {
+	previous, _, err := s.readAccountPool(ctx, site.ID)
+	if err != nil {
+		return err
 	}
 	data, err := get("/api/v1/account-pool/access")
 	if err != nil {
-		return AccountPoolDisplay{}, err
+		return err
 	}
 	var access struct {
 		Verified bool `json:"verified"`
 	}
 	if json.Unmarshal(data, &access) != nil || !access.Verified {
-		return AccountPoolDisplay{}, upstreamSiteError("The saved upstream login does not have account pool access")
+		return upstreamSiteError("The saved upstream login does not have account pool access")
 	}
 	snapshot, err := collectAccountPool(get, previous.Groups)
 	if err != nil {
-		return AccountPoolDisplay{}, err
+		return err
 	}
 	raw, err := json.Marshal(snapshot)
 	if err != nil {
-		return AccountPoolDisplay{}, err
+		return err
 	}
 	result, err := s.db.ExecContext(ctx, `INSERT INTO upstream_site_account_pools(site_id,snapshot)
 		SELECT id,$2::jsonb FROM upstream_sites WHERE id=$1 AND base_url=$3 AND kind='sub2api' AND purpose='public'
 		ON CONFLICT (site_id) DO UPDATE SET snapshot=EXCLUDED.snapshot`, site.ID, string(raw), accountPoolBaseURL)
 	if err != nil {
-		return AccountPoolDisplay{}, err
+		return err
 	}
 	if count, err := result.RowsAffected(); err != nil {
-		return AccountPoolDisplay{}, err
+		return err
 	} else if count == 0 {
-		return AccountPoolDisplay{}, errPoolSite
+		return errPoolSite
 	}
-	return s.AccountPoolDisplay(ctx, site.ID, true)
+	return nil
 }
 
 type upstreamPoolPage struct {

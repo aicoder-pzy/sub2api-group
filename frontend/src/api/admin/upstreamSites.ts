@@ -135,12 +135,14 @@ export interface SitePool {
 }
 export interface SitePoolDisplay {
   updated: string | null
+  refreshing?: boolean
+  refresh_error?: string
   pools: SitePool[]
   rows: { number: number; platform: string; plan: string; status: string; current?: number; limit?: number; pools?: string[]; last_used?: string; windows?: { name: string; used: number }[] }[]
 }
 export const upstreamSitesAPI = {
   async accountPool(id: string): Promise<SitePoolDisplay> { return (await apiClient.get(`${sitePath(id)}/account-pool`)).data },
-  async refreshAccountPool(id: string): Promise<SitePoolDisplay> { return (await apiClient.post(`${sitePath(id)}/account-pool/refresh`, null, { timeout: 250_000 })).data },
+  async refreshAccountPool(id: string): Promise<void> { await apiClient.post(`${sitePath(id)}/account-pool/refresh`) },
   async renameAccountPool(id: string, pool: string, name: string): Promise<SitePoolDisplay> { return (await apiClient.put(`${sitePath(id)}/account-pool/${encodeURIComponent(pool)}`, { name })).data },
   async list(): Promise<UpstreamSite[]> { return (await apiClient.get(endpoint)).data },
   async save(id: string, form: SiteForm): Promise<UpstreamSite> {

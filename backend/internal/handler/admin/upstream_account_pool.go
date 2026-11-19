@@ -23,9 +23,9 @@ func (h *AccountHandler) RefreshUpstreamAccountPool(c *gin.Context) {
 	if response.ErrorFrom(c, err) {
 		return
 	}
-	data, err := h.upstreamBillingProbe.RefreshAccountPool(c.Request.Context(), site)
+	err = h.upstreamBillingProbe.StartAccountPoolRefresh(site)
 	if !response.ErrorFrom(c, err) {
-		response.Success(c, data)
+		response.Accepted(c, gin.H{"refreshing": true})
 	}
 }
 

@@ -270,6 +270,9 @@ type UpstreamBillingProbeService struct {
 	instanceID   string
 
 	accountPoolMu      sync.Mutex
+	accountPoolSite    string
+	accountPoolRunning bool
+	accountPoolError   string
 	accountPoolRetryAt time.Time
 }
 

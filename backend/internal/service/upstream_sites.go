@@ -141,18 +141,21 @@ func (s *UpstreamBillingProbeService) SetUpstreamSitePurpose(ctx context.Context
 
 // Management requests share the existing validated upstream transport, refuse
 // redirects and never return raw upstream errors or credentials to the caller.
-func (s *UpstreamBillingProbeService) upstreamSiteRequest(ctx context.Context, site *UpstreamSite, method, path string, payload any) (data []byte, err error) {
-	defer func() {
-		var status *upstreamSiteHTTPError
-		if errors.As(err, &status) {
-			err = upstreamSiteError(status.Error())
-		}
-	}()
+func (s *UpstreamBillingProbeService) upstreamSiteRequest(ctx context.Context, site *UpstreamSite, method, path string, payload any) ([]byte, error) {
+	data, err := s.upstreamSiteRequestWithStatus(ctx, site, method, path, payload)
+	var status *upstreamSiteHTTPError
+	if errors.As(err, &status) {
+		err = upstreamSiteError(status.Error())
+	}
+	return data, err
+}
+
+func (s *UpstreamBillingProbeService) upstreamSiteRequestWithStatus(ctx context.Context, site *UpstreamSite, method, path string, payload any) ([]byte, error) {
 	secret, err := s.upstreamSiteAccessToken(site)
 	if err != nil {
 		return nil, err
 	}
-	data, err = s.upstreamSiteRequestWithToken(ctx, site, method, path, payload, secret)
+	data, err := s.upstreamSiteRequestWithToken(ctx, site, method, path, payload, secret)
 	var status *upstreamSiteHTTPError
 	if !errors.As(err, &status) || status.code != http.StatusUnauthorized || site.Kind != "sub2api" || path == "/v1/models" {
 		return data, err
@@ -182,7 +185,10 @@ func (s *UpstreamBillingProbeService) upstreamSiteAccessToken(site *UpstreamSite
 	return secret, nil
 }
 
-type upstreamSiteHTTPError struct{ code int }
+type upstreamSiteHTTPError struct {
+	code       int
+	retryAfter string
+}
 
 func (e *upstreamSiteHTTPError) Error() string {
 	return fmt.Sprintf("Upstream management HTTP %d; check token permissions", e.code)
@@ -238,7 +244,7 @@ func (s *UpstreamBillingProbeService) upstreamSiteRequestWithToken(ctx context.C
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &upstreamSiteHTTPError{code: resp.StatusCode}
+		return nil, &upstreamSiteHTTPError{code: resp.StatusCode, retryAfter: resp.Header.Get("Retry-After")}
 	}
 	data, err = io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024+1))
 	if err != nil || len(data) > 2*1024*1024 || !gjson.ValidBytes(data) {

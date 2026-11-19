@@ -3,12 +3,22 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestAccountPoolRetryDelay(t *testing.T) {
+	now := time.Date(2026, 11, 19, 11, 0, 0, 0, time.UTC)
+	require.Equal(t, 45*time.Second, accountPoolRetryDelay("45", now))
+	require.Equal(t, 70*time.Second, accountPoolRetryDelay(now.Add(70*time.Second).Format(http.TimeFormat), now))
+	require.Equal(t, 6*time.Second, accountPoolRetryDelay("0", now))
+	require.Equal(t, time.Minute, accountPoolRetryDelay("", now))
+}
 
 func TestCollectAccountPool(t *testing.T) {
 	get := func(page2ID int, page2Total int) func(string) ([]byte, error) {

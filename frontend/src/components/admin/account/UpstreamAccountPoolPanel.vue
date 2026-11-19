@@ -4,7 +4,7 @@
       <p class="text-sm text-gray-500" role="status">
         {{ snapshot?.updated ? tr('accountPoolSnapshot', { count: snapshot.rows.length, time: new Date(snapshot.updated).toLocaleString() }) : tr('accountPoolEmpty') }}
       </p>
-      <button class="btn btn-secondary" type="button" :disabled="busy" @click="load(true)">
+      <button class="btn btn-secondary" type="button" :disabled="busy || refreshing" @click="load(true)">
         <Icon name="refresh" size="sm" :class="{ 'animate-spin': refreshing }" />{{ tr(refreshing ? 'accountPoolRefreshing' : 'accountPoolRefresh') }}
       </button>
     </div>
@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { upstreamSitesAPI, siteError, type SitePool, type SitePoolDisplay } from '@/api/admin/upstreamSites'
 import Icon from '@/components/icons/Icon.vue'
@@ -81,17 +81,28 @@ const percent = (value: number) => formatPercent.format(value / 100)
 watch([selectedPool, selectedPlatform], () => { page.value = 1 })
 watch(pages, count => { page.value = Math.min(page.value, count) })
 
+let timer: number | undefined
+let unmounted = false
+function poll() {
+  if (refreshing.value && !unmounted) timer = window.setTimeout(() => { void load(false) }, 5000)
+}
+
 async function load(refresh: boolean) {
-  if (busy.value) return
-  busy.value = true; refreshing.value = refresh; error.value = ''
+  if (busy.value || unmounted) { poll(); return }
+  if (refresh) refreshing.value = true
+  busy.value = true; error.value = ''
   try {
-    const next = await (refresh ? upstreamSitesAPI.refreshAccountPool(props.siteId) : upstreamSitesAPI.accountPool(props.siteId))
+    if (refresh) await upstreamSitesAPI.refreshAccountPool(props.siteId)
+    const next = await upstreamSitesAPI.accountPool(props.siteId)
+    const changed = snapshot.value?.updated !== next.updated
     snapshot.value = next
+    refreshing.value = !!next.refreshing
+    error.value = next.refresh_error || ''
     if (!next.pools.some(pool => pool.id === selectedPool.value)) selectedPool.value = ''
     if (!platforms.value.includes(selectedPlatform.value)) selectedPlatform.value = ''
-    drafts.value = Object.fromEntries(next.pools.map(pool => [pool.id, pool.alias || '']))
-  } catch (cause) { error.value = siteError(cause) }
-  finally { busy.value = false; refreshing.value = false }
+    if (changed) drafts.value = Object.fromEntries(next.pools.map(pool => [pool.id, pool.alias || '']))
+  } catch (cause) { error.value = siteError(cause); refreshing.value = false }
+  finally { busy.value = false; poll() }
 }
 
 async function rename(pool: SitePool) {
@@ -106,4 +117,5 @@ async function rename(pool: SitePool) {
 }
 
 onMounted(() => load(false))
+onUnmounted(() => { unmounted = true; window.clearTimeout(timer) })
 </script>
