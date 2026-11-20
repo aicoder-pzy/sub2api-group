@@ -48,18 +48,16 @@ func TestToolSchemaPrecheckPreservesEscapedSchemaKeys(t *testing.T) {
 	}
 }
 
-func TestToolSchemaPrecheckKeepsValidationAndOrdinaryPayload(t *testing.T) {
+func TestToolSchemaPrecheckKeepsOrdinaryPayloadAndRejectsMalformedSchemas(t *testing.T) {
 	body := append(largeNativeResponsesBody(1<<20), ' ')
 	out, changed, err := sanitizeOpenAIResponsesToolSchemasForPlatform(body, PlatformOpenAI)
 	require.NoError(t, err)
 	require.False(t, changed)
 	require.True(t, bytes.Equal(body, out))
-	for _, invalid := range [][]byte{
-		[]byte(`{"input":[]} trailing`),
-		[]byte(`{"input":[}`),
-		[]byte("{\"input\":\"bad\x00\"}"),
-		{'{', '"', 'i', '"', ':', '"', 0xff, '"', '}'},
-	} {
+	// Ingress validates regular JSON. Include a repair hint so these cases
+	// exercise validation when the compatibility parser actually runs.
+	for _, suffix := range []string{`] } trailing`, `]`, "] , \"input\":\"bad\x00\"}", "] , \"input\":\"\xff\"}"} {
+		invalid := []byte(`{"tools":[{"type":"function","name":"f","parameters":{"type":null}}` + suffix)
 		_, _, err := sanitizeOpenAIResponsesToolSchemasForPlatform(invalid, PlatformOpenAI)
 		require.Error(t, err)
 	}

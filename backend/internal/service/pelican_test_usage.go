@@ -242,7 +242,7 @@ func (c *pelicanTestUsageCollector) cost(ctx context.Context, billing *BillingSe
 		longContext := accountStatsLongContextPricingEnabled(openAILongContextBillingGate(account))
 		if groupID != nil {
 			if stats := resolveAccountStatsCost(ctx, c.channels, billing, detail.AccountID, *groupID,
-				u.model, u.tokens, 1, cost.TotalCost, u.serviceTier, pricingAt, longContext, c.effort); stats != nil {
+				u.model, u.tokens, 1, cost.TotalCost, u.serviceTier, pricingAt, longContext, 1, c.effort); stats != nil {
 				baseCost = *stats
 			}
 		}

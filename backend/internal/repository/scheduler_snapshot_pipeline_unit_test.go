@@ -52,17 +52,23 @@ func TestSchedulerSnapshotMemoKeepsFreshLastUsedAndDeletion(t *testing.T) {
 		require.Equal(t, accounts[i].ID, account.ID)
 	}
 	require.Equal(t, latest, *result[2].LastUsedAt)
-	require.Equal(t, 6, hook.direct) // tags, membership, two metadata chunks, two LRU chunks
-	require.Empty(t, hook.pipelines)
+	require.Equal(t, 2, hook.direct)  // tags and membership
+	require.Len(t, hook.pipelines, 2) // metadata and last_used, each split into two chunks
+	for _, pipeline := range hook.pipelines {
+		require.Len(t, pipeline, 2)
+	}
 	// Side-key changes must be visible without publishing a new bucket version.
 	newer := latest.Add(time.Minute)
 	require.NoError(t, cache.UpdateLastUsed(ctx, map[int64]time.Time{803: newer}))
 	hook.direct = 0
+	hook.pipelines = nil
 	result, hit, err = cache.GetSnapshot(ctx, bucket)
 	require.NoError(t, err)
 	require.True(t, hit)
 	require.Equal(t, newer, *result[2].LastUsedAt)
-	require.Equal(t, 3, hook.direct) // memo hit reads tags and fresh LRU only
+	require.Equal(t, 1, hook.direct) // memo hit reads tags and a fresh last_used pipeline
+	require.Len(t, hook.pipelines, 1)
+	require.Len(t, hook.pipelines[0], 2)
 	require.NoError(t, cache.DeleteAccount(ctx, 802))
 	_, hit, err = cache.GetSnapshot(ctx, bucket)
 	require.NoError(t, err)

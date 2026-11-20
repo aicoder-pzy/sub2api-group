@@ -51,6 +51,11 @@ func APIKeyModelMapping() gin.HandlerFunc {
 		case http.MethodPost, http.MethodPut, http.MethodPatch:
 			body, err := httputil.ReadRequestBodyWithPrealloc(c.Request)
 			if err == nil {
+				// Multipart rewriting can discard the original preamble. Keep its
+				// conflict for the guard after group admission.
+				if field, conflict := requestmodel.ConflictingField(c.GetHeader("Content-Type"), body); conflict {
+					c.Set(originalRequestConflictKey, field)
+				}
 				body, err = requestmodel.RewriteBody(c.GetHeader("Content-Type"), body, key.ModelMapping)
 			}
 			if err != nil {
