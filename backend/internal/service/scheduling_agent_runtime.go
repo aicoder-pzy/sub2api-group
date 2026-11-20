@@ -24,6 +24,8 @@ import (
 const schedulingAgentConnectionKey = "scheduling_agent_connection"
 const schedulingAgentBudgetKey = "scheduling_agent_budget"
 const schedulingAgentOutputLimit = 800
+const schedulingAgentCallTimeout = 90 * time.Second
+const schedulingAgentRunTimeout = 5 * time.Minute
 
 type SchedulingAgentConnection struct {
 	Version         int64  `json:"version"`
@@ -205,7 +207,7 @@ func newSchedulingAgentClient() *http.Client {
 		}
 		return nil, errors.New("assistant endpoint unreachable")
 	}
-	return &http.Client{Transport: transport, Timeout: 25 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return &http.Client{Transport: transport, Timeout: schedulingAgentCallTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
 func schedulingPublicIP(ip netip.Addr) bool {
@@ -513,7 +515,7 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 	if g.AccountSchedulingMode != AccountSchedulingModeSmartChannel || (p.AgentMode != "auto" && p.AgentMode != "observe") || c.APIKey == "" || r.observations == nil || r.lock == nil {
 		return SchedulingAgentRun{}, infraerrors.BadRequest("SCHEDULING_AGENT_DISABLED", "Configure the group and model connection first")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 110*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, schedulingAgentRunTimeout)
 	defer cancel()
 	release, ok := r.acquireCallLock(ctx)
 	if !ok {
@@ -637,7 +639,7 @@ func (r *schedulingAgentRuntime) acquireCallLock(ctx context.Context) (func(), b
 	}
 	const key = "scheduler:agent:call"
 	owner := fmt.Sprintf("%d", time.Now().UnixNano())
-	if ok, err := r.lock.TryAcquireLeaderLock(ctx, key, owner, 2*time.Minute); !ok || err != nil {
+	if ok, err := r.lock.TryAcquireLeaderLock(ctx, key, owner, schedulingAgentRunTimeout+10*time.Second); !ok || err != nil {
 		return nil, false
 	}
 	return func() {
@@ -737,6 +739,9 @@ func (r *schedulingAgentRuntime) exchange(ctx context.Context, c SchedulingAgent
 	req.Header.Set("Authorization", "Bearer "+key)
 	resp, err := r.client.Do(req)
 	if err != nil {
+		if schedulingAgentTimedOut(err) {
+			return schedulingAgentDecision{}, 0, 0, errors.New("model_timeout")
+		}
 		return schedulingAgentDecision{}, 0, 0, errors.New("model_unreachable")
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -754,7 +759,11 @@ func (r *schedulingAgentRuntime) exchange(ctx context.Context, c SchedulingAgent
 			Output int `json:"completion_tokens"`
 		} `json:"usage"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 65536)).Decode(&payload); err != nil || len(payload.Choices) == 0 {
+	err = json.NewDecoder(io.LimitReader(resp.Body, 65536)).Decode(&payload)
+	if schedulingAgentTimedOut(err) {
+		return schedulingAgentDecision{}, 0, 0, errors.New("model_timeout")
+	}
+	if err != nil || len(payload.Choices) == 0 {
 		return schedulingAgentDecision{}, 0, 0, errors.New("invalid_model_response")
 	}
 	var decision schedulingAgentDecision
@@ -769,6 +778,11 @@ func (r *schedulingAgentRuntime) exchange(ctx context.Context, c SchedulingAgent
 	default:
 		return schedulingAgentDecision{}, payload.Usage.Input, payload.Usage.Output, errors.New("invalid_model_decision")
 	}
+}
+
+func schedulingAgentTimedOut(err error) bool {
+	var timeout net.Error
+	return errors.As(err, &timeout) && timeout.Timeout()
 }
 
 func recordSchedulingQueue(ctx context.Context, id int64, elapsed time.Duration) {

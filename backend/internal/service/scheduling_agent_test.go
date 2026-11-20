@@ -2,16 +2,43 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSchedulingAgentDistinguishesTimeoutFromConnectionFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name, want          string
+		requestErr, bodyErr error
+	}{
+		{name: "before response", want: "model_timeout", requestErr: context.DeadlineExceeded},
+		{name: "reading response", want: "model_timeout", bodyErr: context.DeadlineExceeded},
+		{name: "connection failure", want: "model_unreachable", requestErr: errors.New("connection refused")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+				if tc.requestErr != nil {
+					return nil, tc.requestErr
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(iotest.ErrReader(tc.bodyErr))}, nil
+			})
+			runtime := &schedulingAgentRuntime{secrets: agentTestEncryptor{}, client: &http.Client{Transport: transport}}
+			cfg := SchedulingAgentConnection{URL: "https://example.test/v1", Model: "judge", APIKey: "encrypted:test"}
+			_, _, _, err := runtime.exchange(context.Background(), cfg, nil)
+			require.EqualError(t, err, tc.want)
+		})
+	}
+}
 
 type agentTestSettings struct {
 	SettingRepository

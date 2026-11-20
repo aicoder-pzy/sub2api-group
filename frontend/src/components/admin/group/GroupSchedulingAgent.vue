@@ -170,7 +170,7 @@ const message = ref('')
 let routeKey = 0
 
 const date = (value: string) => new Date(value).toLocaleString()
-const stateLabel = (state: string) => ({ reassessed: '已重新评估', reverted_after_failures: '备用失败，已恢复基础等待', observed: '已观察', applied: '已应用临时动作', route_selected: '已更新该模型的优先线路', route_trial: '已开始少量试用', trial_stopped: '已停止接收试用会话', expired: '动作已到期', revoked: '动作已撤回', insufficient_evidence: '样本不足', budget_exhausted: '今日调用额度已用完', calling: '正在分析', connected: '连接测试通过', model_unreachable: '模型无法连接', invalid_model_decision: '模型返回的决策格式无效', invalid_inspection: '取证范围无效或达到上限' }[state] ?? state)
+const stateLabel = (state: string) => ({ reassessed: '已重新评估', reverted_after_failures: '备用失败，已恢复基础等待', observed: '已观察', applied: '已应用临时动作', route_selected: '已更新该模型的优先线路', route_trial: '已开始少量试用', trial_stopped: '已停止接收试用会话', expired: '动作已到期', revoked: '动作已撤回', insufficient_evidence: '样本不足', budget_exhausted: '今日调用额度已用完', calling: '正在分析', connected: '连接测试通过', model_timeout: '等待模型响应超时', model_unreachable: '模型无法连接', invalid_model_decision: '模型返回的决策格式无效', invalid_inspection: '取证范围无效或达到上限' }[state] ?? state)
 function accountLabel(id: number) {
   const account = status.value?.accounts.find(a => a.id === id)
   if (!account) return `#${id}（已移出分组）`
