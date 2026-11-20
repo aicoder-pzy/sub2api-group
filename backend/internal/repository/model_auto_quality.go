@@ -3,8 +3,10 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
 )
 
 func (r *usageLogRepository) GetModelAutoAccountQuality(ctx context.Context, groupID int64, model, effort string) (map[int64]service.GroupModelAccountQuality, error) {
@@ -56,7 +58,7 @@ func (r *usageLogRepository) GetModelAutoAccountQuality(ctx context.Context, gro
 // Cost is account expense / standard expense, so cache hits and output length
 // cannot make a cheaper workload look like a cheaper provider.
 // Keep $2 typed when smart scope replaces every business-model predicate.
-const modelAutoSpeedSQL = `WITH chosen AS (
+const modelAutoSpeedRequestsSQL = `WITH chosen AS (
  SELECT $2::text AS routing_model,COALESCE(NULLIF($3,''),(SELECT COALESCE(reasoning_effort,'') FROM usage_logs
  WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=/*business_model*/$2 /*ingress:*/
  AND created_at>=NOW()-INTERVAL '24 hours' GROUP BY reasoning_effort ORDER BY COUNT(*) DESC,reasoning_effort LIMIT 1),'') AS effort
@@ -80,10 +82,36 @@ const modelAutoSpeedSQL = `WITH chosen AS (
  AND COALESCE(e.is_count_tokens,false)=false AND COALESCE(e.error_owner,'') NOT IN ('client','user')
  AND COALESCE(event->>'scope','') NOT IN ('request','provider','proxy'))
 )
- SELECT account_id,effort,bucket,COUNT(*),
+`
+
+const modelAutoSpeedStatsSQL = `COUNT(*),
  percentile_cont(0.5) WITHIN GROUP(ORDER BY first_token_ms),
  percentile_cont(0.95) WITHIN GROUP(ORDER BY first_token_ms),
  COALESCE(percentile_cont(0.5) WITHIN GROUP(ORDER BY output_tokens*1000.0/NULLIF(duration_ms-first_token_ms,0)) FILTER(WHERE output_tokens>=100 AND duration_ms>first_token_ms),0),
  COALESCE(SUM(COALESCE(account_stats_cost,total_cost)*COALESCE(account_rate_multiplier,1))/NULLIF(SUM(total_cost),0),0),
- COUNT(*) FILTER(WHERE output_tokens>=100 AND duration_ms>first_token_ms)
+ COUNT(*) FILTER(WHERE output_tokens>=100 AND duration_ms>first_token_ms)`
+
+const modelAutoSpeedSQL = modelAutoSpeedRequestsSQL + `SELECT account_id,effort,bucket,` + modelAutoSpeedStatsSQL + `
  FROM requests GROUP BY account_id,effort,bucket ORDER BY account_id,bucket`
+
+func (r *usageLogRepository) GetSchedulingAgentSpeedWindows(ctx context.Context, groupID int64, model string, accounts []int64) (map[int64][]service.SchedulingAgentSpeedWindow, error) {
+	query := strings.ReplaceAll(modelAutoSpeedRequestsSQL, "INTERVAL '24 hours'", "INTERVAL '60 minutes'") +
+		`SELECT account_id, effort, bucket, CASE WHEN created_at >= NOW()-INTERVAL '30 minutes' THEN 0 ELSE 1 END AS age, ` + modelAutoSpeedStatsSQL + `
+ FROM requests WHERE account_id = ANY($4) GROUP BY account_id,effort,bucket,age ORDER BY account_id,age,bucket`
+	query, args := scopedSchedulingQuery(ctx, query, []any{groupID, model, "", pq.Array(accounts)}, model)
+	rows, err := r.sql.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	windows := make(map[int64][]service.SchedulingAgentSpeedWindow)
+	for rows.Next() {
+		var id int64
+		var w service.SchedulingAgentSpeedWindow
+		if err := rows.Scan(&id, &w.Effort, &w.ContextBucket, &w.Age, &w.Samples, &w.P50MS, &w.P95MS, &w.OutputTPS, &w.CostRatio, &w.OutputSamples); err != nil {
+			return nil, err
+		}
+		windows[id] = append(windows[id], w)
+	}
+	return windows, rows.Err()
+}

@@ -112,6 +112,24 @@ INSERT INTO upstream_quality_samples VALUES(1,1,6,'mapped','medium','pelican','n
 	require.Len(t, observed[1].Auto.Buckets, 1)
 	require.EqualValues(t, 1, observed[1].Auto.Buckets[0].Samples)
 	require.InDelta(t, 1000, observed[1].Auto.Buckets[0].P95MS, .01)
+	_, err = tx.ExecContext(ctx, `INSERT INTO usage_logs (id,created_at,account_id,api_key_id,group_id,request_id,model,requested_model,reasoning_effort,duration_ms,first_token_ms,stream,total_cost,account_stats_cost,account_rate_multiplier,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,inbound_endpoint) VALUES
+ (61,NOW()-INTERVAL '35 minutes',1,1,6,'earlier','mapped','m','medium',3000,1400,true,10,20,0.1,10000,100,0,0,'/v1/responses'),
+ (62,NOW()-INTERVAL '62 minutes',1,1,6,'outside-windows','mapped','m','medium',3000,50,true,10,20,0.1,10000,100,0,0,'/v1/responses'),
+ (63,NOW(),1,1,6,'different-effort','mapped','m','xhigh',3000,50,true,10,20,0.1,10000,100,0,0,'/v1/responses'),
+ (64,NOW(),2,1,6,'different-account','mapped','m','medium',3000,50,true,10,20,0.1,10000,100,0,0,'/v1/responses')`)
+	require.NoError(t, err)
+	windows, err := repo.GetSchedulingAgentSpeedWindows(ctx, 6, "mapped", []int64{1})
+	require.NoError(t, err)
+	require.Len(t, windows, 1)
+	require.Len(t, windows[1], 2)
+	for i, expected := range []float64{1000, 1400} {
+		w := windows[1][i]
+		require.Equal(t, i, w.Age)
+		require.Equal(t, "medium", w.Effort)
+		require.EqualValues(t, 1, w.ContextBucket)
+		require.EqualValues(t, 1, w.Samples)
+		require.Equal(t, expected, w.P95MS)
+	}
 	chatCtx := context.WithValue(ctx, ctxkey.InboundEndpoint, "/v1/chat/completions")
 	chat, err := repo.GetModelAutoAccountQuality(chatCtx, 6, "mapped", "medium")
 	require.NoError(t, err)

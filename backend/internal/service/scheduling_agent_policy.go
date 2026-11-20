@@ -326,6 +326,13 @@ func orderFixedScheduling(ctx context.Context, scope fixedSchedulingScope, cache
 	ordered = slices.DeleteFunc(ordered, func(a *Account) bool {
 		return a.ID != recovering && samples[a.ID].reliabilityTier(10) == 3
 	})
+	if state != nil && snapshot.cache != nil && snapshot.account == 0 && recovering == 0 && len(ordered) >= 2 {
+		if run, ok := currentSchedulingAgentRun(ctx, scope); ok {
+			if route, found := run.Routes[scope.model]; found {
+				ordered = orderSchedulingAgentRoute(ctx, scope, snapshot, ordered, samples, route)
+			}
+		}
+	}
 	if state == nil {
 		return ordered
 	}

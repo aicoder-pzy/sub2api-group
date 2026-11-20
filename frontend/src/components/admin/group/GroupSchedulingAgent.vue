@@ -86,7 +86,7 @@
               <select v-model="policy.agent_mode" class="input">
                 <option value="off">暂停</option>
                 <option value="observe">仅观察</option>
-                <option value="auto">允许受控调整（等待及池成员隔离）</option>
+                <option value="auto">允许按模型自动调度</option>
               </select>
             </label>
             <label class="text-sm">本组每日调用上限
@@ -96,11 +96,10 @@
               <input v-model.number="policy.min_wait_ms" type="number" min="100" max="2000" class="input" />
             </label>
           </div>
-          <p class="input-hint">智能体不能改变池优先级。池成员隔离只影响新会话的指定模型，持续 5 分钟；随后每分钟最多一个自然新会话验证，连续 3 次完整成功后恢复。智能体不可用时基础主备继续工作。</p>
           <div class="flex flex-wrap gap-2">
             <button type="button" class="btn btn-primary btn-sm" @click="save">保存调度策略</button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="!status.policy.agent_mode || status.policy.agent_mode === 'off'" @click="operate('run')">立即分析</button>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="status.run.state !== 'applied'" @click="operate('revoke')">撤回本次动作</button>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="status.run.state !== 'applied' && !Object.keys(status.run.routes ?? {}).length" @click="operate('revoke')">撤回智能体调整</button>
             <button type="button" class="btn btn-secondary btn-sm" @click="refresh">刷新状态</button>
           </div>
         </fieldset>
@@ -109,10 +108,19 @@
           <p v-if="status.run.decision?.reason" class="break-words">{{ status.run.decision.reason }}</p>
           <p v-if="status.run.decision?.action === 'defer_member'">{{ status.run.decision.model }} · 暂缓 {{ accountLabel(status.run.decision.account_id) }} 承接新会话 · 到期 {{ date(status.run.expires) }} · 已应用 {{ status.run.applied_requests ?? 0 }} 次</p>
           <p v-if="status.run.decision?.action === 'shorten_capacity_wait'">{{ status.run.decision.model }} · {{ accountLabel(status.run.decision.account_id) }} · {{ status.run.decision.wait_ms }} ms<span v-if="status.run.state === 'applied'"> · 到期 {{ date(status.run.expires) }} · 已应用 {{ status.run.applied_requests ?? 0 }} 次 &middot; 备用成功 {{ status.run.completed_attempts ?? 0 }} / 失败 {{ status.run.failed_attempts ?? 0 }}</span></p>
+          <div v-for="(route, model) in status.run.routes" :key="model" class="border-t border-gray-200 pt-2 dark:border-dark-600">
+            <p class="break-words font-medium">{{ model }}</p>
+            <p v-if="route.account_id" class="break-words">优先承接新会话：{{ accountLabel(route.account_id) }} · {{ date(route.selected_at) }} · {{ route.reason }}</p>
+            <p v-if="route.trial_id" class="break-words">少量试用：{{ accountLabel(route.trial_id) }} · 截至 {{ date(route.trial_until) }} · {{ route.trial_reason }}</p>
+          </div>
           <details v-if="status.run.evidence?.length || status.history?.length">
             <summary class="cursor-pointer">观测数据与最近动作</summary>
             <div v-for="item in status.run.evidence" :key="`${item.model}:${item.account_id}`" class="mt-1 break-words">
               {{ item.model }} · {{ item.pool_name ? `${item.pool_name}池 · ` : '' }}{{ accountLabel(item.account_id) }} · 成功 {{ item.successes }} / 失败 {{ item.failures }} · 延迟 {{ Math.round(item.first_event_ms) }} ms · 等待超时 {{ item.full_slots }} 次<span v-if="item.cache_ratio != null"> &middot; 缓存命中 {{ (item.cache_ratio * 100).toFixed(1) }}%</span><span v-if="item.speed?.output_tps"> &middot; {{ item.speed.output_tps.toFixed(1) }} Token/s</span>
+              <span v-if="item.current"> · 本轮基准</span><span v-if="item.trial"> · 试用对象</span>
+              <p v-for="window in item.recent_windows" :key="`${window.age}:${window.effort}:${window.context_bucket}`" class="text-xs text-gray-500">
+                {{ window.age === 0 ? '最近 30 分钟' : '前一段 30 分钟' }} · {{ window.effort || '未指定思考强度' }} · 上下文档位 {{ window.context_bucket }} · {{ window.samples }} 条 · 首输出 P50 {{ Math.round(window.p50_ms) }} / P95 {{ Math.round(window.p95_ms) }} ms
+              </p>
             </div>
             <p v-for="(run, index) in status.history" :key="index" class="mt-1 break-words">
               {{ date(run.at) }} · {{ stateLabel(run.state) }} · {{ run.decision?.model }} · 应用 {{ run.applied_requests ?? 0 }} 次 · {{ run.decision?.reason }}
@@ -159,7 +167,7 @@ const message = ref('')
 let routeKey = 0
 
 const date = (value: string) => new Date(value).toLocaleString()
-const stateLabel = (state: string) => ({ reassessed: '已重新评估', reverted_after_failures: '备用失败，已恢复基础等待', observed: '已观察', applied: '已应用临时动作', expired: '动作已到期', revoked: '动作已撤回', insufficient_evidence: '样本不足', budget_exhausted: '今日调用额度已用完', calling: '正在分析', connected: '连接测试通过', model_unreachable: '模型无法连接', invalid_model_decision: '模型返回的决策格式无效' }[state] ?? state)
+const stateLabel = (state: string) => ({ reassessed: '已重新评估', reverted_after_failures: '备用失败，已恢复基础等待', observed: '已观察', applied: '已应用临时动作', route_selected: '已更新该模型的优先线路', route_trial: '已开始少量试用', expired: '动作已到期', revoked: '动作已撤回', insufficient_evidence: '样本不足', budget_exhausted: '今日调用额度已用完', calling: '正在分析', connected: '连接测试通过', model_unreachable: '模型无法连接', invalid_model_decision: '模型返回的决策格式无效' }[state] ?? state)
 function accountLabel(id: number) {
   const account = status.value?.accounts.find(a => a.id === id)
   if (!account) return `#${id}（已移出分组）`

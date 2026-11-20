@@ -42,16 +42,34 @@ func (s *SettingService) GetSchedulingAgentStatus(ctx context.Context, id int64)
 	}
 	result.History = result.Run.History
 	result.Run.History = nil
-	if result.Run.State == "applied" {
-		r.readActionCount(id, &result.Run)
+	if result.Run.State == "applied" || len(result.Run.Routes) > 0 {
 		c, err := s.GetSchedulingAgentConnection(ctx)
 		if err != nil {
 			return result, err
 		}
-		if result.Run.Version != result.Policy.Version || result.Run.ConnectionVersion != c.Version || group.AccountSchedulingMode != AccountSchedulingModeSmartChannel {
-			result.Run.State = "revoked"
-		} else if time.Now().After(result.Run.Expires) {
-			result.Run.State = "expired"
+		valid := result.Run.Version == result.Policy.Version && result.Run.ConnectionVersion == c.Version && c.KeyConfigured &&
+			result.Policy.AgentMode == "auto" && group.AccountSchedulingMode == AccountSchedulingModeSmartChannel
+		if !valid {
+			result.Run.Routes = nil
+		}
+		if result.Run.State == "applied" || result.Run.State == "route_trial" || result.Run.State == "route_selected" {
+			if !valid {
+				result.Run.State = "revoked"
+			} else if result.Run.State != "route_selected" && time.Now().After(result.Run.Expires) {
+				result.Run.State = "expired"
+			} else if result.Run.State == "applied" {
+				r.readActionCount(id, &result.Run)
+			}
+		}
+		for model, route := range result.Run.Routes {
+			if !time.Now().Before(route.TrialUntil) {
+				route.TrialID = 0
+			}
+			if route.TrialID == 0 && route.AccountID == 0 {
+				delete(result.Run.Routes, model)
+			} else {
+				result.Run.Routes[model] = route
+			}
 		}
 	}
 	ids, err := r.groups.GetAccountIDsByGroupIDs(ctx, []int64{id})

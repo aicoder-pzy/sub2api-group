@@ -31,6 +31,9 @@ export interface SchedulingEvidence {
   cache_ratio?: number
   quality_tier?: string
   speed?: { output_tps: number; p95_ms: number }
+  current?: boolean
+  trial?: boolean
+  recent_windows?: { age: number; effort: string; context_bucket: number; samples: number; p50_ms: number; p95_ms: number }[]
 }
 
 export interface SchedulingRun {
@@ -46,6 +49,7 @@ export interface SchedulingRun {
   applied_requests?: number
   completed_attempts?: number
   failed_attempts?: number
+  routes?: Record<string, { account_id?: number; reason?: string; selected_at: string; trial_id?: number; trial_reason?: string; trial_until: string }>
 }
 
 export interface SchedulingStatus {
