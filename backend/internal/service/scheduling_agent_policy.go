@@ -19,23 +19,79 @@ func schedulingPolicyKey(id int64) string   { return fmt.Sprintf("scheduling_age
 func schedulingAgentRunKey(id int64) string { return fmt.Sprintf("scheduling_agent_run_%d", id) }
 
 type SchedulingPolicy struct {
-	Accounts   []int64            `json:"accounts"`
-	Models     map[string][]int64 `json:"models"`
-	AgentMode  string             `json:"agent_mode"`
-	DailyCalls int                `json:"daily_calls"`
-	MinWaitMS  int                `json:"min_wait_ms"`
-	Version    int64              `json:"version"`
+	Pools         []SchedulingPool   `json:"pools,omitempty"`
+	ObserveModels []string           `json:"observe_models,omitempty"`
+	Accounts      []int64            `json:"accounts"`
+	Models        map[string][]int64 `json:"models"`
+	AgentMode     string             `json:"agent_mode"`
+	DailyCalls    int                `json:"daily_calls"`
+	MinWaitMS     int                `json:"min_wait_ms"`
+	Version       int64              `json:"version"`
 }
 
-func (p SchedulingPolicy) order(model string) []int64 {
+// A pool is an administrator-defined routing boundary, never inferred from a
+// shared hostname. Different suppliers can share infrastructure or credentials.
+type SchedulingPool struct {
+	ID       string             `json:"id"`
+	Name     string             `json:"name"`
+	Accounts []int64            `json:"accounts"`
+	Models   map[string][]int64 `json:"models,omitempty"`
+}
+
+func (p SchedulingPool) order(model string) []int64 {
 	if ids, ok := p.Models[model]; ok {
 		return ids
 	}
 	return p.Accounts
 }
 
+func (p SchedulingPolicy) order(model string) []int64 {
+	if len(p.Pools) > 0 {
+		var ids []int64
+		for _, pool := range p.Pools {
+			ids = append(ids, pool.order(model)...)
+		}
+		return ids
+	}
+	if ids, ok := p.Models[model]; ok {
+		return ids
+	}
+	return p.Accounts
+}
+
+func (p SchedulingPolicy) enabled(model string) bool {
+	return len(p.Pools) > 0 || len(p.order(model)) > 0
+}
+
+func (p SchedulingPolicy) pool(id int64) *SchedulingPool {
+	for i := range p.Pools {
+		if slices.Contains(p.Pools[i].Accounts, id) {
+			return &p.Pools[i]
+		}
+	}
+	return nil
+}
+
+func (p SchedulingPolicy) analysisModels() []string {
+	models := append([]string(nil), p.ObserveModels...)
+	for model := range p.Models {
+		models = append(models, model)
+	}
+	for _, pool := range p.Pools {
+		for model := range pool.Models {
+			models = append(models, model)
+		}
+	}
+	slices.Sort(models)
+	return slices.Compact(models)
+}
+
+func schedulingExactModel(model string) bool {
+	return model != "" && len(model) <= 200 && !strings.ContainsAny(model, "*? \t\r\n")
+}
+
 func (p SchedulingPolicy) validate(members []int64) error {
-	if len(p.Accounts) > 32 || len(p.Models) > 64 || p.DailyCalls < 0 || p.DailyCalls > 144 || p.MinWaitMS < 0 || p.MinWaitMS > 2000 {
+	if len(p.Accounts) > 32 || len(p.Models) > 64 || len(p.Pools) > 16 || len(p.analysisModels()) > 64 || p.DailyCalls < 0 || p.DailyCalls > 144 || p.MinWaitMS < 0 || p.MinWaitMS > 2000 {
 		return errors.New("invalid scheduling policy limits")
 	}
 	switch p.AgentMode {
@@ -44,7 +100,7 @@ func (p SchedulingPolicy) validate(members []int64) error {
 		if p.AgentMode == "auto" && (p.MinWaitMS < 100 || p.MinWaitMS >= 2000) {
 			return errors.New("automatic mode requires a minimum wait between 100 and 1999 ms")
 		}
-		if len(p.Models) == 0 || p.DailyCalls == 0 {
+		if len(p.analysisModels()) == 0 || p.DailyCalls == 0 {
 			return errors.New("select at least one exact model and a daily call budget")
 		}
 	default:
@@ -65,8 +121,39 @@ func (p SchedulingPolicy) validate(members []int64) error {
 		return errors.New("default order contains duplicate or out-of-group accounts")
 	}
 	for model, ids := range p.Models {
-		if len(model) > 200 || model == "" || strings.ContainsAny(model, "*? \t\r\n") || len(ids) == 0 || !check(ids) {
+		if !schedulingExactModel(model) || len(ids) == 0 || !check(ids) {
 			return errors.New("each exact model must have eligible group accounts in an explicit order")
+		}
+	}
+	if len(p.Pools) > 0 && (len(p.Accounts) > 0 || len(p.Models) > 0) {
+		return errors.New("choose upstream pools or the legacy account order")
+	}
+	seenPools, seenAccounts := map[string]bool{}, map[int64]bool{}
+	for _, pool := range p.Pools {
+		if !schedulingExactModel(pool.ID) || seenPools[pool.ID] || strings.TrimSpace(pool.Name) == "" || len(pool.Name) > 100 || len(pool.Accounts) == 0 || !check(pool.Accounts) || len(pool.Models) > 64 {
+			return errors.New("each pool needs a unique ID, a name and group members")
+		}
+		seenPools[pool.ID] = true
+		for _, id := range pool.Accounts {
+			if seenAccounts[id] {
+				return errors.New("an account may belong to only one pool in this group")
+			}
+			seenAccounts[id] = true
+		}
+		for model, ids := range pool.Models {
+			if !schedulingExactModel(model) || !check(ids) {
+				return errors.New("invalid pool model order")
+			}
+			for _, id := range ids {
+				if !slices.Contains(pool.Accounts, id) {
+					return errors.New("model member must belong to its pool")
+				}
+			}
+		}
+	}
+	for _, model := range p.ObserveModels {
+		if !schedulingExactModel(model) {
+			return errors.New("observation requires exact model names")
 		}
 	}
 	return nil
@@ -186,15 +273,17 @@ func (s *SettingService) withFixedScheduling(ctx context.Context, groupID *int64
 	policy := s.schedulingPolicy(ctx, *groupID)
 	model = schedulingPublicModel(ctx, model)
 	ids := policy.order(model)
-	if len(ids) == 0 {
+	if !policy.enabled(model) {
 		return ctx
 	}
 	return context.WithValue(ctx, fixedSchedulingKey{}, fixedSchedulingScope{s, *groupID, model, policy, ids})
 }
 
 func (s fixedSchedulingScope) allows(id int64) bool {
-	return len(s.order) == 0 || slices.Contains(s.order, id)
+	return !s.policy.enabled(s.model) || slices.Contains(s.order, id)
 }
+
+func (s fixedSchedulingScope) enabled() bool { return s.policy.enabled(s.model) }
 
 func fixedScheduling(ctx context.Context) fixedSchedulingScope {
 	scope, _ := ctx.Value(fixedSchedulingKey{}).(fixedSchedulingScope)
@@ -216,24 +305,36 @@ func orderFixedScheduling(ctx context.Context, scope fixedSchedulingScope, cache
 	}
 
 	state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
-	if state == nil {
-		return ordered
-	}
 	var snapshot fixedSessionSnapshot
 	session, _ := ctx.Value(modelAutoSessionKey{}).(string)
-	if session != "" && cache != nil {
+	if state != nil && session != "" && cache != nil {
 		key := fmt.Sprintf("fixed-model:%x", sha256.Sum256([]byte(scope.model+"\x00"+session)))
 		bound, err := cache.GetSessionAccountID(ctx, scope.groupID, key)
 		if err == nil || errors.Is(err, ErrStickySessionNotFound) {
 			snapshot = fixedSessionSnapshot{cache: cache, group: scope.groupID, key: key, account: bound}
-			ordered = moveModelAutoFirst(ordered, bound)
+			if bound == 0 {
+				// Import the existing protocol-specific session only after a complete
+				// success; the new model-specific key is still expected to be empty.
+				legacy, _ := ctx.Value(qualitySessionBindingKey{}).(int64)
+				if legacy > 0 {
+					snapshot.account, snapshot.inherited = legacy, true
+				}
+			}
 		}
 	}
+	ordered, recovering := applySchedulingPoolAction(ctx, scope, snapshot, ordered, samples)
+	ordered = slices.DeleteFunc(ordered, func(a *Account) bool {
+		return a.ID != recovering && samples[a.ID].reliabilityTier(10) == 3
+	})
+	if state == nil {
+		return ordered
+	}
+	ordered = moveModelAutoFirst(ordered, snapshot.account)
 	state.mu.Lock()
 	state.fixed = true
 	state.fixedSession = snapshot
 	state.fixedBackup = 0
-	if len(ordered) > 1 && ordered[0].ID == scope.order[0] {
+	if len(ordered) > 1 {
 		backup := ordered[1]
 		sample := samples[backup.ID]
 		if sample.Successes >= 5 && sample.RecentFailures == 0 && sample.Failures <= sample.Successes/10 {
@@ -245,10 +346,11 @@ func orderFixedScheduling(ctx context.Context, scope fixedSchedulingScope, cache
 }
 
 type fixedSessionSnapshot struct {
-	cache   GatewayCache
-	group   int64
-	key     string
-	account int64
+	cache     GatewayCache
+	group     int64
+	key       string
+	account   int64
+	inherited bool
 }
 
 type fixedSessionCAS interface {
@@ -262,5 +364,9 @@ func (s fixedSessionSnapshot) confirm(ctx context.Context, group, account int64,
 	}
 	update, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	_ = cache.CompareAndSwapFixedSession(update, group, s.key, s.account, account, openaiStickySessionTTL)
+	previous := s.account
+	if s.inherited {
+		previous = 0
+	}
+	_ = cache.CompareAndSwapFixedSession(update, group, s.key, previous, account, openaiStickySessionTTL)
 }

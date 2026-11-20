@@ -21,6 +21,32 @@ const stickySessionPrefix = "sticky_session:"
 const openAIResponsesSessionWindowPrefix = "openai_responses_session_window:"
 const liveCallPrefix = "live:call:"
 
+var schedulingPoolRecovery = redis.NewScript(`
+local now = tonumber(redis.call('TIME')[1])
+local successes = tonumber(redis.call('HGET',KEYS[1],'successes') or '0')
+local owner = redis.call('HGET',KEYS[1],'owner') or ''
+if ARGV[1] == 'claim' then
+ if successes >= 3 then return 1 end
+ local until_at = tonumber(redis.call('HGET',KEYS[1],'until') or '0')
+ if until_at > now then return 0 end
+ redis.call('HSET',KEYS[1],'owner',ARGV[2],'until',now+60)
+ redis.call('EXPIRE',KEYS[1],3600)
+ return 2
+end
+if owner ~= ARGV[2] then return 0 end
+if ARGV[1] == 'success' then
+ redis.call('HINCRBY',KEYS[1],'successes',1)
+elseif ARGV[1] == 'failure' then
+ redis.call('HSET',KEYS[1],'successes',0)
+end
+redis.call('HDEL',KEYS[1],'owner')
+return 0
+`)
+
+func (c *gatewayCache) SchedulingPoolRecovery(ctx context.Context, key, mode, owner string) (int64, error) {
+	return schedulingPoolRecovery.Run(ctx, c.rdb, []string{key}, mode, owner).Int64()
+}
+
 type gatewayCache struct {
 	rdb *redis.Client
 }

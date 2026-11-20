@@ -101,7 +101,7 @@ func (out *GroupAccountPools) addSite(baseURL string, revision int64, keyIDs []s
 	// Legacy snapshots are only trusted for unedited site connections.
 	_, keysFailed := inventory.Errors["keys"]
 	if revision == 0 || keysFailed || inventory.Revision != revision || inventory.ReceivedAt == nil || inventory.ReceivedAt.IsZero() ||
-		snapshot.Updated == nil || snapshot.Updated.IsZero() || (snapshot.SiteRevision != revision && !(snapshot.SiteRevision == 0 && revision == 1)) {
+		snapshot.Updated == nil || snapshot.Updated.IsZero() || (snapshot.SiteRevision != revision && (snapshot.SiteRevision != 0 || revision != 1)) {
 		out.Complete = false
 		return
 	}

@@ -142,7 +142,8 @@ func (s *SettingService) modelAccountCapability(ctx context.Context, groupID *in
 		requestedModel = publicModel
 	}
 	if smartChannelEnabled(ctx) && !qualityProbe(ctx) {
-		if order := s.schedulingPolicy(ctx, *groupID).order(strings.TrimSpace(requestedModel)); len(order) > 0 && !slices.Contains(order, accountID) {
+		policy := s.schedulingPolicy(ctx, *groupID)
+		if policy.enabled(strings.TrimSpace(requestedModel)) && !slices.Contains(policy.order(strings.TrimSpace(requestedModel)), accountID) {
 			return false, "fixed_order"
 		}
 	}

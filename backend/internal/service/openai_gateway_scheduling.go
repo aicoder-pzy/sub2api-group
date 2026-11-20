@@ -1173,7 +1173,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	ctx = withOpenAIImageSizeStickyAccount(ctx, stickyAccountID)
 	if fastestFailoverEnabled(ctx, groupID) {
 		ctx = withModelAutoSession(s.settingService.withFixedScheduling(ctx, groupID, requestedModel), sessionHash)
-		if qualityPreferredEnabled(ctx) && !modelAutoEnabled(ctx) && !qualityProbe(ctx) {
+		if ((qualityPreferredEnabled(ctx) && !modelAutoEnabled(ctx)) || fixedScheduling(ctx).enabled()) && !qualityProbe(ctx) {
 			ctx = context.WithValue(ctx, qualitySessionBindingKey{}, stickyAccountID)
 		}
 		stickyAccountID = groupModelSchedulingUsableActiveAccount(ctx, s.usageLogRepo, s.cache, groupID, requestedModel)

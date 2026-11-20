@@ -20,6 +20,7 @@ FRONTEND_CRITICAL_VITEST := \
 	src/components/account/__tests__/AccountPriorityCell.spec.ts \
 	src/components/admin/__tests__/DirectAccessSettings.spec.ts \
 	src/components/admin/__tests__/FastestFailoverSettings.spec.ts \
+	src/components/admin/group/__tests__/GroupSchedulingAgent.spec.ts \
 	src/components/admin/account/__tests__/RefreshSchedulingDialog.spec.ts \
 	src/components/admin/account/__tests__/ModelAccountRoutingDialog.spec.ts \
 	src/components/admin/account/__tests__/ScheduledTestsPanel.results.spec.ts \

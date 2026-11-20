@@ -16,7 +16,7 @@ func (r *usageLogRepository) GetSchedulingAgentCacheRatios(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	ratios := make(map[int64]*float64)
 	for rows.Next() {
 		var id int64

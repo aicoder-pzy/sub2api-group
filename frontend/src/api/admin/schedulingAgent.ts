@@ -1,6 +1,8 @@
 import { apiClient } from '../client'
 
 export interface SchedulingPolicy {
+	 pools?: SchedulingPool[]
+	 observe_models?: string[]
   accounts: number[] | null
   models: Record<string, number[]> | null
   agent_mode: '' | 'off' | 'observe' | 'auto'
@@ -8,7 +10,17 @@ export interface SchedulingPolicy {
   min_wait_ms: number
 }
 
+export interface SchedulingPool {
+  id: string
+  name: string
+  accounts: number[]
+  models?: Record<string, number[]>
+}
+
 export interface SchedulingEvidence {
+  pool_id?: string
+  pool_name?: string
+  eligible?: boolean
   model: string
   account_id: number
   successes: number
@@ -40,7 +52,7 @@ export interface SchedulingStatus {
   policy: SchedulingPolicy
   run: SchedulingRun
   history?: SchedulingRun[]
-  accounts: { id: number; name: string; site: string; upstream_group: string; rate?: number }[]
+  accounts: { id: number; name: string; site: string; upstream_group: string; rate?: number; available?: boolean; models?: string[] }[]
 }
 
 export interface SchedulingConnection {

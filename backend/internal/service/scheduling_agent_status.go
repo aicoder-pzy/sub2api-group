@@ -14,6 +14,8 @@ type SchedulingAgentAccount struct {
 	UpstreamGroup string     `json:"upstream_group"`
 	Rate          *float64   `json:"rate,omitempty"`
 	VerifiedAt    *time.Time `json:"verified_at,omitempty"`
+	Available     bool       `json:"available"`
+	Models        []string   `json:"models"`
 }
 
 type SchedulingAgentStatus struct {
@@ -62,11 +64,25 @@ func (s *SettingService) GetSchedulingAgentStatus(ctx context.Context, id int64)
 	}
 	result.Accounts = make([]SchedulingAgentAccount, 0, len(accounts))
 	for _, account := range accounts {
-		entry := SchedulingAgentAccount{ID: account.ID, Name: account.Name}
+		entry := SchedulingAgentAccount{ID: account.ID, Name: account.Name, Available: account.IsSchedulable(), Models: make([]string, 0)}
+		for model := range account.GetModelMapping() {
+			entry.Models = append(entry.Models, model)
+		}
+		sort.Strings(entry.Models)
 		if parsed, err := url.Parse(account.GetTypeSafeBaseURL()); err == nil {
 			entry.Site = parsed.Hostname()
 		}
 		snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
+		if imported, ok := account.Extra["upstream_import"].(map[string]any); ok {
+			if id, ok := imported["group_id"].(string); ok && id != "" {
+				entry.UpstreamGroup = "上游组 #" + id
+			}
+		}
+		if snapshot != nil && snapshot.Status == "ok" && snapshot.FreshUntil != nil && time.Now().Before(*snapshot.FreshUntil) {
+			if rate, ok := snapshot.Data["resolved_rate_multiplier"].(float64); ok {
+				entry.Rate, entry.VerifiedAt = &rate, snapshot.ReceivedAt
+			}
+		}
 		if snapshot != nil && snapshot.Status == "ok" && snapshot.Source == "newapi" && snapshot.FreshUntil != nil && time.Now().Before(*snapshot.FreshUntil) {
 			entry.UpstreamGroup, _ = snapshot.Data["group_name"].(string)
 			if entry.UpstreamGroup != "" {

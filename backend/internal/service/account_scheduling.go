@@ -214,7 +214,7 @@ func rememberGroupModelSchedulingAccount(ctx context.Context, cache GatewayCache
 
 // A degraded binding cannot bypass the full candidate ranking via a sticky hit.
 func groupModelSchedulingUsableActiveAccount(ctx context.Context, repo UsageLogRepository, cache GatewayCache, groupID *int64, model string) int64 {
-	if len(fixedScheduling(ctx).order) > 0 {
+	if fixedScheduling(ctx).enabled() {
 		return 0
 	}
 	activeID := groupModelSchedulingActiveAccount(ctx, cache, groupID, model)
@@ -233,7 +233,7 @@ func fastestFailoverCandidateOrder(ctx context.Context, repo UsageLogRepository,
 		return ordered
 	}
 	quality := groupModelAccountQuality(ctx, repo, groupID, model)
-	if scope := fixedScheduling(ctx); len(scope.order) > 0 {
+	if scope := fixedScheduling(ctx); scope.enabled() {
 		return orderFixedScheduling(ctx, scope, cache, ordered, quality)
 	}
 	activeID := groupModelSchedulingActiveAccount(ctx, cache, groupID, model)

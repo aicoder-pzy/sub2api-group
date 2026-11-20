@@ -10,6 +10,8 @@ import (
 )
 
 type SchedulingCandidateStatus struct {
+	PoolID                string                    `json:"pool_id,omitempty"`
+	PoolName              string                    `json:"pool_name,omitempty"`
 	CapabilitySource      string                    `json:"capability_source,omitempty"`
 	UpstreamModel         string                    `json:"upstream_model,omitempty"`
 	Degradation           *PelicanDegradationState  `json:"degradation,omitempty"`
@@ -80,6 +82,7 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 	if err != nil {
 		return nil, err
 	}
+	ctx = s.settingService.withFixedScheduling(ctx, &groupID, model)
 	accounts, err := s.accountRepo.ListByGroup(ctx, groupID)
 	if err != nil {
 		return nil, err
@@ -87,6 +90,9 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 	settings := s.settingService.FastestFailoverSettings(ctx)
 	quality := groupModelAccountQuality(ctx, s.usageLogRepo, &groupID, upstreamModel)
 	activeID := groupModelSchedulingActiveAccount(ctx, s.cache, &groupID, upstreamModel)
+	if fixedScheduling(ctx).enabled() {
+		activeID = 0
+	}
 	result := &GroupSchedulingStatus{SchedulingMode: group.AccountSchedulingMode, Model: model, CurrentAccountID: activeID, MinimumSamples: settings.MinimumSamples, Candidates: make([]SchedulingCandidateStatus, 0, len(accounts))}
 	if public, endpoint, smart := SchedulingObservationScope(ctx, upstreamModel); smart {
 		result.Observation = &SchedulingObservationStatus{PublicModel: public, RoutingModel: upstreamModel, Endpoint: endpoint}
@@ -136,6 +142,9 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 			Confidence: sample.confidence(int64(settings.MinimumSamples)), Samples: sample.attempts(), RecentFailures: sample.RecentFailures,
 			LastSuccessAt: sample.LastSuccessAt, LastFailureAt: sample.LastFailureAt,
 			IntelligenceVerdict: sample.IntelligenceVerdict, IntelligenceReason: sample.IntelligenceReason, IntelligenceAt: sample.IntelligenceAt}
+		if pool := fixedScheduling(ctx).policy.pool(account.ID); pool != nil {
+			status.PoolID, status.PoolName = pool.ID, pool.Name
+		}
 		if smartChannelEnabled(ctx) {
 			status.CapabilitySource = source
 			status.UpstreamModel = account.GetMappedModel(upstreamModel)
@@ -199,17 +208,28 @@ func (s *GatewayService) GroupSchedulingStatus(ctx context.Context, tests *Accou
 		}
 		statuses[account.ID] = status
 	}
-	for index, account := range orderSchedulingCandidates(ctx, eligible, quality, activeID, settings, false) {
+	ordered := orderSchedulingCandidates(ctx, eligible, quality, activeID, settings, false)
+	if scope := fixedScheduling(ctx); scope.enabled() {
+		ordered = orderFixedScheduling(ctx, scope, s.cache, eligible, quality)
+	}
+	for index, account := range ordered {
 		if index == 0 {
 			result.RecommendedAccountID = account.ID
 		}
 		status := statuses[account.ID]
 		status.Rank = index + 1
+		statuses[account.ID] = status
 		result.Candidates = append(result.Candidates, status)
 	}
 	for _, account := range accounts {
-		if !statuses[account.ID].Eligible {
-			result.Candidates = append(result.Candidates, statuses[account.ID])
+		status := statuses[account.ID]
+		if status.Rank == 0 {
+			if status.Eligible {
+				status.Eligible = false
+				status.Reason = "quality_or_reliability_degraded"
+				result.AvailableChannels--
+			}
+			result.Candidates = append(result.Candidates, status)
 		}
 	}
 	return result, nil
