@@ -613,11 +613,13 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 					run.Routes = make(map[string]SchedulingAgentRoute)
 				}
 				run.Routes[decision.Model] = route
-				run.State = "route_selected"
-				if decision.Action == schedulingTrialRoute {
+				switch decision.Action {
+				case schedulingTrialRoute:
 					run.State, run.Expires = "route_trial", route.TrialUntil
-				} else if decision.Action == "stop_trial" {
+				case "stop_trial":
 					run.State = "trial_stopped"
+				default:
+					run.State = "route_selected"
 				}
 			} else {
 				run.State = "applied"
