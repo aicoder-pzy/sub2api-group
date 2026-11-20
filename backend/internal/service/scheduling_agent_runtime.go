@@ -65,6 +65,8 @@ type SchedulingAgentRun struct {
 	InputTokens       int                              `json:"input_tokens"`
 	OutputTokens      int                              `json:"output_tokens"`
 	Evidence          []schedulingAgentEvidence        `json:"evidence,omitempty"`
+	Signal            *SchedulingAgentActivity         `json:"signal,omitempty"`
+	Traffic           []SchedulingAgentTraffic         `json:"traffic_last_hour,omitempty"`
 	Feedback          []schedulingAgentEvidence        `json:"feedback,omitempty"`
 	Routes            map[string]SchedulingAgentRoute  `json:"routes,omitempty"`
 	NextModel         int                              `json:"next_model,omitempty"`
@@ -322,37 +324,8 @@ func (r *schedulingAgentRuntime) cycle(ctx context.Context) {
 		if policy.AgentMode != "observe" && policy.AgentMode != "auto" {
 			continue
 		}
-		run, err := r.settings.GetSchedulingAgentRun(ctx, g.ID)
-		if err != nil {
-			continue
-		}
-		if time.Since(run.At) < time.Duration(config.IntervalMinutes)*time.Minute && !r.hasSaturation(g.ID, policy, time.Since(run.At)) {
-			continue
-		}
-		if time.Since(run.At) < time.Minute {
-			continue
-		}
 		_, _ = r.runForActivity(ctx, &g, policy, config, true)
 	}
-}
-
-func (r *schedulingAgentRuntime) hasSaturation(group int64, policy SchedulingPolicy, since time.Duration) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if since > 5*time.Minute {
-		since = 5 * time.Minute
-	}
-	for _, model := range policy.analysisModels() {
-		ids := policy.order(model)
-		if len(ids) < 2 {
-			continue
-		}
-		q := r.queue[schedulingQueueKey{group, model, ids[0]}]
-		if q.full >= 3 && time.Since(q.at) < since {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *SettingService) RunSchedulingAgent(ctx context.Context, id int64) (SchedulingAgentRun, error) {
@@ -546,15 +519,31 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 	}
 	var signal SchedulingAgentActivity
 	if automatic {
-		signal, err = r.nextActivity(ctx, g.ID, models, run.Reviews)
+		signal, err = r.nextActivity(ctx, g.ID, p, models, run.Reviews, last.At)
 		if err != nil || signal.Model == "" {
 			return last, err
 		}
+		if now.Sub(last.At) < time.Duration(c.IntervalMinutes)*time.Minute &&
+			!(signal.urgentAfter(last.At) && signal.urgentAfter(run.Reviews[signal.Model].Through)) {
+			return last, nil
+		}
+		run.Signal = &signal
 		models = []string{signal.Model}
 	}
-	batch := min(8, len(models))
-	run.NextModel = (max(1, len(models)) + last.NextModel + batch) % max(1, len(models))
-	run.Evidence = r.evidence(ctx, g, p, models[:batch], run.Routes)
+	daily, err := readSchedulingJSON[map[string]int](ctx, r.settings.settingRepo, schedulingAgentBudgetKey)
+	if err != nil {
+		return last, err
+	}
+	// The shared call lock keeps the round's remaining slots available until its final answer.
+	calls := min(3, c.DailyCalls-daily[day], p.DailyCalls-run.Calls)
+	if calls <= 0 && last.State == "budget_exhausted" && last.Day == day && last.Version == p.Version && last.ConnectionVersion == c.Version {
+		return last, nil
+	}
+	if calls > 0 {
+		batch := min(8, len(models))
+		run.NextModel = (max(1, len(models)) + last.NextModel + batch) % max(1, len(models))
+		run.Evidence = r.evidence(ctx, g, p, models[:batch], run.Routes)
+	}
 	if last.State != "" && last.State != "calling" {
 		entry := last
 		entry.History = nil
@@ -584,10 +573,14 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 			run.History = run.History[:8]
 		}
 	}
+	if calls <= 0 {
+		run.State = "budget_exhausted"
+		return run, r.storeRun(ctx, g.ID, run)
+	}
 	if len(run.Evidence) == 0 {
 		return run, r.storeRun(ctx, g.ID, run)
 	}
-	decision, err := r.investigate(ctx, g, p, c, &run, signal)
+	decision, err := r.investigate(ctx, g, p, c, &run, signal, calls)
 	if err != nil {
 		run.State = err.Error()
 		if ctx.Err() != nil && run.Calls > 0 {
@@ -602,6 +595,9 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 	}
 	run.Decision = decision
 	if signal.Model != "" {
+		if run.Reviews == nil {
+			run.Reviews = make(map[string]schedulingAgentReview)
+		}
 		run.Reviews[signal.Model] = schedulingAgentReview{Through: signal.At, Decision: decision}
 	}
 	run.State = "observed"

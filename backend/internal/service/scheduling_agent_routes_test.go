@@ -56,10 +56,15 @@ type agentInvestigationFixture struct {
 	agentRouteObservations
 	activity []SchedulingAgentActivity
 	queries  []schedulingAgentDecision
+	traffic  []SchedulingAgentTraffic
 }
 
 func (o *agentInvestigationFixture) GetSchedulingAgentActivity(context.Context, int64, []string) ([]SchedulingAgentActivity, error) {
 	return o.activity, nil
+}
+
+func (o *agentInvestigationFixture) GetSchedulingAgentTraffic(context.Context, int64, string) ([]SchedulingAgentTraffic, error) {
+	return o.traffic, nil
 }
 
 func (o *agentInvestigationFixture) GetSchedulingAgentCohorts(_ context.Context, _ int64, model, effort string, hours int, _ []int64) (map[int64][]SchedulingAgentSpeedWindow, error) {
@@ -130,6 +135,77 @@ func TestSchedulingAgentInvestigatesNewEvidenceAndStopsTrial(t *testing.T) {
 	require.Equal(t, "trial_stopped", run.State)
 	require.Zero(t, run.Routes["sol"].TrialID)
 	require.True(t, run.Routes["sol"].TrialUntil.After(now), "stopping does not clear the cooldown")
+}
+
+func TestSchedulingAgentPrioritizes502AndSavesLastCallForDecision(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	g := &Group{ID: 24, AccountSchedulingMode: AccountSchedulingModeSmartChannel}
+	p := testSchedulingPoolPolicy()
+	p.DailyCalls = 10
+	o := &agentInvestigationFixture{
+		agentRouteObservations: agentRouteObservations{samples: map[int64]GroupModelAccountQuality{1: {Successes: 10}}},
+		activity: []SchedulingAgentActivity{
+			{Model: "astra", At: now},
+			{Model: "sol", At: now.Add(-10 * time.Second)},
+		},
+		traffic: []SchedulingAgentTraffic{{AccountID: 1, Endpoint: "/v1/chat/completions", Samples: 12}},
+	}
+	var calls atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		var body struct {
+			Messages []map[string]string `json:"messages"`
+		}
+		if json.NewDecoder(req.Body).Decode(&body) != nil || len(body.Messages) < 3 ||
+			!bytes.Contains([]byte(body.Messages[1]["content"]), []byte(`"stream":false,"effort":"","requests":12`)) ||
+			!bytes.Contains([]byte(body.Messages[len(body.Messages)-1]["content"]), []byte("0 inspections left")) {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"action":"hold","model":"sol","reason":"Need comparable samples"}`}}}})
+	}))
+	defer model.Close()
+	repo := &agentTestSettings{values: map[string]string{}}
+	r := &schedulingAgentRuntime{settings: &SettingService{settingRepo: repo}, observations: o, secrets: agentTestEncryptor{}, client: model.Client(), lock: &fakeLeaderLockCache{}}
+	cfg := SchedulingAgentConnection{Version: 7, APIKey: "encrypted:model-key", URL: model.URL, Model: "judge", DailyCalls: 2, IntervalMinutes: 10}
+	last := SchedulingAgentRun{At: now.Add(-2 * time.Minute), Day: now.UTC().Format(time.DateOnly), Version: p.Version, ConnectionVersion: cfg.Version,
+		Reviews: map[string]schedulingAgentReview{"sol": {Through: now.Add(-3 * time.Minute)}}}
+	require.NoError(t, r.storeRun(ctx, g.ID, last))
+	_, err := r.runForActivity(ctx, g, p, cfg, true)
+	require.NoError(t, err)
+	require.Zero(t, calls.Load(), "ordinary traffic respects the interval")
+
+	o.activity[1].FailureSince, o.activity[1].FailedAccount, o.activity[1].Failures = now.Add(-time.Minute), 1, 2
+	run, err := r.runForActivity(ctx, g, p, cfg, true)
+	require.NoError(t, err)
+	require.Equal(t, "model_http_503", run.State)
+	require.Equal(t, "sol", run.Signal.Model, "the 502 burst wins over newer ordinary traffic")
+	require.True(t, run.Reviews["sol"].Through.Equal(last.Reviews["sol"].Through), "failed analysis does not consume activity")
+	run.At = run.At.Add(-11 * time.Minute)
+	require.NoError(t, r.storeRun(ctx, g.ID, run))
+	run, err = r.runForActivity(ctx, g, p, cfg, true)
+	require.NoError(t, err)
+	require.Equal(t, "observed", run.State)
+	require.Equal(t, "hold", run.Decision.Action)
+	require.True(t, run.Reviews["sol"].Through.Equal(o.activity[1].At))
+	require.Equal(t, 2, run.Calls)
+	require.Empty(t, o.queries, "with one slot left, decide using existing evidence")
+
+	run.At = run.At.Add(-11 * time.Minute)
+	require.NoError(t, r.storeRun(ctx, g.ID, run))
+	run, err = r.runForActivity(ctx, g, p, cfg, true)
+	require.NoError(t, err)
+	require.Equal(t, "budget_exhausted", run.State)
+	run.At = run.At.Add(-11 * time.Minute)
+	require.NoError(t, r.storeRun(ctx, g.ID, run))
+	again, err := r.runForActivity(ctx, g, p, cfg, true)
+	require.NoError(t, err)
+	require.True(t, again.At.Equal(run.At), "repeated budget blocks do not replace review history")
+	require.EqualValues(t, 2, calls.Load())
 }
 
 func TestSchedulingAgentTrialAndPreferenceStayWithExactModel(t *testing.T) {
