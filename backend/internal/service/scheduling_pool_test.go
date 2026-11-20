@@ -28,20 +28,20 @@ func TestSchedulingPoolsStayWithinUserOrderAndCapabilities(t *testing.T) {
 	accounts := []*Account{{ID: 4}, {ID: 3}, {ID: 1}, {ID: 2}, {ID: 99}}
 	scope := fixedSchedulingScope{model: "astra", policy: p, order: p.order("astra")}
 	ordered := orderFixedScheduling(ctx, scope, nil, accounts, nil)
-	require.Equal(t, []int64{2, 1, 3, 4}, accountIDs(ordered))
+	require.Equal(t, []int64{2, 1, 3, 4}, poolAccountIDs(ordered))
 	// Primary members missing the model are absent from the eligible candidates.
 	ordered = orderFixedScheduling(ctx, scope, nil, accounts[:2], nil)
-	require.Equal(t, []int64{3, 4}, accountIDs(ordered))
+	require.Equal(t, []int64{3, 4}, poolAccountIDs(ordered))
 	scope.model, scope.order = "disabled", p.order("disabled")
 	require.True(t, scope.enabled())
 	require.False(t, scope.allows(1))
 	require.Empty(t, orderFixedScheduling(ctx, scope, nil, accounts, nil))
 	// No evidence or observation model is needed for deterministic pool routing.
 	scope.model, scope.order = "other", p.order("other")
-	require.Equal(t, []int64{1, 2, 3, 4}, accountIDs(orderFixedScheduling(ctx, scope, nil, accounts, nil)))
+	require.Equal(t, []int64{1, 2, 3, 4}, poolAccountIDs(orderFixedScheduling(ctx, scope, nil, accounts, nil)))
 }
 
-func accountIDs(accounts []*Account) []int64 {
+func poolAccountIDs(accounts []*Account) []int64 {
 	var ids []int64
 	for _, a := range accounts {
 		ids = append(ids, a.ID)
@@ -101,40 +101,41 @@ func TestSchedulingPoolAgentIsolationAndRecoveryPreserveSessions(t *testing.T) {
 	accounts := []*Account{{ID: 4}, {ID: 3}, {ID: 2}, {ID: 1}}
 	cache := &poolTestCache{}
 	c, ordered := request("astra", cache, accounts...)
-	require.Equal(t, []int64{1, 3, 4}, accountIDs(ordered), "other primary member precedes the secondary pool")
+	require.Equal(t, []int64{1, 3, 4}, poolAccountIDs(ordered), "other primary member precedes the secondary pool")
 	confirmGroupModelSchedulingAccount(c, "astra", 1)
 	require.Equal(t, int64(1), cache.id)
 	cache.id = 2
 	c, ordered = request("astra", cache, accounts...)
-	require.Equal(t, []int64{2, 1, 3, 4}, accountIDs(ordered), "healthy existing sessions are never moved by an agent action")
-	state := c.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	require.Equal(t, []int64{2, 1, 3, 4}, poolAccountIDs(ordered), "healthy existing sessions are never moved by an agent action")
+	state, ok := c.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	require.True(t, ok)
 	state.smartFailure = smartChannelFailure{scope: groupModelSchedulingScope{group.ID, "astra"}, preserve: true}
 	confirmGroupModelSchedulingAccount(c, "astra", 1)
 	require.EqualValues(t, 2, cache.id, "one isolated transient failure cannot migrate a warm session")
 	cache.id = 0
 	_, ordered = request("sol", cache, accounts...)
-	require.Equal(t, []int64{1, 3, 4}, accountIDs(ordered), "isolation is exact-model scoped")
+	require.Equal(t, []int64{1, 3, 4}, poolAccountIDs(ordered), "isolation is exact-model scoped")
 	_, ordered = request("astra", cache, &Account{ID: 2})
-	require.Equal(t, []int64{2}, accountIDs(ordered), "agent cannot remove the last candidate")
+	require.Equal(t, []int64{2}, poolAccountIDs(ordered), "agent cannot remove the last candidate")
 	run.Expires = time.Now().Add(-time.Minute)
 	failedAt := time.Now().Add(-time.Minute)
 	samples[2] = GroupModelAccountQuality{Successes: 20, Failures: 2, RecentFailures: 2, LastFailureAt: &failedAt}
 	require.NoError(t, r.storeRun(ctx, group.ID, run))
 	_, ordered = request("astra", cache, accounts...)
-	require.Equal(t, []int64{1, 3, 4}, accountIDs(ordered), "recovery waits for a shared trial allocation")
+	require.Equal(t, []int64{1, 3, 4}, poolAccountIDs(ordered), "recovery waits for a shared trial allocation")
 	cache.allocation = 2
 	c, ordered = request("astra", cache, accounts...)
-	require.Equal(t, []int64{2, 1, 3, 4}, accountIDs(ordered))
+	require.Equal(t, []int64{2, 1, 3, 4}, poolAccountIDs(ordered))
 	confirmGroupModelSchedulingAccount(c, "astra", 2)
 	require.Equal(t, []string{"success"}, cache.outcomes)
 	cache.id, cache.allocation = 0, 1
 	_, ordered = request("astra", cache, accounts...)
-	require.Equal(t, []int64{2, 1, 3, 4}, accountIDs(ordered), "successful recovery restores the configured order")
+	require.Equal(t, []int64{2, 1, 3, 4}, poolAccountIDs(ordered), "successful recovery restores the configured order")
 	p.Version++
 	require.NoError(t, writeSchedulingJSON(ctx, repo, schedulingPolicyKey(group.ID), p))
 	s.schedulingIndex.policies = nil
 	_, ordered = request("astra", cache, accounts...)
-	require.Equal(t, []int64{1, 3, 4}, accountIDs(ordered), "revocation also cancels recovery's exception to historical reliability filtering")
+	require.Equal(t, []int64{1, 3, 4}, poolAccountIDs(ordered), "revocation also cancels recovery's exception to historical reliability filtering")
 }
 
 func TestSchedulingPoolAgentCannotInventEvidence(t *testing.T) {
@@ -176,7 +177,9 @@ func TestSchedulingPoolActualSelectorsPreserveLegacySessions(t *testing.T) {
 				accounts = append(accounts, Account{ID: id, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, GroupIDs: []int64{group.ID}, Credentials: map[string]any{"model_mapping": map[string]any{"astra": "astra", "sol": "sol"}}})
 			}
 			accountRepo := schedulerTestOpenAIAccountRepo{accounts: accounts}
-			accounts[2].Credentials["model_mapping"].(map[string]any)["secondary-only"] = "secondary-only"
+			mapping, ok := accounts[2].Credentials["model_mapping"].(map[string]any)
+			require.True(t, ok)
+			mapping["secondary-only"] = "secondary-only"
 			openai := &OpenAIGatewayService{accountRepo: accountRepo, cache: cache, cfg: &config.Config{}, settingService: settings}
 			generic := &GatewayService{accountRepo: accountRepo, groupRepo: schedulingRefreshGroups{group: group}, cache: cache, cfg: &config.Config{}, settingService: settings}
 			pick := func(session, model string, excluded map[int64]struct{}) (*Account, context.Context, error) {
@@ -203,7 +206,9 @@ func TestSchedulingPoolActualSelectorsPreserveLegacySessions(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 3, a.ID, "policy activation preserves a healthy old secondary session")
 			confirmGroupModelSchedulingAccount(ctx, "astra", a.ID)
-			snapshot := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState).fixedSession
+			state, ok := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+			require.True(t, ok)
+			snapshot := state.fixedSession
 			require.EqualValues(t, 3, cache.bindings[snapshot.key], "legacy session is committed into the model key only after success")
 			a, _, err = pick("fresh-session", "astra", nil)
 			require.NoError(t, err)
