@@ -105,8 +105,12 @@ func TestSchedulingPoolAgentIsolationAndRecoveryPreserveSessions(t *testing.T) {
 	confirmGroupModelSchedulingAccount(c, "astra", 1)
 	require.Equal(t, int64(1), cache.id)
 	cache.id = 2
-	_, ordered = request("astra", cache, accounts...)
+	c, ordered = request("astra", cache, accounts...)
 	require.Equal(t, []int64{2, 1, 3, 4}, accountIDs(ordered), "healthy existing sessions are never moved by an agent action")
+	state := c.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+	state.smartFailure = smartChannelFailure{scope: groupModelSchedulingScope{group.ID, "astra"}, preserve: true}
+	confirmGroupModelSchedulingAccount(c, "astra", 1)
+	require.EqualValues(t, 2, cache.id, "one isolated transient failure cannot migrate a warm session")
 	cache.id = 0
 	_, ordered = request("sol", cache, accounts...)
 	require.Equal(t, []int64{1, 3, 4}, accountIDs(ordered), "isolation is exact-model scoped")

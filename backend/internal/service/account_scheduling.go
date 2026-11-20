@@ -133,18 +133,17 @@ func confirmGroupModelSchedulingAccount(ctx context.Context, model string, accou
 	snapshot, ok := state.snapshots[scope]
 	preserve := state.preservedQualityAccountID == accountID || (state.smartFailure.scope == scope && state.smartFailure.preserve)
 	fixed, session := state.fixed, state.fixedSession
-	capacity := state.preservedQualityAccountID == accountID
 	state.mu.Unlock()
-	if fixed {
-		recordSchedulingActionOutcome(ctx, accountID, true)
-		session.confirm(ctx, group.ID, accountID, capacity)
-		return
-	}
 	if smartChannelEnabled(ctx) && snapshot.valid {
 		if strikes, ok := snapshot.cache.(smartChannelStrikeCache); ok {
 			// Only a confirmed business success on this account clears its strike.
 			_, _ = strikes.SmartChannelStrike(ctx, group.ID, model, accountID, snapshot.revision, true)
 		}
+	}
+	if fixed {
+		recordSchedulingActionOutcome(ctx, accountID, true)
+		session.confirm(ctx, group.ID, accountID, preserve)
+		return
 	}
 	if !ok || !snapshot.valid || snapshot.accountID == accountID || preserve {
 		return

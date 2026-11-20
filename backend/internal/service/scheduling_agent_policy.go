@@ -357,9 +357,9 @@ type fixedSessionCAS interface {
 	CompareAndSwapFixedSession(ctx context.Context, group int64, key string, previous, account int64, ttl time.Duration) error
 }
 
-func (s fixedSessionSnapshot) confirm(ctx context.Context, group, account int64, capacity bool) {
+func (s fixedSessionSnapshot) confirm(ctx context.Context, group, account int64, preserve bool) {
 	cache, ok := s.cache.(fixedSessionCAS)
-	if !ok || s.group != group || (capacity && s.account > 0 && s.account != account) {
+	if !ok || s.group != group || (preserve && s.account > 0 && s.account != account) {
 		return
 	}
 	update, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
