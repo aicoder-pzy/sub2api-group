@@ -1,10 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,6 +50,86 @@ func agentRouteWindows(p50, p95 float64) []SchedulingAgentSpeedWindow {
 	previous := w
 	previous.Age = 1
 	return []SchedulingAgentSpeedWindow{w, previous}
+}
+
+type agentInvestigationFixture struct {
+	agentRouteObservations
+	activity []SchedulingAgentActivity
+	queries  []schedulingAgentDecision
+}
+
+func (o *agentInvestigationFixture) GetSchedulingAgentActivity(context.Context, int64, []string) ([]SchedulingAgentActivity, error) {
+	return o.activity, nil
+}
+
+func (o *agentInvestigationFixture) GetSchedulingAgentCohorts(_ context.Context, _ int64, model, effort string, hours int, _ []int64) (map[int64][]SchedulingAgentSpeedWindow, error) {
+	o.queries = append(o.queries, schedulingAgentDecision{Model: model, Effort: effort, Hours: hours})
+	return map[int64][]SchedulingAgentSpeedWindow{1: agentRouteWindows(9000, 12345)}, nil
+}
+
+func TestSchedulingAgentInvestigatesNewEvidenceAndStopsTrial(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	g := &Group{ID: 24, AccountSchedulingMode: AccountSchedulingModeSmartChannel}
+	p := testSchedulingPoolPolicy()
+	quality := GroupModelAccountQuality{Successes: 35, Quality: &AccountQualityEvidence{LatestAt: &now, LatestVerdict: "normal", NormalStreak: 2, TestEffort: "xhigh"}}
+	o := &agentInvestigationFixture{agentRouteObservations: agentRouteObservations{
+		samples: map[int64]GroupModelAccountQuality{1: quality, 3: quality},
+		windows: map[int64][]SchedulingAgentSpeedWindow{1: agentRouteWindows(32000, 55000)[:1]},
+	}}
+	var calls atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, _ := io.ReadAll(req.Body)
+		d := schedulingAgentDecision{Model: "sol", Effort: "xhigh", AccountID: 3}
+		switch calls.Add(1) {
+		case 1:
+			d.Action, d.Hours, d.Reason = "inspect", 6, "check same-effort baseline"
+		case 2:
+			if !bytes.Contains(body, []byte("12345")) {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			d.Action, d.Reason = schedulingTrialRoute, "recent slowdown versus baseline, gather a sample"
+		default:
+			if !bytes.Contains(body, []byte("gather a sample")) {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			d.Action, d.Reason = "stop_trial", "new evidence changes the assessment"
+		}
+		data, _ := json.Marshal(d)
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(data)}}}, "usage": map[string]int{"prompt_tokens": 100, "completion_tokens": 20}})
+	}))
+	defer model.Close()
+	repo := &agentTestSettings{values: map[string]string{}}
+	s := &SettingService{settingRepo: repo}
+	r := &schedulingAgentRuntime{settings: s, observations: o, secrets: agentTestEncryptor{}, client: model.Client(), lock: &fakeLeaderLockCache{}}
+	s.schedulingAgent = r
+	cfg := SchedulingAgentConnection{Version: 7, APIKey: "encrypted:model-key", URL: model.URL, Model: "judge", DailyCalls: 12}
+	require.NoError(t, writeSchedulingJSON(ctx, repo, schedulingAgentConnectionKey, cfg))
+	require.NoError(t, writeSchedulingJSON(ctx, repo, schedulingPolicyKey(g.ID), p))
+	_, err := r.runForActivity(ctx, g, p, cfg, true)
+	require.NoError(t, err)
+	require.Zero(t, calls.Load(), "old aggregates alone cannot wake the agent")
+	o.activity = []SchedulingAgentActivity{{Model: "sol", At: now}}
+	run, err := r.runForActivity(ctx, g, p, cfg, true)
+	require.NoError(t, err)
+	require.Equal(t, "route_trial", run.State)
+	require.EqualValues(t, 3, run.Routes["sol"].TrialID)
+	require.Equal(t, 2, run.Calls)
+	require.Equal(t, 200, run.InputTokens)
+	require.Equal(t, []schedulingAgentDecision{{Model: "sol", Effort: "xhigh", Hours: 6}}, o.queries)
+	run.At = run.At.Add(-2 * time.Minute)
+	require.NoError(t, r.storeRun(ctx, g.ID, run))
+	_, err = r.runForActivity(ctx, g, p, cfg, true)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, calls.Load(), "the same traffic must not be billed again")
+	o.activity[0].At = now.Add(time.Second)
+	run, err = r.runForActivity(ctx, g, p, cfg, true)
+	require.NoError(t, err)
+	require.Equal(t, "trial_stopped", run.State)
+	require.Zero(t, run.Routes["sol"].TrialID)
+	require.True(t, run.Routes["sol"].TrialUntil.After(now), "stopping does not clear the cooldown")
 }
 
 func TestSchedulingAgentTrialAndPreferenceStayWithExactModel(t *testing.T) {

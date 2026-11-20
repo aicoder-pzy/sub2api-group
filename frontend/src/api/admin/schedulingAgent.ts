@@ -44,6 +44,7 @@ export interface SchedulingRun {
   output_tokens: number
   expires: string
   decision?: { action: string; model: string; account_id: number; wait_ms: number; reason: string }
+  inspections?: { model: string; effort?: string; hours: number; reason: string }[]
   evidence?: SchedulingEvidence[]
   feedback?: SchedulingEvidence[]
   applied_requests?: number
@@ -75,7 +76,7 @@ const groupPath = (id: number) => `/admin/groups/${id}/scheduling-agent`
 export const schedulingAgentAPI = {
   async status(id: number) { return (await apiClient.get<SchedulingStatus>(groupPath(id))).data },
   async save(id: number, policy: SchedulingPolicy) { return (await apiClient.put<SchedulingStatus>(groupPath(id), policy)).data },
-  async run(id: number) { return (await apiClient.post<SchedulingStatus>(groupPath(id), undefined, { timeout: 60000 })).data },
+  async run(id: number) { return (await apiClient.post<SchedulingStatus>(groupPath(id), undefined, { timeout: 115000 })).data },
   async revoke(id: number) { return (await apiClient.delete<SchedulingStatus>(groupPath(id))).data },
   async connection() { return (await apiClient.get<SchedulingConnection>(connectionPath)).data },
   async saveConnection(config: SchedulingConnection) { return (await apiClient.put<SchedulingConnection>(connectionPath, config)).data },

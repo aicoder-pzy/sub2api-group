@@ -16,8 +16,9 @@ const (
 
 type SchedulingAgentSpeedWindow struct {
 	ModelAutoSpeedBucket
-	Effort string `json:"effort"`
-	Age    int    `json:"age"` // 0: latest 30 minutes; 1: preceding 30 minutes.
+	Effort     string   `json:"effort"`
+	Age        int      `json:"age"` // 0: latest 30 minutes; 1: preceding 30 minutes.
+	CacheRatio *float64 `json:"cache_ratio,omitempty"`
 }
 
 type schedulingAgentSpeedReader interface {
@@ -44,9 +45,7 @@ func schedulingSameCohort(a, b SchedulingAgentSpeedWindow) bool {
 
 // Compare disjoint windows only within one effort and context cohort. The guard
 // rejects noise; deciding whether the experience warrants intervention is the agent's job.
-func schedulingRouteEvidence(current, candidate schedulingAgentEvidence) (string, bool, bool) {
-	var effort string
-	var sustained, comparable bool
+func schedulingRouteEvidence(current, candidate schedulingAgentEvidence) bool {
 	for _, recent := range current.Windows {
 		if recent.Age != 0 || !schedulingWindowUsable(recent) || !strings.EqualFold(candidate.QualityEffort, recent.Effort) {
 			continue
@@ -55,7 +54,6 @@ func schedulingRouteEvidence(current, candidate schedulingAgentEvidence) (string
 			if past.Age != 1 || !schedulingWindowUsable(past) || !schedulingSameCohort(recent, past) {
 				continue
 			}
-			effort, sustained = recent.Effort, true
 			var fresh, previous *SchedulingAgentSpeedWindow
 			for _, alternate := range candidate.Windows {
 				if !schedulingWindowUsable(alternate) || !schedulingSameCohort(recent, alternate) {
@@ -68,14 +66,13 @@ func schedulingRouteEvidence(current, candidate schedulingAgentEvidence) (string
 				}
 			}
 			if fresh != nil && previous != nil {
-				comparable = true
 				if schedulingMaterialImprovement(recent, *fresh) && schedulingMaterialImprovement(past, *previous) {
-					return recent.Effort, true, true
+					return true
 				}
 			}
 		}
 	}
-	return effort, sustained && !comparable, false
+	return false
 }
 
 func schedulingMaterialImprovement(current, candidate SchedulingAgentSpeedWindow) bool {
@@ -88,6 +85,14 @@ func schedulingMaterialImprovement(current, candidate SchedulingAgentSpeedWindow
 func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decision schedulingAgentDecision, evidence []schedulingAgentEvidence, now time.Time) (SchedulingAgentRoute, bool) {
 	if strings.TrimSpace(decision.Reason) == "" || !slices.Contains(p.analysisModels(), decision.Model) || !slices.Contains(p.order(decision.Model), decision.AccountID) {
 		return last, false
+	}
+	if decision.Action == "stop_trial" {
+		if decision.AccountID != last.TrialID || !now.Before(last.TrialUntil) {
+			return last, false
+		}
+		// Retain the original deadline as a cooldown after stopping admission.
+		last.TrialID, last.TrialReason = 0, decision.Reason
+		return last, true
 	}
 	var current, candidate schedulingAgentEvidence
 	for _, item := range evidence {
@@ -107,13 +112,30 @@ func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decisi
 	if last.AccountID != 0 && current.AccountID == last.AccountID && now.Sub(last.SelectedAt) < schedulingRouteHold {
 		return last, false
 	}
-	effort, sustained, better := schedulingRouteEvidence(current, candidate)
-	if !sustained {
-		return last, false
-	}
+	better := schedulingRouteEvidence(current, candidate)
 	switch decision.Action {
 	case schedulingTrialRoute:
 		if better || now.Before(last.TrialUntil) {
+			return last, false
+		}
+		effort := candidate.QualityEffort
+		if decision.Effort != "" && !strings.EqualFold(decision.Effort, effort) {
+			return last, false
+		}
+		valid := false
+		for _, recent := range current.Windows {
+			if recent.Age != 0 || recent.Samples < 2 || recent.P50MS <= 0 || recent.P95MS < recent.P50MS || !strings.EqualFold(effort, recent.Effort) {
+				continue
+			}
+			if !slices.ContainsFunc(candidate.Windows, func(alt SchedulingAgentSpeedWindow) bool {
+				return alt.Age == 0 && schedulingWindowUsable(alt) && schedulingSameCohort(recent, alt) &&
+					alt.P50MS >= recent.P50MS && alt.P95MS >= recent.P95MS && (alt.OutputTPS <= recent.OutputTPS || recent.OutputTPS <= 0)
+			}) {
+				valid = true
+				break
+			}
+		}
+		if !valid {
 			return last, false
 		}
 		last.TrialID, last.TrialUntil, last.TrialReason, last.TrialEffort = decision.AccountID, now.Add(schedulingTrialPeriod), decision.Reason, effort

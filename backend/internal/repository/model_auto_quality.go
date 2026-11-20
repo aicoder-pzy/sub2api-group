@@ -95,10 +95,22 @@ const modelAutoSpeedSQL = modelAutoSpeedRequestsSQL + `SELECT account_id,effort,
  FROM requests GROUP BY account_id,effort,bucket ORDER BY account_id,bucket`
 
 func (r *usageLogRepository) GetSchedulingAgentSpeedWindows(ctx context.Context, groupID int64, model string, accounts []int64) (map[int64][]service.SchedulingAgentSpeedWindow, error) {
-	query := strings.ReplaceAll(modelAutoSpeedRequestsSQL, "INTERVAL '24 hours'", "INTERVAL '60 minutes'") +
-		`SELECT account_id, effort, bucket, CASE WHEN created_at >= NOW()-INTERVAL '30 minutes' THEN 0 ELSE 1 END AS age, ` + modelAutoSpeedStatsSQL + `
+	return r.GetSchedulingAgentCohorts(ctx, groupID, model, "", 1, accounts)
+}
+
+func schedulingAgentCohortSQL(hours int) string {
+	lookback, split := "1 hour", "30 minutes"
+	if hours == 6 || hours == 24 {
+		lookback, split = fmt.Sprintf("%d hours", hours), "1 hour"
+	}
+	return strings.ReplaceAll(modelAutoSpeedRequestsSQL, "INTERVAL '24 hours'", "INTERVAL '"+lookback+"'") +
+		`SELECT account_id, effort, bucket, CASE WHEN created_at >= NOW()-INTERVAL '` + split + `' THEN 0 ELSE 1 END AS age, ` + modelAutoSpeedStatsSQL + `,
+ SUM(cache_read_tokens)::double precision / NULLIF(SUM(input_tokens+cache_creation_tokens+cache_read_tokens),0)
  FROM requests WHERE account_id = ANY($4) GROUP BY account_id,effort,bucket,age ORDER BY account_id,age,bucket`
-	query, args := scopedSchedulingQuery(ctx, query, []any{groupID, model, "", pq.Array(accounts)}, model)
+}
+
+func (r *usageLogRepository) GetSchedulingAgentCohorts(ctx context.Context, groupID int64, model, effort string, hours int, accounts []int64) (map[int64][]service.SchedulingAgentSpeedWindow, error) {
+	query, args := scopedSchedulingQuery(ctx, schedulingAgentCohortSQL(hours), []any{groupID, model, effort, pq.Array(accounts)}, model)
 	rows, err := r.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -108,7 +120,7 @@ func (r *usageLogRepository) GetSchedulingAgentSpeedWindows(ctx context.Context,
 	for rows.Next() {
 		var id int64
 		var w service.SchedulingAgentSpeedWindow
-		if err := rows.Scan(&id, &w.Effort, &w.ContextBucket, &w.Age, &w.Samples, &w.P50MS, &w.P95MS, &w.OutputTPS, &w.CostRatio, &w.OutputSamples); err != nil {
+		if err := rows.Scan(&id, &w.Effort, &w.ContextBucket, &w.Age, &w.Samples, &w.P50MS, &w.P95MS, &w.OutputTPS, &w.CostRatio, &w.OutputSamples, &w.CacheRatio); err != nil {
 			return nil, err
 		}
 		windows[id] = append(windows[id], w)

@@ -106,6 +106,9 @@
         <div v-if="status.run.state" class="space-y-2 rounded border border-gray-200 p-3 text-sm dark:border-dark-600">
           <p>{{ stateLabel(status.run.state) }} · {{ date(status.run.at) }} · 今日 {{ status.run.calls }} 次 · 本轮输入 {{ status.run.input_tokens }} / 输出 {{ status.run.output_tokens }} Token</p>
           <p v-if="status.run.decision?.reason" class="break-words">{{ status.run.decision.reason }}</p>
+          <p v-for="(inspection, index) in status.run.inspections" :key="index" class="break-words">
+            取证：{{ inspection.model }} · {{ inspection.effort || '常用档位' }} · 最近 {{ inspection.hours }} 小时 · {{ inspection.reason }}
+          </p>
           <p v-if="status.run.decision?.action === 'defer_member'">{{ status.run.decision.model }} · 暂缓 {{ accountLabel(status.run.decision.account_id) }} 承接新会话 · 到期 {{ date(status.run.expires) }} · 已应用 {{ status.run.applied_requests ?? 0 }} 次</p>
           <p v-if="status.run.decision?.action === 'shorten_capacity_wait'">{{ status.run.decision.model }} · {{ accountLabel(status.run.decision.account_id) }} · {{ status.run.decision.wait_ms }} ms<span v-if="status.run.state === 'applied'"> · 到期 {{ date(status.run.expires) }} · 已应用 {{ status.run.applied_requests ?? 0 }} 次 &middot; 备用成功 {{ status.run.completed_attempts ?? 0 }} / 失败 {{ status.run.failed_attempts ?? 0 }}</span></p>
           <div v-for="(route, model) in status.run.routes" :key="model" class="border-t border-gray-200 pt-2 dark:border-dark-600">
@@ -167,7 +170,7 @@ const message = ref('')
 let routeKey = 0
 
 const date = (value: string) => new Date(value).toLocaleString()
-const stateLabel = (state: string) => ({ reassessed: '已重新评估', reverted_after_failures: '备用失败，已恢复基础等待', observed: '已观察', applied: '已应用临时动作', route_selected: '已更新该模型的优先线路', route_trial: '已开始少量试用', expired: '动作已到期', revoked: '动作已撤回', insufficient_evidence: '样本不足', budget_exhausted: '今日调用额度已用完', calling: '正在分析', connected: '连接测试通过', model_unreachable: '模型无法连接', invalid_model_decision: '模型返回的决策格式无效' }[state] ?? state)
+const stateLabel = (state: string) => ({ reassessed: '已重新评估', reverted_after_failures: '备用失败，已恢复基础等待', observed: '已观察', applied: '已应用临时动作', route_selected: '已更新该模型的优先线路', route_trial: '已开始少量试用', trial_stopped: '已停止接收试用会话', expired: '动作已到期', revoked: '动作已撤回', insufficient_evidence: '样本不足', budget_exhausted: '今日调用额度已用完', calling: '正在分析', connected: '连接测试通过', model_unreachable: '模型无法连接', invalid_model_decision: '模型返回的决策格式无效', invalid_inspection: '取证范围无效或达到上限' }[state] ?? state)
 function accountLabel(id: number) {
   const account = status.value?.accounts.find(a => a.id === id)
   if (!account) return `#${id}（已移出分组）`
