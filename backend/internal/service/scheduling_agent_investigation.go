@@ -34,6 +34,18 @@ type SchedulingAgentTraffic struct {
 	DurationP95 *float64 `json:"duration_p95_ms,omitempty"`
 }
 
+type SchedulingAgentFailure struct {
+	AccountID int64  `json:"account_id"`
+	Phase     string `json:"phase"`
+	Status    int    `json:"status"`
+	Upstream  int    `json:"upstream_status"`
+	Count     int64  `json:"events"`
+}
+
+type schedulingAgentFailureReader interface {
+	GetSchedulingAgentFailures(context.Context, int64, string) ([]SchedulingAgentFailure, error)
+}
+
 type schedulingAgentReview struct {
 	Through  time.Time               `json:"through"`
 	Decision schedulingAgentDecision `json:"decision"`
@@ -120,6 +132,11 @@ func (r *schedulingAgentRuntime) investigate(ctx context.Context, g *Group, p Sc
 		Traffic  []SchedulingAgentTraffic  `json:"traffic_last_hour"`
 	}{signal, prior.Decision, run.Evidence, run.Traffic})
 	messages := []map[string]string{{"role": "system", "content": schedulingAgentInstructions(p.MinWaitMS, canInspect)}, {"role": "user", "content": string(payload)}}
+	failures, canInspectFailures := r.observations.(schedulingAgentFailureReader)
+	canInspectFailures = canInspectFailures && r.codex != nil
+	if canInspectFailures {
+		messages[0]["content"] += ` For bursts, request {"action":"inspect_failures","model":the exact model,"reason":what you are checking} to see Sub2's recent 5xx by phase, upstream status and account. This does not include failures before reaching Sub2. Use it at most once. Investigate the dominant uncertainty first. Do not blame or switch an account for a gateway-only error.`
+	}
 	for step := 0; ; step++ {
 		remaining := calls - step - 1
 		messages = append(messages, map[string]string{"role": "user", "content": fmt.Sprintf("You have %d inspections left. At zero, return a final action other than inspect now.", remaining)})
@@ -143,6 +160,23 @@ func (r *schedulingAgentRuntime) investigate(ctx context.Context, g *Group, p Sc
 		}
 		if (signal.Model != "" && decision.Model != signal.Model) && (decision.Action != "hold" || decision.Model != "") {
 			return schedulingAgentDecision{}, errors.New("invalid_model_decision")
+		}
+		if decision.Action == "inspect_failures" {
+			if !canInspectFailures || remaining == 0 || !slices.Contains(p.analysisModels(), decision.Model) || slices.ContainsFunc(run.Inspections, func(d schedulingAgentDecision) bool { return d.Action == "inspect_failures" }) {
+				return schedulingAgentDecision{}, errors.New("invalid_inspection")
+			}
+			run.Inspections = append(run.Inspections, decision)
+			read, cancel := context.WithTimeout(ctx, 2*time.Second)
+			rows, err := failures.GetSchedulingAgentFailures(read, g.ID, decision.Model)
+			cancel()
+			response := "Aggregate query unavailable; do not assume missing values."
+			if err == nil {
+				data, _ := json.Marshal(rows)
+				response = string(data)
+			}
+			asked, _ := json.Marshal(decision)
+			messages = append(messages, map[string]string{"role": "assistant", "content": string(asked)}, map[string]string{"role": "user", "content": "Sub2 5xx events, last 30 minutes (events may include multiple attempts): " + response})
+			continue
 		}
 		if decision.Action != "inspect" {
 			return decision, nil

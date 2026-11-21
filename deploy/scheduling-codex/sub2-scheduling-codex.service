@@ -1,0 +1,20 @@
+[Unit]
+Description=Sub2 scheduling Codex worker
+
+[Service]
+EnvironmentFile=/opt/sub2api/scheduling-codex/provider.env
+ExecStart=/usr/bin/python3 -I /usr/local/lib/sub2-scheduling-codex/worker.py
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict
+PrivateTmp=yes
+PrivateDevices=yes
+InaccessiblePaths=/opt/sub2api
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CPUWeight=10
+CPUQuota=50%
+Nice=10
+MemoryMax=320M
+TasksMax=48
+Restart=on-failure

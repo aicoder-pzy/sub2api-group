@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -26,6 +27,8 @@ const schedulingAgentBudgetKey = "scheduling_agent_budget"
 const schedulingAgentOutputLimit = 800
 const schedulingAgentCallTimeout = 90 * time.Second
 const schedulingAgentRunTimeout = 5 * time.Minute
+const schedulingCodexCallTimeout = 3 * time.Minute
+const schedulingCodexRunTimeout = 10 * time.Minute
 
 type SchedulingAgentConnection struct {
 	Version         int64  `json:"version"`
@@ -50,6 +53,7 @@ type schedulingAgentDecision struct {
 }
 
 type SchedulingAgentRun struct {
+	Engine            string                           `json:"engine,omitempty"`
 	At                time.Time                        `json:"at"`
 	Version           int64                            `json:"version"`
 	ConnectionVersion int64                            `json:"connection_version"`
@@ -133,6 +137,7 @@ type schedulingAgentRuntime struct {
 	secrets      SecretEncryptor
 	lock         LeaderLockCache
 	client       *http.Client
+	codex        *http.Client
 	mu           sync.Mutex
 	queue        map[schedulingQueueKey]schedulingQueueSample
 	actions      map[int64]schedulingActionCount
@@ -143,6 +148,9 @@ func (s *SettingService) startSchedulingAgent(groups GroupRepository, accounts A
 	ctx, cancel := context.WithCancel(context.Background())
 	observations, _ := usage.(modelAutoQualityRepository)
 	runtime := &schedulingAgentRuntime{settings: s, groups: groups, accounts: accounts, observations: observations, secrets: secrets, lock: lock, cancel: cancel, queue: make(map[schedulingQueueKey]schedulingQueueSample), actions: make(map[int64]schedulingActionCount), client: newSchedulingAgentClient(), done: make(chan struct{})}
+	if socket := os.Getenv("SUB2_SCHEDULING_CODEX_SOCKET"); socket != "" {
+		runtime.codex = newSchedulingCodexClient(socket)
+	}
 	s.schedulingAgent = runtime
 	go runtime.loop(ctx)
 }
@@ -152,6 +160,9 @@ func (s *SettingService) StopSchedulingAgent() {
 		r.cancel()
 		<-r.done
 		r.client.CloseIdleConnections()
+		if r.codex != nil {
+			r.codex.CloseIdleConnections()
+		}
 	}
 }
 
@@ -179,6 +190,9 @@ func (s *SettingService) TestSchedulingAgentConnection(ctx context.Context) (Sch
 	}
 	decision, in, out, err := r.call(ctx, c, []schedulingAgentEvidence{}, 500)
 	result := SchedulingAgentRun{At: time.Now(), State: "connected", Decision: decision, InputTokens: in, OutputTokens: out}
+	if r.codex != nil {
+		result.Engine = "codex"
+	}
 	if err != nil {
 		result.State = err.Error()
 	}
@@ -210,6 +224,17 @@ func newSchedulingAgentClient() *http.Client {
 		return nil, errors.New("assistant endpoint unreachable")
 	}
 	return &http.Client{Transport: transport, Timeout: schedulingAgentCallTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+func newSchedulingCodexClient(socket string) *http.Client {
+	dialer := &net.Dialer{Timeout: time.Second}
+	return &http.Client{
+		Transport: &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, "unix", socket)
+		}},
+		Timeout:       schedulingCodexCallTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 }
 
 func schedulingPublicIP(ip netip.Addr) bool {
@@ -488,7 +513,11 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 	if g.AccountSchedulingMode != AccountSchedulingModeSmartChannel || (p.AgentMode != "auto" && p.AgentMode != "observe") || c.APIKey == "" || r.observations == nil || r.lock == nil {
 		return SchedulingAgentRun{}, infraerrors.BadRequest("SCHEDULING_AGENT_DISABLED", "Configure the group and model connection first")
 	}
-	ctx, cancel := context.WithTimeout(ctx, schedulingAgentRunTimeout)
+	timeout := schedulingAgentRunTimeout
+	if r.codex != nil {
+		timeout = schedulingCodexRunTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	release, ok := r.acquireCallLock(ctx)
 	if !ok {
@@ -502,6 +531,9 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 		return SchedulingAgentRun{}, err
 	}
 	run := SchedulingAgentRun{At: now, Version: p.Version, ConnectionVersion: c.Version, Day: day, State: "insufficient_evidence", History: last.History}
+	if r.codex != nil {
+		run.Engine = "codex"
+	}
 	if last.Day == day {
 		run.Calls = last.Calls
 	}
@@ -635,7 +667,11 @@ func (r *schedulingAgentRuntime) acquireCallLock(ctx context.Context) (func(), b
 	}
 	const key = "scheduler:agent:call"
 	owner := fmt.Sprintf("%d", time.Now().UnixNano())
-	if ok, err := r.lock.TryAcquireLeaderLock(ctx, key, owner, schedulingAgentRunTimeout+10*time.Second); !ok || err != nil {
+	ttl := schedulingAgentRunTimeout + 10*time.Second
+	if r.codex != nil {
+		ttl = schedulingCodexRunTimeout + 10*time.Second
+	}
+	if ok, err := r.lock.TryAcquireLeaderLock(ctx, key, owner, ttl); !ok || err != nil {
 		return nil, false
 	}
 	return func() {
@@ -723,8 +759,10 @@ func (r *schedulingAgentRuntime) exchange(ctx context.Context, c SchedulingAgent
 	if len(body) > 64000 {
 		return schedulingAgentDecision{}, 0, 0, errors.New("input_limit")
 	}
-	endpoint := c.URL
-	if !strings.HasSuffix(endpoint, "/chat/completions") {
+	endpoint, client := c.URL, r.client
+	if r.codex != nil {
+		endpoint, client = "http://codex/analyze", r.codex
+	} else if !strings.HasSuffix(endpoint, "/chat/completions") {
 		endpoint += "/chat/completions"
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -733,7 +771,10 @@ func (r *schedulingAgentRuntime) exchange(ctx context.Context, c SchedulingAgent
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
-	resp, err := r.client.Do(req)
+	if r.codex != nil {
+		req.Header.Set("X-Scheduling-Provider", c.URL)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		if schedulingAgentTimedOut(err) {
 			return schedulingAgentDecision{}, 0, 0, errors.New("model_timeout")
@@ -741,6 +782,9 @@ func (r *schedulingAgentRuntime) exchange(ctx context.Context, c SchedulingAgent
 		return schedulingAgentDecision{}, 0, 0, errors.New("model_unreachable")
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if r.codex != nil && resp.StatusCode == http.StatusGatewayTimeout {
+		return schedulingAgentDecision{}, 0, 0, errors.New("model_timeout")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return schedulingAgentDecision{}, 0, 0, fmt.Errorf("model_http_%d", resp.StatusCode)
 	}
@@ -769,7 +813,7 @@ func (r *schedulingAgentRuntime) exchange(ctx context.Context, c SchedulingAgent
 		return schedulingAgentDecision{}, payload.Usage.Input, payload.Usage.Output, errors.New("invalid_model_decision")
 	}
 	switch decision.Action {
-	case "hold", "shorten_capacity_wait", "defer_member", "inspect", "stop_trial", schedulingTrialRoute, schedulingPreferRoute:
+	case "hold", "shorten_capacity_wait", "defer_member", "inspect", "inspect_failures", "stop_trial", schedulingTrialRoute, schedulingPreferRoute:
 		return decision, payload.Usage.Input, payload.Usage.Output, nil
 	default:
 		return schedulingAgentDecision{}, payload.Usage.Input, payload.Usage.Output, errors.New("invalid_model_decision")

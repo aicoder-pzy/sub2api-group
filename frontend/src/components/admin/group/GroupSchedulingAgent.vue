@@ -90,7 +90,7 @@
               </select>
             </label>
             <label class="text-sm">本组每日调用上限
-              <input v-model.number="policy.daily_calls" type="number" min="1" max="144" class="input" />
+              <input v-model.number="policy.daily_calls" type="number" min="1" max="500" class="input" />
             </label>
             <label class="text-sm">允许的最短等待（毫秒）
               <input v-model.number="policy.min_wait_ms" type="number" min="100" max="2000" class="input" />
@@ -104,10 +104,10 @@
           </div>
         </fieldset>
         <div v-if="status.run.state" class="space-y-2 rounded border border-gray-200 p-3 text-sm dark:border-dark-600">
-          <p>{{ stateLabel(status.run.state) }} · {{ date(status.run.at) }} · 今日 {{ status.run.calls }} 次 · 本轮输入 {{ status.run.input_tokens }} / 输出 {{ status.run.output_tokens }} Token</p>
+          <p>{{ stateLabel(status.run.state) }}<template v-if="status.run.engine === 'codex'"> · Codex</template> · {{ date(status.run.at) }} · 今日 {{ status.run.calls }} 次 · 本轮输入 {{ status.run.input_tokens }} / 输出 {{ status.run.output_tokens }} Token</p>
           <p v-if="status.run.decision?.reason" class="break-words">{{ status.run.decision.reason }}</p>
           <p v-for="(inspection, index) in status.run.inspections" :key="index" class="break-words">
-            取证：{{ inspection.model }} · {{ inspection.effort || '常用档位' }} · 最近 {{ inspection.hours }} 小时 · {{ inspection.reason }}
+            取证：{{ inspection.model }} · <template v-if="inspection.action === 'inspect_failures'">近 30 分钟 5xx</template><template v-else>{{ inspection.effort || '常用档位' }} · 最近 {{ inspection.hours }} 小时</template> · {{ inspection.reason }}
           </p>
           <p v-if="status.run.decision?.action === 'defer_member'">{{ status.run.decision.model }} · 暂缓 {{ accountLabel(status.run.decision.account_id) }} 承接新会话 · 到期 {{ date(status.run.expires) }} · 已应用 {{ status.run.applied_requests ?? 0 }} 次</p>
           <p v-if="status.run.decision?.action === 'shorten_capacity_wait'">{{ status.run.decision.model }} · {{ accountLabel(status.run.decision.account_id) }} · {{ status.run.decision.wait_ms }} ms<span v-if="status.run.state === 'applied'"> · 到期 {{ date(status.run.expires) }} · 已应用 {{ status.run.applied_requests ?? 0 }} 次 &middot; 备用成功 {{ status.run.completed_attempts ?? 0 }} / 失败 {{ status.run.failed_attempts ?? 0 }}</span></p>

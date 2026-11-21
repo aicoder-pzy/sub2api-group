@@ -78,6 +78,27 @@ func (r *usageLogRepository) GetSchedulingAgentTraffic(ctx context.Context, grou
 	return traffic, rows.Err()
 }
 
+func (r *usageLogRepository) GetSchedulingAgentFailures(ctx context.Context, groupID int64, model string) ([]service.SchedulingAgentFailure, error) {
+	rows, err := r.sql.QueryContext(ctx, `SELECT COALESCE(account_id,0), COALESCE(error_phase,''), COALESCE(status_code,0), COALESCE(upstream_status_code,0), count(*)
+ FROM ops_error_logs WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=$2
+ AND created_at>=NOW()-INTERVAL '30 minutes' AND api_key_id IS NOT NULL AND COALESCE(is_count_tokens,false)=false
+ AND (status_code BETWEEN 500 AND 599 OR upstream_status_code BETWEEN 500 AND 599)
+ GROUP BY 1,2,3,4 ORDER BY count(*) DESC,1,2,3,4 LIMIT 24`, groupID, model)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []service.SchedulingAgentFailure{}
+	for rows.Next() {
+		var row service.SchedulingAgentFailure
+		if err := rows.Scan(&row.AccountID, &row.Phase, &row.Status, &row.Upstream, &row.Count); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
 // Usage logs store uncached input and cache tokens in separate columns.
 func (r *usageLogRepository) GetSchedulingAgentCacheRatios(ctx context.Context, groupID int64, model string, accounts []int64) (map[int64]*float64, error) {
 	rows, err := r.sql.QueryContext(ctx, `SELECT account_id,

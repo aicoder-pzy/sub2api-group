@@ -91,7 +91,7 @@ func schedulingExactModel(model string) bool {
 }
 
 func (p SchedulingPolicy) validate(members []int64) error {
-	if len(p.Accounts) > 32 || len(p.Models) > 64 || len(p.Pools) > 16 || len(p.analysisModels()) > 64 || p.DailyCalls < 0 || p.DailyCalls > 144 || p.MinWaitMS < 0 || p.MinWaitMS > 2000 {
+	if len(p.Accounts) > 32 || len(p.Models) > 64 || len(p.Pools) > 16 || len(p.analysisModels()) > 64 || p.DailyCalls < 0 || p.DailyCalls > 500 || p.MinWaitMS < 0 || p.MinWaitMS > 2000 {
 		return errors.New("invalid scheduling policy limits")
 	}
 	switch p.AgentMode {

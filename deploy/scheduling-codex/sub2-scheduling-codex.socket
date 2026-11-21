@@ -1,0 +1,13 @@
+[Unit]
+Description=Sub2 scheduling Codex Unix socket
+
+[Socket]
+ListenStream=/run/sub2-scheduling-codex/agent.sock
+SocketMode=0660
+ExecStartPost=/usr/bin/chgrp 1000 /run/sub2-scheduling-codex/agent.sock
+DirectoryMode=0755
+RemoveOnStop=yes
+Backlog=4
+
+[Install]
+WantedBy=sockets.target
