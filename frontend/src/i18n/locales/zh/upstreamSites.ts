@@ -9,6 +9,8 @@ export default {
   accountPoolName: '展示名称', accountPoolSave: '保存', accountPoolSourceGroup: '上游分组', accountPoolAll: '全部上游分组', accountPoolAllPlatforms: '全部平台',
   accountPoolNumber: '账号', accountPoolPlatform: '平台', accountPoolStatus: '状态',
   accountPoolConcurrency: '并发', accountPoolLastUsed: '最近使用', accountPoolNoResults: '没有匹配的账号',
+  accountPoolLastActivity: '最近活动', accountPoolUsageUpdated: '额度更新', accountPoolStale: '当前显示的是旧快照。完整采集成功后才会更新。',
+  accountPoolEffectiveRate: '有效倍率', accountPoolPriority: '优先级 {value}', accountPoolRecoverAt: '恢复时间 {time}',
   accountPoolPrevious: '上一页', accountPoolNext: '下一页', accountPoolState_active: '可用', accountPoolState_error: '异常',
   accountPoolState_rate_limited: '限流', accountPoolState_paused: '暂停', accountPoolState_disabled: '禁用',
   accountPoolState_inactive: '不活跃', accountPoolState_unknown: '未知',

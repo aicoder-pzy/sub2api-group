@@ -135,10 +135,18 @@ export interface SitePool {
 }
 export interface SitePoolDisplay {
   updated: string | null
+  checked_at?: string
   refreshing?: boolean
   refresh_error?: string
   pools: SitePool[]
-  rows: { number: number; platform: string; plan: string; status: string; current?: number; limit?: number; pools?: string[]; last_used?: string; windows?: { name: string; used: number }[] }[]
+  rows: {
+    number: number; platform: string; plan: string; status: string; current?: number; limit?: number
+    pools?: string[]; last_used?: string; windows?: { name: string; used: number }[]
+    admin?: {
+      source_id?: string; name?: string; type?: string; plan?: string; status?: string; rates?: Record<string, number>
+      usage_updated?: string; reset_5h?: string; reset_7d?: string; recover_at?: string; priority?: number; intelligence?: string
+    }
+  }[]
 }
 export interface PoolStatusConfig {
   pool_id: string

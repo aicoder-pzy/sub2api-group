@@ -9,6 +9,8 @@ export default {
   accountPoolName: 'Display name', accountPoolSave: 'Save', accountPoolSourceGroup: 'Upstream group', accountPoolAll: 'All upstream groups', accountPoolAllPlatforms: 'All platforms',
   accountPoolNumber: 'Account', accountPoolPlatform: 'Platform', accountPoolStatus: 'Status',
   accountPoolConcurrency: 'Concurrency', accountPoolLastUsed: 'Last used', accountPoolNoResults: 'No matching accounts',
+  accountPoolLastActivity: 'Recent activity', accountPoolUsageUpdated: 'Quota updated', accountPoolStale: 'Showing a previous snapshot. It updates after a complete collection.',
+  accountPoolEffectiveRate: 'Effective rate', accountPoolPriority: 'Priority {value}', accountPoolRecoverAt: 'Recovery {time}',
   accountPoolPrevious: 'Previous page', accountPoolNext: 'Next page', accountPoolState_active: 'Available', accountPoolState_error: 'Error',
   accountPoolState_rate_limited: 'Rate limited', accountPoolState_paused: 'Paused', accountPoolState_disabled: 'Disabled',
   accountPoolState_inactive: 'Inactive', accountPoolState_unknown: 'Unknown',

@@ -15,8 +15,8 @@ import (
 
 func TestCollectVulcanPool(t *testing.T) {
 	const raw = `{"updated_at":"2026-11-19T13:21:09Z","groups":[
-		{"id":1,"name":"source A","account_count":1,"accounts":[{"id":"hidden-token","email_masked":"u***@example.test","account_type":"oauth","plan_type_label":"Pro 5x","status":"available","used_percent_5h":23,"current_concurrency":0,"concurrency_limit":2}]},
-		{"id":2,"name":"source B","account_count":2,"accounts":[{"id":"hidden-token","account_type":"oauth"},{"id":"second-account","account_type":"oauth","status":"temp_unschedulable"}]}
+		{"id":1,"name":"source A","account_count":1,"accounts":[{"id":"hidden-token","email_masked":"u***@example.test","account_type":"oauth","plan_type_label":"Pro 5x","status":"available","used_percent_5h":20,"usage_updated_at":"2026-11-19T13:18:00Z"}]},
+		{"id":2,"name":"source B","account_count":2,"accounts":[{"id":"hidden-token","account_type":"oauth","plan_type_label":"Pro 5x","status":"available","used_percent_5h":23,"usage_updated_at":"2026-11-19T13:20:00Z","current_concurrency":0,"concurrency_limit":2},{"id":"second-account","account_type":"oauth","status":"temp_unschedulable"}]}
 	]}`
 	snapshot, err := collectVulcanPool([]byte(raw), nil)
 	require.NoError(t, err)
@@ -28,6 +28,9 @@ func TestCollectVulcanPool(t *testing.T) {
 	require.Equal(t, "Pro 5x", snapshot.Rows[0].Plan)
 	require.Equal(t, "active", snapshot.Rows[0].Status)
 	require.Equal(t, 23.0, *snapshot.Rows[0].Windows[0].Used)
+	require.Equal(t, "2026-11-19T13:20:00Z", snapshot.Rows[0].Admin.UsageUpdated.Format(time.RFC3339))
+	require.Nil(t, snapshot.Rows[0].LastUsed)
+	require.Nil(t, snapshot.Rows[1].Admin.UsageUpdated)
 	require.Equal(t, "temp_unschedulable", snapshot.Rows[1].Status)
 	encoded, err := json.Marshal(snapshot.display(nil, true))
 	require.NoError(t, err)
@@ -104,7 +107,12 @@ func TestCollectAccountPool(t *testing.T) {
 	for _, hidden := range []string{"original-pool", "source_id", "credentials", "not-for-display", "@example.test", "multiplier"} {
 		require.NotContains(t, string(data), hidden)
 	}
-	require.Equal(t, "original-pool", second.display(aliases, true).Pools[0].Original)
+	admin := second.display(aliases, true)
+	require.Equal(t, "original-pool", admin.Pools[0].Original)
+	require.Equal(t, "1", admin.Rows[0].Admin.SourceID)
+	require.Equal(t, "account@example.test", admin.Rows[0].Admin.Name)
+	require.Equal(t, 2.4, admin.Rows[0].Admin.Rates[poolID])
+	require.Nil(t, public.Rows[0].Admin)
 	calls := 0
 	recovered, err := collectAccountPool(func(path string) ([]byte, error) {
 		calls++

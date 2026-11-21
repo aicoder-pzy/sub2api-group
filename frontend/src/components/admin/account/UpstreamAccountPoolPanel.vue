@@ -8,6 +8,7 @@
         <Icon name="refresh" size="sm" :class="{ 'animate-spin': refreshing }" />{{ tr(groupMode ? 'accountPoolReload' : refreshing ? 'accountPoolRefreshing' : 'accountPoolRefresh') }}
       </button>
     </div>
+    <p v-if="stale" class="text-sm text-amber-700 dark:text-amber-300" role="status">{{ tr('accountPoolStale') }}</p>
     <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
     <p v-if="groupSnapshot && !groupSnapshot.complete" role="status" class="rounded-lg border border-amber-200 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:text-amber-300">{{ tr('accountPoolPartial') }}</p>
     <ul v-if="groupSnapshot?.plans.length" class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700 dark:text-gray-300" :aria-label="tr('accountPoolPlans')">
@@ -41,21 +42,34 @@
         </select>
       </div>
       <DataTable v-if="shown.length" :columns="columns" :data="shown" row-key="number">
-        <template #cell-number="{ value }">
-          <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
+        <template #cell-number="{ row, value }">
+          <span v-if="row.admin?.name" class="text-sm font-medium" :title="row.admin.source_id ? `#${row.admin.source_id}` : undefined">{{ row.admin.name }}</span>
+          <span v-else class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ row.admin?.source_id || value }}</span>
         </template>
         <template #cell-platform_type="{ row }">
           <PlatformTypeBadge
             v-if="row.platform !== 'unknown'"
             :platform="row.platform"
-            type="oauth"
+            :type="accountType(row)"
             :plan-type="row.plan === 'unknown' ? undefined : row.plan"
-            :display-plan-label="row.plan === 'unknown' ? undefined : row.plan"
+            :display-plan-label="row.admin?.plan || (row.plan === 'unknown' ? undefined : row.plan)"
           />
           <span v-else class="badge badge-gray text-xs">{{ tr('accountPoolState_unknown') }}</span>
         </template>
         <template #cell-status="{ row }">
-          <span :class="['badge text-xs', statusBadge[row.status] || 'badge-gray']">{{ tr(`accountPoolState_${row.status}`) }}</span>
+          <span :class="['badge text-xs', statusBadge[row.status] || 'badge-gray']" :title="statusDetail(row)">{{ row.status === 'unknown' && row.admin?.status ? row.admin.status : tr(`accountPoolState_${row.status}`) }}</span>
+        </template>
+        <template #cell-rates="{ row }">
+          <div class="flex flex-col items-start gap-1">
+            <span v-for="pool in memberships(row)" :key="pool.id" class="badge badge-gray tabular-nums" :title="pool.original || pool.name">{{ row.admin?.rates?.[pool.id] != null ? `${row.admin.rates[pool.id].toFixed(2)}x` : '—' }}</span>
+            <span v-if="!memberships(row).length" class="text-gray-400">—</span>
+          </div>
+        </template>
+        <template #cell-groups="{ row }">
+          <div class="flex flex-col items-start gap-1">
+            <span v-for="pool in memberships(row)" :key="pool.id" class="badge badge-gray">{{ pool.original || pool.name }}</span>
+            <span v-if="!row.pools?.length" class="text-gray-400">—</span>
+          </div>
         </template>
         <template #cell-capacity="{ row }">
           <AccountCapacityCell v-if="row.current != null && row.limit != null" class="!inline-flex" :account="{ platform: row.platform, type: 'oauth', current_concurrency: row.current, concurrency: row.limit }" />
@@ -63,12 +77,12 @@
         </template>
         <template #cell-usage="{ row }">
           <div v-if="row.windows?.length" class="inline-flex flex-col gap-1">
-            <UsageProgressBar v-for="(usageWindow, index) in row.windows" :key="index" :label="usageWindow.name" :utilization="usageWindow.used" :color="usageWindow.name === '5h' ? 'indigo' : 'emerald'" :label-width="usageWindow.name.length > 2 ? 'auto' : 'fixed'" />
+            <UsageProgressBar v-for="(usageWindow, index) in row.windows" :key="index" :label="usageWindow.name" :utilization="usageWindow.used" :resets-at="usageWindow.name === '5h' ? row.admin?.reset_5h : usageWindow.name === '7d' ? row.admin?.reset_7d : undefined" :color="usageWindow.name === '5h' ? 'indigo' : 'emerald'" :label-width="usageWindow.name.length > 2 ? 'auto' : 'fixed'" />
           </div>
           <span v-else class="text-gray-400">—</span>
         </template>
-        <template #cell-last_used="{ value }">
-          <span class="text-sm text-gray-500 dark:text-dark-400" :title="value ? formatDateTime(value) : undefined">{{ value ? formatRelativeTime(value) : '—' }}</span>
+        <template #cell-last_used="{ row }">
+          <span class="text-sm text-gray-500 dark:text-dark-400" :title="activityTitle(row)">{{ activity(row) ? formatRelativeTime(activity(row)!) : '—' }}</span>
         </template>
       </DataTable>
       <p v-else class="text-sm text-gray-500">{{ tr('accountPoolNoResults') }}</p>
@@ -92,6 +106,7 @@ import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UpstreamPoolStatusForm from './UpstreamPoolStatusForm.vue'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
+import type { AccountType } from '@/types'
 
 const props = defineProps<{ siteId?: string; groupId?: number }>()
 const { t: translate } = useI18n()
@@ -103,20 +118,42 @@ const groupMode = computed(() => props.groupId != null)
 const updated = computed(() => groupSnapshot.value?.updated ?? snapshot.value?.updated)
 const total = computed(() => groupSnapshot.value?.total ?? snapshot.value?.rows.length ?? 0)
 const busy = ref(false), refreshing = ref(false), error = ref('')
+const isOld = (stamp: string | null | undefined) => !stamp || Date.now() - Date.parse(stamp) >= 15 * 60_000
+const stale = computed(() => !groupMode.value && !!updated.value && isOld(updated.value))
 const selectedPool = ref(''), selectedPlatform = ref(''), page = ref(1)
 const size = 30
 const platforms = computed(() => [...new Set(snapshot.value?.rows.map(row => row.platform))].sort())
-const filtered = computed(() => (snapshot.value?.rows || []).filter(row => (!selectedPool.value || row.pools?.includes(selectedPool.value)) && (!selectedPlatform.value || row.platform === selectedPlatform.value)))
+type PoolRow = SitePoolDisplay['rows'][number]
+const activity = (row: PoolRow) => row.admin?.usage_updated || row.last_used
+const activityTime = (row: PoolRow) => Date.parse(activity(row) || '') || 0
+const activityTitle = (row: PoolRow) => {
+  const stamp = activity(row)
+  if (!stamp) return undefined
+  return `${tr(row.admin?.usage_updated ? 'accountPoolUsageUpdated' : 'accountPoolLastUsed')} · ${formatDateTime(stamp)}`
+}
+const accountType = (row: PoolRow): AccountType => (row.admin?.type || 'oauth') as AccountType
+const statusDetail = (row: PoolRow) => [row.admin?.status, row.admin?.intelligence,
+  row.admin?.priority != null ? tr('accountPoolPriority', { value: row.admin.priority }) : '',
+  row.admin?.recover_at ? tr('accountPoolRecoverAt', { time: formatDateTime(row.admin.recover_at) }) : ''].filter(Boolean).join(' · ') || undefined
+const poolById = computed(() => new Map(snapshot.value?.pools.map(pool => [pool.id, pool])))
+const memberships = (row: PoolRow) => (row.pools || []).flatMap(id => {
+  const pool = poolById.value.get(id)
+  return pool ? [pool] : []
+})
+const filtered = computed(() => (snapshot.value?.rows || [])
+  .filter(row => (!selectedPool.value || row.pools?.includes(selectedPool.value)) && (!selectedPlatform.value || row.platform === selectedPlatform.value))
+  .sort((a, b) => activityTime(b) - activityTime(a) || a.number - b.number))
 const pages = computed(() => groupSnapshot.value?.pages ?? Math.max(1, Math.ceil(filtered.value.length / size)))
 const shown = computed(() => groupSnapshot.value?.rows ?? filtered.value.slice((page.value - 1) * size, page.value * size))
 const platformLabel = (id: string) => ({ openai: 'OpenAI', grok: 'Grok', anthropic: 'Anthropic', gemini: 'Gemini' }[id] || tr('accountPoolState_unknown'))
 const columns = computed(() => [
   { key: 'number', label: tr('accountPoolNumber') },
   { key: 'platform_type', label: translate('admin.accounts.columns.platformType') },
-  { key: 'status', label: tr('accountPoolStatus') },
+  ...(!groupMode.value ? [{ key: 'rates', label: tr('accountPoolEffectiveRate') }] : [{ key: 'status', label: tr('accountPoolStatus') }]),
   { key: 'capacity', label: tr('accountPoolConcurrency') },
+  ...(!groupMode.value ? [{ key: 'status', label: tr('accountPoolStatus') }, { key: 'groups', label: tr('accountPoolSourceGroup') }] : []),
   { key: 'usage', label: translate('admin.accounts.columns.usageWindows') },
-  { key: 'last_used', label: tr('accountPoolLastUsed') },
+  { key: 'last_used', label: tr(groupMode.value ? 'accountPoolLastUsed' : 'accountPoolLastActivity') },
 ])
 const statusBadge: Record<string, string> = { active: 'badge-success', rate_limited: 'badge-warning', temp_unschedulable: 'badge-warning', overload: 'badge-danger', error: 'badge-danger' }
 watch([selectedPool, selectedPlatform], () => { page.value = 1 })
@@ -164,6 +201,10 @@ async function rename(pool: SitePool) {
   finally { busy.value = false }
 }
 
-onMounted(() => load(false))
+onMounted(async () => {
+  await load(false)
+  if (unmounted || groupMode.value || !snapshot.value || refreshing.value) return
+  if (isOld(snapshot.value.checked_at || snapshot.value.updated)) await load(true)
+})
 onUnmounted(() => { unmounted = true; window.clearTimeout(timer) })
 </script>

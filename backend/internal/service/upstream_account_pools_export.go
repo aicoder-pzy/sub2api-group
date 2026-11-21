@@ -144,6 +144,7 @@ func (out *GroupAccountPools) addSite(baseURL string, revision int64, keyIDs []s
 		if !slices.ContainsFunc(row.Groups, func(id string) bool { return selected[id] }) {
 			continue
 		}
+		row = row.publicRow()
 		row.Groups = nil
 		row.Number = len(out.Rows) + 1
 		code := strings.Join(strings.Fields(strings.ToLower(row.Plan)), "_")

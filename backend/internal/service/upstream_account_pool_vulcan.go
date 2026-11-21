@@ -9,14 +9,20 @@ import (
 )
 
 type vulcanPoolAccount struct {
-	ID      string   `json:"id"`
-	Type    string   `json:"account_type"`
-	Plan    string   `json:"plan_type_label"`
-	Status  string   `json:"status"`
-	Current *int     `json:"current_concurrency"`
-	Limit   *int     `json:"concurrency_limit"`
-	Five    *float64 `json:"used_percent_5h"`
-	Seven   *float64 `json:"used_percent_7d"`
+	ID           string   `json:"id"`
+	Type         string   `json:"account_type"`
+	Plan         string   `json:"plan_type_label"`
+	Status       string   `json:"status"`
+	Current      *int     `json:"current_concurrency"`
+	Limit        *int     `json:"concurrency_limit"`
+	Five         *float64 `json:"used_percent_5h"`
+	Seven        *float64 `json:"used_percent_7d"`
+	UsageUpdated string   `json:"usage_updated_at"`
+	Reset5h      string   `json:"reset_at_5h"`
+	Reset7d      string   `json:"reset_at_7d"`
+	RecoverAt    string   `json:"recover_at"`
+	Priority     *int     `json:"priority"`
+	Intelligence string   `json:"intelligence_status_label"`
 }
 
 func collectVulcanPool(raw []byte, previous []accountPoolSourceGroup) (accountPoolSnapshot, error) {
@@ -63,25 +69,32 @@ func collectVulcanPool(raw []byte, previous []accountPoolSourceGroup) (accountPo
 			}
 			members[acct.ID] = true
 			row, ok := seenRows[acct.ID]
+			stamp := poolTimestamp(acct.UsageUpdated)
 			if !ok {
 				row = len(out.Rows)
 				seenRows[acct.ID] = row
+				out.Rows = append(out.Rows, accountPoolRow{})
+			}
+			item := &out.Rows[row]
+			if !ok || (stamp != nil && (item.Admin.UsageUpdated == nil || stamp.After(*item.Admin.UsageUpdated))) {
 				status := acct.Status
 				if status == "available" {
 					status = "active"
 				}
-				item := accountPoolRow{Number: row + 1, Platform: "openai",
+				*item = accountPoolRow{Number: row + 1, Platform: "openai", Groups: item.Groups,
 					Plan:    poolEnum(acct.Plan, "Free", "Go", "Plus", "Team", "Business", "Pro", "Pro 100", "Pro 200", "Pro 500", "Pro 5x", "Pro 20x"),
 					Status:  poolEnum(status, "active", "error", "rate_limited", "overload", "temp_unschedulable", "paused", "disabled", "expired"),
-					Current: poolNumber(acct.Current), Limit: poolNumber(acct.Limit)}
+					Current: poolNumber(acct.Current), Limit: poolNumber(acct.Limit),
+					Admin: &accountPoolAdminRow{Type: acct.Type, Plan: acct.Plan, Status: acct.Status, UsageUpdated: stamp,
+						Reset5h: poolTimestamp(acct.Reset5h), Reset7d: poolTimestamp(acct.Reset7d), RecoverAt: poolTimestamp(acct.RecoverAt),
+						Priority: acct.Priority, Intelligence: acct.Intelligence}}
 				for _, w := range []accountPoolWindow{{Name: "5h", Used: acct.Five}, {Name: "7d", Used: acct.Seven}} {
 					if w.Used != nil && *w.Used >= 0 && *w.Used < 1e9 {
 						item.Windows = append(item.Windows, w)
 					}
 				}
-				out.Rows = append(out.Rows, item)
 			}
-			out.Rows[row].Groups = append(out.Rows[row].Groups, group.ID)
+			item.Groups = append(item.Groups, group.ID)
 		}
 	}
 	return out, nil

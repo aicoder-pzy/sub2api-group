@@ -33,3 +33,12 @@ value means the timestamped snapshot can be displayed; it does not guarantee
 the data is recent. Reads never refresh a site, send model requests, return
 credentials, or update routing. Use the existing admin refresh action to
 update snapshots.
+
+The admin account-pool tab shows all collected rows before any publication
+filters. Its Recent activity column sorts by Shenji `last_used_at` or Qiu API
+`usage_updated_at`, newest first, with missing timestamps last. The tooltip
+identifies the source field. On opening the tab, Sub2 starts a refresh if the
+last successful collection is at least 15 minutes old or no snapshot exists.
+It keeps the previous snapshot if collection fails or the pages disagree.
+Admin-only account details and Qiu quota update times are excluded from all
+integration responses.

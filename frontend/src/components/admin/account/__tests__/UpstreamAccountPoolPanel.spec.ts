@@ -13,6 +13,7 @@ vi.mock('@/api/admin/upstreamSites', () => ({
 it('shows native OAuth rows and filters by upstream membership even when display names match', async () => {
   const snapshot: SitePoolDisplay = {
     updated: '2026-11-19T09:13:00Z',
+    checked_at: new Date().toISOString(),
     pools: [
       { id: 'pool-id', name: 'Shared alias', alias: 'Shared alias', original: 'Upstream A', count: 31 },
       { id: 'other-id', name: 'Shared alias', alias: 'Shared alias', original: 'Upstream B', count: 2 },
@@ -60,6 +61,34 @@ it('shows native OAuth rows and filters by upstream membership even when display
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toBe('Refresh failed')
     expect(wrapper.findAll('tbody tr')).toHaveLength(30)
+  } finally {
+    wrapper.unmount()
+  }
+})
+
+it('sorts both activity sources across pages, leaves missing dates last, and refreshes an old snapshot', async () => {
+  const snapshot: SitePoolDisplay = {
+    updated: '2026-11-19T09:13:00Z', pools: [],
+    rows: Array.from({ length: 32 }, (_, i) => ({ number: i + 1, platform: 'openai', plan: 'Pro Max', status: 'active' })),
+  }
+  snapshot.rows[31] = { ...snapshot.rows[31]!, last_used: '2026-11-19T09:12:00Z' }
+  snapshot.rows[30] = { ...snapshot.rows[30]!, admin: { usage_updated: '2026-11-19T09:11:00Z' } }
+  vi.mocked(api.accountPool).mockResolvedValueOnce(snapshot).mockResolvedValueOnce({ ...snapshot, refreshing: true })
+  vi.mocked(api.refreshAccountPool).mockClear().mockResolvedValueOnce(undefined)
+  const wrapper = mount(UpstreamAccountPoolPanel, {
+    props: { siteId: 'old-site' },
+    global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] },
+  })
+  try {
+    await flushPromises()
+    expect(api.refreshAccountPool).toHaveBeenCalledWith('old-site')
+    expect(wrapper.text()).toContain('Recent activity')
+    expect(wrapper.text()).toContain('Showing a previous snapshot')
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows.slice(0, 3).map(row => row.get('td').text())).toEqual(['#32', '#31', '#1'])
+    expect(rows[0]!.findAll('td').at(-1)!.get('[title]').attributes('title')).toMatch(/^Last used/)
+    expect(rows[1]!.findAll('td').at(-1)!.get('[title]').attributes('title')).toMatch(/^Quota updated/)
+    expect(rows[2]!.findAll('td').at(-1)!.text()).toBe('—')
   } finally {
     wrapper.unmount()
   }

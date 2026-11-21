@@ -23,7 +23,7 @@ func TestExportGroupAccountPools(t *testing.T) {
 	const vulcan = `{
 	  "updated":"2026-11-19T09:00:00Z","site_revision":2,
 	  "groups":[{"source_id":"97","id":"stock","count":1}],
-	  "rows":[{"number":1,"platform":"openai","plan":"Pro 500","status":"rate_limited","current":0,"limit":10,"windows":[{"name":"5h","used":25}],"pools":["stock"]}]
+	  "rows":[{"number":1,"platform":"openai","plan":"Pro 500","status":"rate_limited","current":0,"limit":10,"windows":[{"name":"5h","used":25}],"pools":["stock"],"admin":{"usage_updated":"2026-11-19T08:59:00Z","name":"internal-label"}}]
 	}`
 	const initial = `{"revision":1,"received_at":"2026-11-19T10:12:00Z","keys":[{"id":"1","group_id":"10","available":true},{"id":"2","group_id":"20","available":true}]}`
 	const switched = `{"revision":1,"received_at":"2026-11-19T10:14:00Z","keys":[{"id":"1","group_id":"20","available":true},{"id":"2","group_id":"10","available":false}]}`
@@ -66,7 +66,7 @@ func TestExportGroupAccountPools(t *testing.T) {
 				require.Equal(t, 15, out.VerifiedAt.Minute())
 				body, err := json.Marshal(out)
 				require.NoError(t, err)
-				for _, private := range []string{`"pools"`, `"stock"`, `"source_id"`, `"site_revision"`, `"group_id":"20"`} {
+				for _, private := range []string{`"pools"`, `"stock"`, `"source_id"`, `"site_revision"`, `"group_id":"20"`, `"admin"`, `"internal-label"`} {
 					require.NotContains(t, string(body), private)
 				}
 			} else if tc.count < 2 {
