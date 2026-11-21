@@ -265,6 +265,7 @@ func accountPoolRetryDelay(value string, now time.Time) time.Duration {
 }
 
 func (f *accountPoolFetcher) get(path string) ([]byte, error) {
+	const maxRetries = 3
 	for attempt := 0; ; attempt++ {
 		if wait := time.Until(f.next); wait > 0 {
 			timer := time.NewTimer(wait)
@@ -285,9 +286,13 @@ func (f *accountPoolFetcher) get(path string) ([]byte, error) {
 			return nil, upstreamSiteError(status.Error())
 		}
 		now := time.Now()
-		f.retryAt = now.Add(accountPoolRetryDelay(status.retryAfter, now))
+		delay := accountPoolRetryDelay(status.retryAfter, now)
+		if minimum := (15 * time.Second) << attempt; delay < minimum {
+			delay = minimum
+		}
+		f.retryAt = now.Add(delay)
 		deadline, _ := f.ctx.Deadline()
-		if attempt == 1 || f.retryAt.After(deadline) {
+		if attempt == maxRetries || f.retryAt.After(deadline) {
 			return nil, infraerrors.TooManyRequests("ACCOUNT_POOL_UPSTREAM_RATE_LIMIT", "上游限流，已保留上一份快照，请稍后重试")
 		}
 		f.next = f.retryAt
