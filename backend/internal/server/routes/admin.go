@@ -409,6 +409,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/upstream-sites/:site_id/monitoring", h.Admin.Account.UpstreamSiteMonitoring)
 		accounts.GET("/upstream-sites/:site_id/accounts", h.Admin.Account.UpstreamSiteAccounts)
 		accounts.GET("/upstream-sites/:site_id/account-pool", h.Admin.Account.GetUpstreamAccountPool)
+		accounts.GET("/upstream-sites/:site_id/account-pool-status", h.Admin.Account.GetAccountPoolStatusConfig)
+		accounts.PUT("/upstream-sites/:site_id/account-pool-status", h.Admin.Account.SaveAccountPoolStatusConfig)
 		accounts.POST("/upstream-sites/:site_id/account-pool/refresh", h.Admin.Account.RefreshUpstreamAccountPool)
 		accounts.PUT("/upstream-sites/:site_id/account-pool/:pool_id", h.Admin.Account.RenameUpstreamAccountPool)
 		accounts.POST("/upstream-sites/:site_id/accounts/link", h.Admin.Account.LinkUpstreamSiteAccount)

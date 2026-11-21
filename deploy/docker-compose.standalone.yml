@@ -82,6 +82,7 @@ services:
       # JWT Configuration
       # =======================================================================
       - JWT_SECRET=${JWT_SECRET:-}
+      - SUB2_ACCOUNT_POOL_STATUS_TOKEN=${SUB2_ACCOUNT_POOL_STATUS_TOKEN:-}
       - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-24}
 
       # =======================================================================

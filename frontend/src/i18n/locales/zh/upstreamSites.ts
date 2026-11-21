@@ -1,5 +1,8 @@
 export default {
   accountPool: '号池展示', accountPoolSnapshot: '{count} 个账号 · 更新于 {time}', accountPoolEmpty: '暂无号池快照',
+  accountPoolPublish: '对外状态接口', accountPoolUnpublished: '不发布', accountPoolMissingGroup: '已选分组不在当前快照中',
+  accountPoolSourceName: '对外来源名称', accountPoolPublicName: '对外分组名称', accountPoolPlanAlias: '{plan} 的对外套餐名',
+  accountPoolAllowedPlans: '返回的套餐', accountPoolPublishedSaved: '对外状态配置已保存',
   accountPoolPreview: '号池预览', accountPoolPreviewTitle: '{group} · 聚合号池', accountPoolPartial: '号池数据不完整：部分 Key 未同步，或对应上游分组未包含在快照中。',
   accountPoolLoading: '正在读取号池', accountPoolReload: '重新读取', accountPoolPlans: '套餐统计',
   accountPoolRefresh: '刷新号池', accountPoolRefreshing: '正在采集号池…', accountPoolManage: '管理展示名称',

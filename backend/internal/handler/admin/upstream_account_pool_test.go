@@ -68,3 +68,27 @@ func TestGroupPoolExportRequiresDedicatedBearerAndAllowedGroup(t *testing.T) {
 		require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 	}
 }
+
+func TestPublishedPoolStatusRequiresItsOwnBearer(t *testing.T) {
+	h := &AccountHandler{}
+	router := gin.New()
+	router.GET("/pool-status", h.ExportAccountPoolStatus)
+	legacy, group, token := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64)
+	t.Setenv("SUB2_ACCOUNT_POOL_EXPORT_TOKEN", legacy)
+	t.Setenv("SUB2_ACCOUNT_POOLS_EXPORT_TOKEN", group)
+	for _, tc := range []struct {
+		configured, supplied string
+		status               int
+	}{
+		{"", token, 404}, {legacy, legacy, 404}, {group, group, 404},
+		{token, legacy, 401}, {token, group, 401}, {token, "", 401}, {token, token, 503},
+	} {
+		t.Setenv("SUB2_ACCOUNT_POOL_STATUS_TOKEN", tc.configured)
+		r := httptest.NewRequest(http.MethodGet, "/pool-status", nil)
+		r.Header.Set("Authorization", "Bearer "+tc.supplied)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		require.Equal(t, tc.status, w.Code, w.Body.String())
+		require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	}
+}

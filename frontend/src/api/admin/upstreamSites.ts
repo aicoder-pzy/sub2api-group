@@ -140,6 +140,13 @@ export interface SitePoolDisplay {
   pools: SitePool[]
   rows: { number: number; platform: string; plan: string; status: string; current?: number; limit?: number; pools?: string[]; last_used?: string; windows?: { name: string; used: number }[] }[]
 }
+export interface PoolStatusConfig {
+  pool_id: string
+  source_name: string
+  name: string
+  plan_map: Record<string, string> | null
+  plans: string[] | null
+}
 export interface GroupPoolDisplay {
   group_id: number
   name: string
@@ -156,6 +163,10 @@ export const upstreamSitesAPI = {
     return (await apiClient.get(`/admin/groups/${id}/account-pool`, { params: { page, page_size: pageSize } })).data
   },
   async accountPool(id: string): Promise<SitePoolDisplay> { return (await apiClient.get(`${sitePath(id)}/account-pool`)).data },
+  async poolStatusConfig(id: string): Promise<PoolStatusConfig> { return (await apiClient.get(`${sitePath(id)}/account-pool-status`)).data },
+  async savePoolStatusConfig(id: string, config: PoolStatusConfig): Promise<PoolStatusConfig> {
+    return (await apiClient.put(`${sitePath(id)}/account-pool-status`, { config })).data
+  },
   async refreshAccountPool(id: string): Promise<void> { await apiClient.post(`${sitePath(id)}/account-pool/refresh`) },
   async renameAccountPool(id: string, pool: string, name: string): Promise<SitePoolDisplay> { return (await apiClient.put(`${sitePath(id)}/account-pool/${encodeURIComponent(pool)}`, { name })).data },
   async list(): Promise<UpstreamSite[]> { return (await apiClient.get(endpoint)).data },

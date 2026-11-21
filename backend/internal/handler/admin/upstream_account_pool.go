@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -72,6 +73,54 @@ func validAccountPoolBearer(c *gin.Context, token string) bool {
 	want := sha256.Sum256([]byte("Bearer " + token))
 	got := sha256.Sum256([]byte(c.GetHeader("Authorization")))
 	return subtle.ConstantTimeCompare(want[:], got[:]) == 1
+}
+
+func (h *AccountHandler) GetAccountPoolStatusConfig(c *gin.Context) {
+	site, err := h.loadUpstreamSite(c)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	cfg, err := h.upstreamBillingProbe.AccountPoolStatusConfig(c.Request.Context(), site)
+	if !response.ErrorFrom(c, err) {
+		response.Success(c, cfg)
+	}
+}
+
+func (h *AccountHandler) SaveAccountPoolStatusConfig(c *gin.Context) {
+	var input struct {
+		Config *service.AccountPoolStatusConfig `json:"config"`
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 24<<10)
+	if c.ShouldBindJSON(&input) != nil || input.Config == nil {
+		response.BadRequest(c, "Invalid account pool status configuration")
+		return
+	}
+	site, err := h.loadUpstreamSite(c)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	cfg, err := h.upstreamBillingProbe.SaveAccountPoolStatusConfig(c.Request.Context(), site, *input.Config)
+	if !response.ErrorFrom(c, err) {
+		response.Success(c, cfg)
+	}
+}
+
+func (h *AccountHandler) ExportAccountPoolStatus(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	token := os.Getenv("SUB2_ACCOUNT_POOL_STATUS_TOKEN")
+	if len(token) < 32 || token == os.Getenv("SUB2_ACCOUNT_POOL_EXPORT_TOKEN") || token == os.Getenv("SUB2_ACCOUNT_POOLS_EXPORT_TOKEN") {
+		response.NotFound(c, "Account pool status export is disabled")
+		return
+	}
+	if !validAccountPoolBearer(c, token) {
+		response.Unauthorized(c, "Invalid account pool status credential")
+		return
+	}
+	page, size := response.ParsePagination(c)
+	pools, err := h.upstreamBillingProbe.PublishedAccountPools(c.Request.Context(), page, size)
+	if !response.ErrorFrom(c, err) {
+		response.Success(c, gin.H{"pools": pools, "page": page, "page_size": size})
+	}
 }
 
 func (h *AccountHandler) ExportGroupAccountPools(c *gin.Context) {
