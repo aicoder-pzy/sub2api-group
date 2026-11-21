@@ -60,7 +60,8 @@
           <span :class="['badge text-xs', statusBadge[row.status] || 'badge-gray']" :title="statusDetail(row)">{{ row.status === 'unknown' && row.admin?.status ? row.admin.status : tr(`accountPoolState_${row.status}`) }}</span>
         </template>
         <template #cell-rates="{ row }">
-          <div class="flex flex-col items-start gap-1">
+          <span v-if="row.admin?.account_rate != null" class="badge badge-gray tabular-nums">{{ row.admin.account_rate.toFixed(2) }}x</span>
+          <div v-else class="flex flex-col items-start gap-1">
             <span v-for="pool in memberships(row)" :key="pool.id" class="badge badge-gray tabular-nums" :title="pool.original || pool.name">{{ row.admin?.rates?.[pool.id] != null ? `${row.admin.rates[pool.id].toFixed(2)}x` : '—' }}</span>
             <span v-if="!memberships(row).length" class="text-gray-400">—</span>
           </div>
@@ -72,7 +73,7 @@
           </div>
         </template>
         <template #cell-capacity="{ row }">
-          <AccountCapacityCell v-if="row.current != null && row.limit != null" class="!inline-flex" :account="{ platform: row.platform, type: 'oauth', current_concurrency: row.current, concurrency: row.limit }" />
+          <AccountCapacityCell v-if="row.current != null && row.limit != null" class="!inline-flex" :title="capacityTitle(row)" :account="{ platform: row.platform, type: accountType(row), current_concurrency: row.current, concurrency: row.limit }" />
           <span v-else class="font-mono text-xs text-gray-500">{{ row.limit == null ? '—' : `— / ${row.limit}` }}</span>
         </template>
         <template #cell-usage="{ row }">
@@ -82,7 +83,7 @@
           <span v-else class="text-gray-400">—</span>
         </template>
         <template #cell-last_used="{ row }">
-          <span class="text-sm text-gray-500 dark:text-dark-400" :title="activityTitle(row)">{{ activity(row) ? formatRelativeTime(activity(row)!) : '—' }}</span>
+          <span class="text-sm text-gray-500 dark:text-dark-400" :title="activityTitle(row)">{{ activity(row) ? formatRelativeTime(activity(row), now) : '—' }}</span>
         </template>
       </DataTable>
       <p v-else class="text-sm text-gray-500">{{ tr('accountPoolNoResults') }}</p>
@@ -98,6 +99,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useIntervalFn } from '@vueuse/core'
 import { upstreamSitesAPI, siteError, type GroupPoolDisplay, type SitePool, type SitePoolDisplay } from '@/api/admin/upstreamSites'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
@@ -118,17 +120,31 @@ const groupMode = computed(() => props.groupId != null)
 const updated = computed(() => groupSnapshot.value?.updated ?? snapshot.value?.updated)
 const total = computed(() => groupSnapshot.value?.total ?? snapshot.value?.rows.length ?? 0)
 const busy = ref(false), refreshing = ref(false), error = ref('')
-const isOld = (stamp: string | null | undefined) => !stamp || Date.now() - Date.parse(stamp) >= 15 * 60_000
+const now = ref(Date.now())
+useIntervalFn(() => { now.value = Date.now() }, 60_000)
+const isOld = (stamp: string | null | undefined) => !stamp || now.value - Date.parse(stamp) >= 15 * 60_000
 const stale = computed(() => !groupMode.value && !!updated.value && isOld(updated.value))
 const selectedPool = ref(''), selectedPlatform = ref(''), page = ref(1)
 const size = 30
 const platforms = computed(() => [...new Set(snapshot.value?.rows.map(row => row.platform))].sort())
 type PoolRow = SitePoolDisplay['rows'][number]
-const activity = (row: PoolRow) => row.admin?.usage_updated || row.last_used
+const capacityTitle = (row: PoolRow) => {
+  const stamp = row.admin?.observed_at || updated.value
+  return stamp ? `${tr('accountPoolObservedAt')} · ${formatDateTime(stamp)}` : undefined
+}
+const concurrencyActivity = (row: PoolRow) => {
+  const observed = row.admin?.observed_at
+  return (row.current ?? 0) > 0 && observed && Date.parse(observed) > (Date.parse(row.last_used || '') || 0) ? observed : undefined
+}
+const activity = (row: PoolRow) => row.admin?.usage_updated || concurrencyActivity(row) || row.last_used
 const activityTime = (row: PoolRow) => Date.parse(activity(row) || '') || 0
 const activityTitle = (row: PoolRow) => {
   const stamp = activity(row)
   if (!stamp) return undefined
+  if (!row.admin?.usage_updated && concurrencyActivity(row)) {
+    const used = row.last_used ? ` · ${tr('accountPoolLastUsed')} ${formatDateTime(row.last_used)}` : ''
+    return `${tr('accountPoolObservedAt')} · ${formatDateTime(stamp)}${used}`
+  }
   return `${tr(row.admin?.usage_updated ? 'accountPoolUsageUpdated' : 'accountPoolLastUsed')} · ${formatDateTime(stamp)}`
 }
 const accountType = (row: PoolRow): AccountType => (row.admin?.type || 'oauth') as AccountType
@@ -142,7 +158,7 @@ const memberships = (row: PoolRow) => (row.pools || []).flatMap(id => {
 })
 const filtered = computed(() => (snapshot.value?.rows || [])
   .filter(row => (!selectedPool.value || row.pools?.includes(selectedPool.value)) && (!selectedPlatform.value || row.platform === selectedPlatform.value))
-  .sort((a, b) => activityTime(b) - activityTime(a) || a.number - b.number))
+  .sort((a, b) => activityTime(b) - activityTime(a) || (Date.parse(b.last_used || '') || 0) - (Date.parse(a.last_used || '') || 0) || a.number - b.number))
 const pages = computed(() => groupSnapshot.value?.pages ?? Math.max(1, Math.ceil(filtered.value.length / size)))
 const shown = computed(() => groupSnapshot.value?.rows ?? filtered.value.slice((page.value - 1) * size, page.value * size))
 const platformLabel = (id: string) => ({ openai: 'OpenAI', grok: 'Grok', anthropic: 'Anthropic', gemini: 'Gemini' }[id] || tr('accountPoolState_unknown'))
@@ -179,6 +195,7 @@ async function load(refresh: boolean) {
     if (!props.siteId) return
     if (refresh) await upstreamSitesAPI.refreshAccountPool(props.siteId)
     const next = await upstreamSitesAPI.accountPool(props.siteId)
+    now.value = Date.now()
     const changed = snapshot.value?.updated !== next.updated
     snapshot.value = next
     refreshing.value = !!next.refreshing

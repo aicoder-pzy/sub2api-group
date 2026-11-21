@@ -10,6 +10,7 @@ export default {
   accountPoolNumber: 'Account', accountPoolPlatform: 'Platform', accountPoolStatus: 'Status',
   accountPoolConcurrency: 'Concurrency', accountPoolLastUsed: 'Last used', accountPoolNoResults: 'No matching accounts',
   accountPoolLastActivity: 'Recent activity', accountPoolUsageUpdated: 'Quota updated', accountPoolStale: 'Showing a previous snapshot. It updates after a complete collection.',
+  accountPoolObservedAt: 'Concurrency observed',
   accountPoolEffectiveRate: 'Effective rate', accountPoolPriority: 'Priority {value}', accountPoolRecoverAt: 'Recovery {time}',
   accountPoolPrevious: 'Previous page', accountPoolNext: 'Next page', accountPoolState_active: 'Available', accountPoolState_error: 'Error',
   accountPoolState_rate_limited: 'Rate limited', accountPoolState_paused: 'Paused', accountPoolState_disabled: 'Disabled',

@@ -73,6 +73,9 @@ it('sorts both activity sources across pages, leaves missing dates last, and ref
   }
   snapshot.rows[31] = { ...snapshot.rows[31]!, last_used: '2026-11-19T09:12:00Z' }
   snapshot.rows[30] = { ...snapshot.rows[30]!, admin: { usage_updated: '2026-11-19T09:11:00Z' } }
+  snapshot.rows[29] = { ...snapshot.rows[29]!, current: 2, limit: 4, last_used: '2026-11-19T09:00:00Z',
+    admin: { observed_at: '2026-11-19T09:11:30Z', account_rate: 0.12 } }
+  snapshot.rows[0] = { ...snapshot.rows[0]!, current: 1, limit: 4 }
   vi.mocked(api.accountPool).mockResolvedValueOnce(snapshot).mockResolvedValueOnce({ ...snapshot, refreshing: true })
   vi.mocked(api.refreshAccountPool).mockClear().mockResolvedValueOnce(undefined)
   const wrapper = mount(UpstreamAccountPoolPanel, {
@@ -85,10 +88,12 @@ it('sorts both activity sources across pages, leaves missing dates last, and ref
     expect(wrapper.text()).toContain('Recent activity')
     expect(wrapper.text()).toContain('Showing a previous snapshot')
     const rows = wrapper.findAll('tbody tr')
-    expect(rows.slice(0, 3).map(row => row.get('td').text())).toEqual(['#32', '#31', '#1'])
+    expect(rows.slice(0, 4).map(row => row.get('td').text())).toEqual(['#32', '#30', '#31', '#1'])
     expect(rows[0]!.findAll('td').at(-1)!.get('[title]').attributes('title')).toMatch(/^Last used/)
-    expect(rows[1]!.findAll('td').at(-1)!.get('[title]').attributes('title')).toMatch(/^Quota updated/)
-    expect(rows[2]!.findAll('td').at(-1)!.text()).toBe('—')
+    expect(rows[1]!.findAll('td').at(-1)!.get('[title]').attributes('title')).toMatch(/^Concurrency observed.*Last used/)
+    expect(rows[1]!.text()).toContain('0.12x')
+    expect(rows[2]!.findAll('td').at(-1)!.get('[title]').attributes('title')).toMatch(/^Quota updated/)
+    expect(rows[3]!.findAll('td').at(-1)!.text()).toBe('—')
   } finally {
     wrapper.unmount()
   }

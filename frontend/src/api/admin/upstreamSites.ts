@@ -144,7 +144,7 @@ export interface SitePoolDisplay {
     pools?: string[]; last_used?: string; windows?: { name: string; used: number }[]
     admin?: {
       source_id?: string; name?: string; type?: string; plan?: string; status?: string; rates?: Record<string, number>
-      usage_updated?: string; reset_5h?: string; reset_7d?: string; recover_at?: string; priority?: number; intelligence?: string
+      usage_updated?: string; observed_at?: string; account_rate?: number; reset_5h?: string; reset_7d?: string; recover_at?: string; priority?: number; intelligence?: string
     }
   }[]
 }

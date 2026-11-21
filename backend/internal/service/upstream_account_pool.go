@@ -53,6 +53,8 @@ type accountPoolAdminRow struct {
 	Plan         string             `json:"plan,omitempty"`
 	Status       string             `json:"status,omitempty"`
 	Rates        map[string]float64 `json:"rates,omitempty"`
+	AccountRate  *float64           `json:"account_rate,omitempty"`
+	ObservedAt   *time.Time         `json:"observed_at,omitempty"`
 	UsageUpdated *time.Time         `json:"usage_updated,omitempty"`
 	Reset5h      *time.Time         `json:"reset_5h,omitempty"`
 	Reset7d      *time.Time         `json:"reset_7d,omitempty"`
@@ -351,16 +353,18 @@ type upstreamPoolPage struct {
 	Total *int `json:"total"`
 	Pages int  `json:"pages"`
 	Items []struct {
-		ID       json.Number `json:"id"`
-		Name     string      `json:"display_name"`
-		Type     string      `json:"type"`
-		Platform string      `json:"platform"`
-		Plan     string      `json:"plan_label"`
-		Status   string      `json:"status"`
-		Current  *int        `json:"current_concurrency"`
-		Limit    *int        `json:"concurrency"`
-		LastUsed string      `json:"last_used_at"`
-		Windows  []struct {
+		ID          json.Number `json:"id"`
+		Name        string      `json:"display_name"`
+		Type        string      `json:"auth_type"`
+		Platform    string      `json:"platform"`
+		Plan        string      `json:"plan_label"`
+		Status      string      `json:"status"`
+		Current     *int        `json:"current_concurrency"`
+		Limit       *int        `json:"concurrency"`
+		LastUsed    string      `json:"last_used_at"`
+		RateEnabled *bool       `json:"account_rate_enabled"`
+		Rate        *float64    `json:"rate_multiplier"`
+		Windows     []struct {
 			Name string   `json:"label"`
 			Used *float64 `json:"utilization"`
 		} `json:"usage_windows"`
@@ -368,14 +372,14 @@ type upstreamPoolPage struct {
 			ID        json.Number `json:"id"`
 			Name      string      `json:"name"`
 			Effective *float64    `json:"effective_multiplier"`
+			Rate      *float64    `json:"rate_multiplier"`
 		} `json:"groups"`
 	} `json:"items"`
 }
 
 func collectAccountPool(get func(string) ([]byte, error), previous []accountPoolSourceGroup) (accountPoolSnapshot, error) {
 	snapshot, err := collectAccountPoolPass(get, previous)
-	// ponytail: without an upstream cursor, retry one full pass on pagination drift.
-	// Never combine pages from different passes into a single snapshot.
+	// Reset coverage if the upstream inventory changed or could not be covered.
 	if errors.Is(err, errPoolChanged) {
 		return collectAccountPoolPass(get, previous)
 	}
@@ -390,10 +394,11 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 		groupIndex[out.Groups[i].SourceID] = i
 		out.Groups[i].Count = 0
 	}
-	seen := map[json.Number]bool{}
-	total, pages := -1, 1
-	read := func(page int) error {
-		data, err := get(fmt.Sprintf("/api/v1/account-pool?page=%d&page_size=%d", page, size))
+	positions := map[json.Number]int{}
+	total := -1
+	pageCount := func(width int) int { return max(1, (total+width-1)/width) }
+	read := func(page, width int) error {
+		data, err := get(fmt.Sprintf("/api/v1/account-pool?page=%d&page_size=%d", page, width))
 		if err != nil {
 			return err
 		}
@@ -403,27 +408,33 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 		}
 		if total < 0 {
 			total = *result.Total
-			pages = max(1, (total+size-1)/size)
 		}
-		if result.Page != page || result.Size != size || *result.Total != total || result.Pages != pages || len(result.Items) != min(size, total-(page-1)*size) {
+		if result.Page != page || result.Size != width || *result.Total != total || result.Pages != pageCount(width) || len(result.Items) != min(width, total-(page-1)*width) {
 			return errPoolChanged
 		}
+		observedAt := time.Now().UTC()
+		inPage := make(map[json.Number]bool, len(result.Items))
 		for _, item := range result.Items {
-			if item.ID == "" || seen[item.ID] {
+			if item.ID == "" || inPage[item.ID] {
 				return errPoolChanged
 			}
-			if len(seen) == total {
+			inPage[item.ID] = true
+			index, exists := positions[item.ID]
+			if !exists && len(out.Rows) == total {
 				return errPoolChanged
 			}
-			seen[item.ID] = true
+			if !exists {
+				index = len(out.Rows)
+				positions[item.ID] = index
+			}
 			plan := item.Plan
 			if strings.EqualFold(plan, "Pro Max") || strings.EqualFold(plan, "promax") {
 				plan = "promax"
 			}
-			row := accountPoolRow{Number: len(out.Rows) + 1, Platform: poolEnum(item.Platform, "openai", "grok", "anthropic", "gemini"),
+			row := accountPoolRow{Number: index + 1, Platform: poolEnum(item.Platform, "openai", "grok", "anthropic", "gemini"),
 				Plan:   poolEnum(plan, "promax", "Pro", "Plus", "Team", "Free", "go", "SuperGrok Heavy", "pro20", "SuperGrok"),
 				Status: poolEnum(item.Status, "active", "error", "rate_limited", "paused", "disabled", "inactive"), Current: poolNumber(item.Current), Limit: poolNumber(item.Limit),
-				Admin: &accountPoolAdminRow{SourceID: item.ID.String(), Name: item.Name, Type: item.Type, Plan: item.Plan, Status: item.Status}}
+				Admin: &accountPoolAdminRow{SourceID: item.ID.String(), Name: item.Name, Type: item.Type, Plan: item.Plan, Status: item.Status, ObservedAt: &observedAt}}
 			row.LastUsed = poolTimestamp(item.LastUsed)
 			for _, w := range item.Windows[:min(6, len(item.Windows))] {
 				name := poolEnum(w.Name, "5h", "7d", "requests", "tokens")
@@ -447,11 +458,15 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 				}
 				entry := &out.Groups[i]
 				entry.Original = accountPoolGroupName(group.Name)
-				if group.Effective != nil {
+				rate := group.Effective
+				if rate == nil {
+					rate = group.Rate
+				}
+				if rate != nil {
 					if row.Admin.Rates == nil {
 						row.Admin.Rates = make(map[string]float64)
 					}
-					row.Admin.Rates[entry.ID] = *group.Effective
+					row.Admin.Rates[entry.ID] = *rate
 				}
 				duplicate := false
 				for _, assigned := range row.Groups {
@@ -462,20 +477,66 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 				}
 				if !duplicate {
 					row.Groups = append(row.Groups, entry.ID)
-					entry.Count++
 				}
 			}
-			out.Rows = append(out.Rows, row)
+			if len(row.Admin.Rates) == 0 || (item.RateEnabled != nil && *item.RateEnabled) {
+				row.Admin.AccountRate = item.Rate
+			}
+			if exists {
+				out.Rows[index] = row
+			} else {
+				out.Rows = append(out.Rows, row)
+			}
 		}
 		return nil
 	}
-	for page := 1; page <= pages; page++ {
-		if err := read(page); err != nil {
+	if err := read(1, size); err != nil {
+		return accountPoolSnapshot{}, err
+	}
+	pages := pageCount(size)
+	firstDrift, lastDrift := 1, 1
+	for page := pages; page > 1; page-- {
+		before := len(out.Rows)
+		if err := read(page, size); err != nil {
+			return accountPoolSnapshot{}, err
+		}
+		if len(out.Rows)-before < min(size, total-(page-1)*size) {
+			if lastDrift == 1 {
+				lastDrift = page
+			}
+			firstDrift = page
+		}
+	}
+	// ponytail: Shenji has no stable cursor. Shift the boundaries around pages
+	// that overlapped before falling back to a full sweep at a different width.
+	lo, hi := max(0, firstDrift-2)*size, min(total, (lastDrift+1)*size)
+	for _, width := range []int{80, 90, 95} {
+		start, end := lo/width+1, (hi+width-1)/width
+		if width == 95 {
+			start, end = 1, pageCount(width)
+		}
+		for page := start; page <= end && len(out.Rows) < total; page++ {
+			if err := read(page, width); err != nil {
+				return accountPoolSnapshot{}, err
+			}
+		}
+	}
+	if len(out.Rows) != total {
+		return accountPoolSnapshot{}, errPoolChanged
+	}
+	if pages > 1 {
+		if err := read(1, size); err != nil {
 			return accountPoolSnapshot{}, err
 		}
 	}
-	if len(seen) != total {
-		return accountPoolSnapshot{}, errPoolChanged
+	groupsByID := make(map[string]*accountPoolSourceGroup, len(out.Groups))
+	for i := range out.Groups {
+		groupsByID[out.Groups[i].ID] = &out.Groups[i]
+	}
+	for _, row := range out.Rows {
+		for _, id := range row.Groups {
+			groupsByID[id].Count++
+		}
 	}
 	now := time.Now().UTC()
 	out.Updated = &now

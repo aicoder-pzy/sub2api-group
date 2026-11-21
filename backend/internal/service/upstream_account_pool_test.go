@@ -65,28 +65,37 @@ func TestCollectAccountPool(t *testing.T) {
 			require.NoError(t, err)
 			page, err := strconv.Atoi(u.Query().Get("page"))
 			require.NoError(t, err)
-			require.Equal(t, "100", u.Query().Get("page_size"))
-			items := make([]map[string]any, 0, 100)
+			width, err := strconv.Atoi(u.Query().Get("page_size"))
+			require.NoError(t, err)
+			items := make([]map[string]any, 0, width)
 			add := func(id int) {
-				items = append(items, map[string]any{
+				item := map[string]any{
 					"id": id, "display_name": "account@example.test", "credentials": "not-for-display",
 					"platform": "openai", "plan_label": "Pro", "status": "active", "concurrency": 4,
-					"groups": []map[string]any{{"id": 37, "name": "original-pool", "effective_multiplier": 2.4}, {"id": 37, "name": "original-pool"}},
-				})
-			}
-			total := 101
-			switch page {
-			case 1:
-				for i := 1; i <= 100; i++ {
-					add(i)
+					"auth_type": "oauth", "current_concurrency": page, "last_used_at": "2026-11-21T03:14:45Z",
+					"groups": []map[string]any{{"id": 37, "name": "original-pool", "rate_multiplier": 2.4}, {"id": 37, "name": "original-pool"}},
 				}
-			case 2:
-				add(page2ID)
-				total = page2Total
-			default:
+				if id == 101 {
+					item["account_rate_enabled"], item["rate_multiplier"] = true, 0.12
+				}
+				items = append(items, item)
+			}
+			const total = 101
+			if page < 1 || page > 2 {
 				return nil, fmt.Errorf("unexpected page: %d", page)
 			}
-			return json.Marshal(map[string]any{"page": page, "page_size": 100, "total": total, "pages": 2, "items": items})
+			for i := (page-1)*width + 1; i <= min(page*width, total); i++ {
+				if i == total && page2ID != total {
+					add(width) // An account from the previous page repeats at the boundary.
+				} else {
+					add(i)
+				}
+			}
+			reported := total
+			if page == 2 {
+				reported = page2Total
+			}
+			return json.Marshal(map[string]any{"page": page, "page_size": width, "total": reported, "pages": 2, "items": items})
 		}
 	}
 	first, err := collectAccountPool(get(101, 101), nil)
@@ -111,7 +120,11 @@ func TestCollectAccountPool(t *testing.T) {
 	require.Equal(t, "original-pool", admin.Pools[0].Original)
 	require.Equal(t, "1", admin.Rows[0].Admin.SourceID)
 	require.Equal(t, "account@example.test", admin.Rows[0].Admin.Name)
+	require.Equal(t, "oauth", admin.Rows[0].Admin.Type)
 	require.Equal(t, 2.4, admin.Rows[0].Admin.Rates[poolID])
+	require.Equal(t, 0.12, *admin.Rows[100].Admin.AccountRate)
+	require.NotNil(t, admin.Rows[0].Admin.ObservedAt)
+	require.Equal(t, "2026-11-21T03:14:45Z", admin.Rows[0].LastUsed.Format(time.RFC3339))
 	require.Nil(t, public.Rows[0].Admin)
 	calls := 0
 	recovered, err := collectAccountPool(func(path string) ([]byte, error) {
@@ -122,9 +135,10 @@ func TestCollectAccountPool(t *testing.T) {
 		return get(101, 101)(path)
 	}, first.Groups)
 	require.NoError(t, err)
-	require.Equal(t, 4, calls)
+	require.Equal(t, 5, calls)
 	require.Len(t, recovered.Rows, 101)
 	require.Equal(t, 101, recovered.Groups[0].Count)
+	require.Equal(t, 1, *recovered.Rows[99].Current)
 	for _, edge := range []struct{ id, total int }{{100, 101}, {101, 102}} {
 		incomplete, err := collectAccountPool(get(edge.id, edge.total), first.Groups)
 		require.ErrorIs(t, err, errPoolChanged)

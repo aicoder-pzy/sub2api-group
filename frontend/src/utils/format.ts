@@ -10,12 +10,11 @@ import { i18n, getLocale } from '@/i18n'
  * @param date 日期字符串或 Date 对象
  * @returns 相对时间字符串，如 "5m ago", "2h ago", "3d ago"
  */
-export function formatRelativeTime(date: string | Date | null | undefined): string {
+export function formatRelativeTime(date: string | Date | null | undefined, now = Date.now()): string {
   if (!date) return i18n.global.t('common.time.never')
 
-  const now = new Date()
   const past = new Date(date)
-  const diffMs = now.getTime() - past.getTime()
+  const diffMs = now - past.getTime()
 
   // 处理未来时间或无效日期
   if (diffMs < 0 || isNaN(diffMs)) return i18n.global.t('common.time.never')
