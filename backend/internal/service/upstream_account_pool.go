@@ -22,11 +22,12 @@ import (
 const (
 	accountPoolBaseURL         = "https://aishenji.top"
 	vulcanPoolBaseURL          = "https://vulcanapi.com"
-	accountPoolRefreshInterval = 15 * time.Minute
+	accountPoolRefreshInterval = 10 * time.Minute
 )
 
 var (
 	errPoolSite    = infraerrors.NotFound("ACCOUNT_POOL_SITE", "Account pool is not enabled for this site")
+	errPoolPaused  = infraerrors.Conflict("ACCOUNT_POOL_PAUSED", "\u79cb API \u53f7\u6c60\u91c7\u96c6\u5df2\u6682\u505c")
 	errPoolChanged = infraerrors.Conflict("ACCOUNT_POOL_CHANGED", "The upstream account list changed during refresh; previous snapshot kept")
 	errPoolBusy    = infraerrors.TooManyRequests("ACCOUNT_POOL_BUSY", "Refresh in progress or cooling down; try again in a minute")
 )
@@ -81,6 +82,7 @@ type accountPoolSourceGroup struct {
 type accountPoolSnapshot struct {
 	SiteRevision int64                    `json:"site_revision,omitempty"`
 	Updated      *time.Time               `json:"updated"`
+	StartedAt    *time.Time               `json:"started_at,omitempty"`
 	CheckedAt    *time.Time               `json:"checked_at,omitempty"`
 	Groups       []accountPoolSourceGroup `json:"groups"`
 	Rows         []accountPoolRow         `json:"rows"`
@@ -291,7 +293,10 @@ func (s *UpstreamBillingProbeService) startAccountPoolRefresh(site *UpstreamSite
 	if !accountPoolEnabled(site) {
 		return errPoolSite
 	}
-	// ponytail: one refresh per process; add distributed locking for a multi-writer deployment.
+	if site.BaseURL != accountPoolBaseURL {
+		return errPoolPaused
+	}
+	// ponytail: one refresh per process; use distributed locking for a multi-writer deployment.
 	s.accountPoolMu.Lock()
 	defer s.accountPoolMu.Unlock()
 	state := s.accountPoolRefreshStates[site.ID]
@@ -299,7 +304,8 @@ func (s *UpstreamBillingProbeService) startAccountPoolRefresh(site *UpstreamSite
 	if automatic && state.Error != "" {
 		retryAt = retryAt.Add(accountPoolRefreshInterval - time.Minute)
 	}
-	if s.accountPoolSite != "" || time.Now().Before(retryAt) {
+	started := time.Now().UTC()
+	if s.accountPoolSite != "" || started.Before(retryAt) {
 		return errPoolBusy
 	}
 	s.accountPoolSite = site.ID
@@ -313,7 +319,7 @@ func (s *UpstreamBillingProbeService) startAccountPoolRefresh(site *UpstreamSite
 			}
 			return s.upstreamSiteRequestWithStatus(ctx, site, http.MethodGet, path, nil)
 		}}
-		err := s.refreshAccountPool(ctx, site, fetch.get)
+		err := s.refreshAccountPool(ctx, site, started, fetch.get)
 		s.accountPoolMu.Lock()
 		defer s.accountPoolMu.Unlock()
 		state := accountPoolRefreshState{RetryAt: time.Now().Add(time.Minute)}
@@ -351,11 +357,12 @@ func (s *UpstreamBillingProbeService) refreshDueAccountPool(ctx context.Context)
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx, `SELECT s.id FROM upstream_sites s
 		LEFT JOIN upstream_site_account_pools p ON p.site_id=s.id
-		WHERE s.purpose='public' AND s.kind='sub2api' AND s.base_url IN ($1,$2)
-		AND ((p.snapshot->>'checked_at')::timestamptz IS NULL OR (p.snapshot->>'checked_at')::timestamptz <= $3
+		WHERE s.purpose='public' AND s.kind='sub2api' AND s.base_url=$1
+		AND (COALESCE(p.snapshot->>'started_at',p.snapshot->>'checked_at')::timestamptz IS NULL
+		     OR COALESCE(p.snapshot->>'started_at',p.snapshot->>'checked_at')::timestamptz <= $2
 		     OR (p.snapshot->>'site_revision')::bigint IS DISTINCT FROM s.revision)
-		ORDER BY (p.snapshot->>'checked_at')::timestamptz NULLS FIRST,s.id`,
-		accountPoolBaseURL, vulcanPoolBaseURL, time.Now().Add(-accountPoolRefreshInterval))
+		ORDER BY COALESCE(p.snapshot->>'started_at',p.snapshot->>'checked_at')::timestamptz NULLS FIRST,s.id`,
+		accountPoolBaseURL, time.Now().Add(-accountPoolRefreshInterval))
 	if err != nil {
 		return err
 	}
@@ -378,7 +385,7 @@ func (s *UpstreamBillingProbeService) refreshDueAccountPool(ctx context.Context)
 		}
 		if err := s.startAccountPoolRefresh(site, true); err == nil {
 			return nil
-		} else if !errors.Is(err, errPoolBusy) && !errors.Is(err, errPoolSite) {
+		} else if !errors.Is(err, errPoolBusy) && !errors.Is(err, errPoolSite) && !errors.Is(err, errPoolPaused) {
 			return err
 		}
 	}
@@ -439,7 +446,7 @@ func (f *accountPoolFetcher) get(path string) ([]byte, error) {
 	}
 }
 
-func (s *UpstreamBillingProbeService) refreshAccountPool(ctx context.Context, site *UpstreamSite, get func(string) ([]byte, error)) error {
+func (s *UpstreamBillingProbeService) refreshAccountPool(ctx context.Context, site *UpstreamSite, started time.Time, get func(string) ([]byte, error)) error {
 	previous, _, err := s.readAccountPool(ctx, site.ID, true)
 	if err != nil {
 		return err
@@ -458,6 +465,7 @@ func (s *UpstreamBillingProbeService) refreshAccountPool(ctx context.Context, si
 		return err
 	}
 	snapshot.SiteRevision = site.Revision
+	snapshot.StartedAt = &started
 	checkedAt := time.Now().UTC()
 	snapshot.CheckedAt = &checkedAt
 	raw, err := json.Marshal(snapshot)

@@ -11,7 +11,28 @@ import (
 	"unicode/utf8"
 )
 
-const poolStatusSettingPrefix = "published_account_pool_"
+const (
+	poolStatusSettingPrefix = "published_account_pool_"
+	poolStatusCredentialKey = "account_pool_status_credential"
+)
+
+func (s *UpstreamBillingProbeService) AccountPoolStatusCredential(ctx context.Context) (string, error) {
+	if s == nil || s.settingService == nil || s.settingService.settingRepo == nil {
+		return "", nil
+	}
+	value, err := s.settingService.settingRepo.GetValue(ctx, poolStatusCredentialKey)
+	if errors.Is(err, ErrSettingNotFound) {
+		return "", nil
+	}
+	return value, err
+}
+
+func (s *UpstreamBillingProbeService) SetAccountPoolStatusCredential(ctx context.Context, value string) error {
+	if s == nil || s.settingService == nil || s.settingService.settingRepo == nil {
+		return ErrUpstreamBillingProbeUnavailable
+	}
+	return s.settingService.settingRepo.Set(ctx, poolStatusCredentialKey, value)
+}
 
 type AccountPoolStatusConfig struct {
 	PoolID     string            `json:"pool_id"`

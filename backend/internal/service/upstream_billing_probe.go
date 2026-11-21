@@ -342,6 +342,10 @@ func (s *UpstreamBillingProbeService) Start() {
 	}
 	s.started = true
 	s.wg.Add(1)
+	if s.db != nil {
+		s.wg.Add(1)
+		go s.runAccountPoolLoop()
+	}
 	if s.schedulingNotifications != nil {
 		s.wg.Add(1)
 		go s.runSchedulingNotificationLoop()
@@ -367,7 +371,6 @@ func (s *UpstreamBillingProbeService) Stop() {
 
 func (s *UpstreamBillingProbeService) runLoop() {
 	defer s.wg.Done()
-	s.runAccountPoolCycle()
 	_ = s.RunDue(s.parentCtx)
 	_ = s.RunBalanceDue(s.parentCtx)
 	_ = s.RunBalanceNotifications(s.parentCtx)
@@ -378,7 +381,6 @@ func (s *UpstreamBillingProbeService) runLoop() {
 		case <-s.parentCtx.Done():
 			return
 		case <-ticker.C:
-			s.runAccountPoolCycle()
 			if err := s.RunDue(s.parentCtx); err != nil {
 				logger.LegacyPrintf("service.upstream_billing_probe", "run_due_failed: err=%v", err)
 			}
@@ -392,9 +394,19 @@ func (s *UpstreamBillingProbeService) runLoop() {
 	}
 }
 
-func (s *UpstreamBillingProbeService) runAccountPoolCycle() {
-	if err := s.refreshDueAccountPool(s.parentCtx); err != nil && s.parentCtx.Err() == nil {
-		logger.LegacyPrintf("service.upstream_account_pool", "schedule_refresh_failed: err=%v", err)
+func (s *UpstreamBillingProbeService) runAccountPoolLoop() {
+	defer s.wg.Done()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		if err := s.refreshDueAccountPool(s.parentCtx); err != nil && s.parentCtx.Err() == nil {
+			logger.LegacyPrintf("service.upstream_account_pool", "schedule_refresh_failed: err=%v", err)
+		}
+		select {
+		case <-s.parentCtx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 

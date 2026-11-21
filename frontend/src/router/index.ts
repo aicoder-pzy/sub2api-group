@@ -570,6 +570,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresAdmin: true, title: 'Upstream sites', titleKey: 'upstreamSites.title' }
   },
   {
+    path: '/admin/account-pools',
+    name: 'AdminAccountPools',
+    component: () => import('@/views/admin/AccountPoolsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Account pool management', titleKey: 'upstreamSites.accountPoolManagement' }
+  },
+  {
     path: '/admin/plugins',
     name: 'AdminPlugins',
     component: () => import('@/views/admin/PluginsView.vue'),

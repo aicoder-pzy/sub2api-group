@@ -157,6 +157,17 @@ export interface PoolStatusConfig {
   plan_map: Record<string, string> | null
   plans: string[] | null
 }
+export const accountPoolStatusExportPath = '/api/v1/integrations/account-pool-status'
+const poolStatusAdmin = '/admin/accounts/account-pool-status'
+export interface PoolStatusPreview {
+  pools: {
+    id: string; source: string; name: string; updated: string | null; snapshot_available: boolean
+    total: number; pages: number; plans: Record<string, number>; statuses: Record<string, number>
+    rows: { number: number; platform: string; plan: string; status: string }[]
+  }[]
+  page: number
+  page_size: number
+}
 export interface GroupPoolDisplay {
   group_id: number
   name: string
@@ -169,6 +180,12 @@ export interface GroupPoolDisplay {
   pages: number
 }
 export const upstreamSitesAPI = {
+  async previewPoolStatus(page: number, pageSize: number): Promise<PoolStatusPreview> {
+    return (await apiClient.get(`${poolStatusAdmin}/preview`, { params: { page, page_size: pageSize } })).data
+  },
+  async poolStatusExport(): Promise<{ enabled: boolean }> { return (await apiClient.get(`${poolStatusAdmin}/export`)).data },
+  async issuePoolStatusToken(): Promise<{ enabled: boolean; token: string }> { return (await apiClient.post(`${poolStatusAdmin}/export`)).data },
+  async disablePoolStatusExport(): Promise<{ enabled: boolean }> { return (await apiClient.delete(`${poolStatusAdmin}/export`)).data },
   async groupAccountPool(id: number, page: number, pageSize: number): Promise<GroupPoolDisplay> {
     return (await apiClient.get(`/admin/groups/${id}/account-pool`, { params: { page, page_size: pageSize } })).data
   },

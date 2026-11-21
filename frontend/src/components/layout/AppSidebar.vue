@@ -804,6 +804,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true, featureFlag: flagSubscription },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
     { path: '/admin/upstream-sites', label: t('upstreamSites.title'), icon: ServerIcon },
+    { path: '/admin/account-pools', label: t('upstreamSites.accountPoolManagement'), icon: ChartIcon },
     {path:'/admin/group-cache-tests',label:t('admin.groupCacheTest.title'),icon:ChartIcon},
     {path:'/admin/pelican-tests',label:t('nav.pelicanShowcase'),icon:SignalIcon},
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },

@@ -27,10 +27,7 @@
         </li>
       </ul>
     </details>
-    <details v-if="siteId && snapshot" class="rounded-lg border border-gray-200 px-3 py-2 dark:border-dark-700" @toggle="editStatus = ($event.target as HTMLDetailsElement).open">
-      <summary class="cursor-pointer text-sm font-medium">{{ tr('accountPoolPublish') }}</summary>
-      <UpstreamPoolStatusForm v-if="editStatus" :site-id="siteId" :snapshot="snapshot" />
-    </details>
+    <RouterLink v-if="siteId" to="/admin/account-pools" class="text-sm text-primary-600 dark:text-primary-400">{{ tr('accountPoolManagement') }}</RouterLink>
     <template v-if="groupSnapshot || snapshot?.updated">
       <div v-if="snapshot && !groupMode" class="flex flex-wrap gap-2">
         <select v-model="selectedPool" class="input w-auto max-w-full" :aria-label="tr('accountPoolSourceGroup')">
@@ -101,6 +98,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIntervalFn } from '@vueuse/core'
 import { upstreamSitesAPI, siteError, type GroupPoolDisplay, type SitePool, type SitePoolDisplay } from '@/api/admin/upstreamSites'
@@ -109,7 +107,6 @@ import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
-import UpstreamPoolStatusForm from './UpstreamPoolStatusForm.vue'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import type { AccountType } from '@/types'
 
@@ -118,7 +115,6 @@ const { t: translate } = useI18n()
 const tr = (key: string, params: Record<string, string | number> = {}) => translate(`upstreamSites.${key}`, params)
 const snapshot = shallowRef<SitePoolDisplay>(), drafts = ref<Record<string, string>>({})
 const groupSnapshot = ref<GroupPoolDisplay>()
-const editStatus = ref(false)
 const groupMode = computed(() => props.groupId != null)
 const updated = computed(() => groupSnapshot.value?.updated ?? snapshot.value?.updated)
 const total = computed(() => groupSnapshot.value?.total ?? snapshot.value?.page_info?.total ?? 0)

@@ -1,11 +1,14 @@
 package admin
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -34,6 +37,67 @@ func TestPoolExportRequiresDedicatedBearer(t *testing.T) {
 		require.Equal(t, test.status, w.Code, w.Body.String())
 		require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 	}
+}
+
+type poolStatusSettingRepo struct {
+	service.SettingRepository
+	value string
+}
+
+func (r *poolStatusSettingRepo) GetValue(context.Context, string) (string, error) {
+	if r.value == "" {
+		return "", service.ErrSettingNotFound
+	}
+	return r.value, nil
+}
+
+func (r *poolStatusSettingRepo) Set(_ context.Context, _, value string) error {
+	r.value = value
+	return nil
+}
+
+func TestPoolStatusManagedTokenCanRotateAndRevoke(t *testing.T) {
+	t.Setenv("SUB2_ACCOUNT_POOL_STATUS_TOKEN", strings.Repeat("c", 64))
+	t.Setenv("SUB2_ACCOUNT_POOL_EXPORT_TOKEN", strings.Repeat("a", 64))
+	t.Setenv("SUB2_ACCOUNT_POOLS_EXPORT_TOKEN", strings.Repeat("b", 64))
+	repo := &poolStatusSettingRepo{}
+	svc := service.NewUpstreamBillingProbeService(nil, nil, service.NewSettingService(repo, nil))
+	t.Cleanup(svc.Stop)
+	h := &AccountHandler{upstreamBillingProbe: svc}
+	router := gin.New()
+	router.GET("/export", h.ExportAccountPoolStatus)
+	router.GET("/preview", h.PreviewAccountPoolStatus)
+	router.GET("/config", h.GetAccountPoolStatusExport)
+	router.POST("/config", h.IssueAccountPoolStatusToken)
+	router.DELETE("/config", h.DisableAccountPoolStatusExport)
+	call := func(method, path, token string, status int) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(method, path, nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		require.Equal(t, status, w.Code, w.Body.String())
+		require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+		return w
+	}
+	issue := func() string {
+		w := call(http.MethodPost, "/config", "", 200)
+		var result struct{ Data struct{ Token string } }
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+		require.Regexp(t, `^pool_[a-f0-9]{64}$`, result.Data.Token)
+		require.NotContains(t, repo.value, result.Data.Token)
+		require.NotContains(t, call(http.MethodGet, "/config", "", 200).Body.String(), result.Data.Token)
+		return result.Data.Token
+	}
+	first, second := issue(), issue()
+	require.NotEqual(t, first, second)
+	call(http.MethodGet, "/export", first, 401)
+	call(http.MethodGet, "/export", strings.Repeat("c", 64), 401)
+	call(http.MethodGet, "/export", second, 503) // Auth succeeded; no snapshot database in this test.
+	call(http.MethodDelete, "/config", "", 200)
+	call(http.MethodGet, "/export", second, 404)
+	call(http.MethodGet, "/export", strings.Repeat("c", 64), 404)
+	call(http.MethodGet, "/preview", "", 503) // Admin preview does not depend on export being open.
 }
 
 func TestGroupPoolExportRequiresDedicatedBearerAndAllowedGroup(t *testing.T) {

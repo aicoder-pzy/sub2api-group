@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -81,7 +82,7 @@ func TestAdminAccountPoolPaginatesAfterFilteringAndSorting(t *testing.T) {
 	require.Equal(t, 1, snapshot.Rows[0].Number)
 }
 
-func TestDueAccountPoolCollectionSkipsSiteInBackoff(t *testing.T) {
+func TestDueAccountPoolCollectionOnlyCollectsShenjiAndSkipsBackoff(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -90,10 +91,12 @@ func TestDueAccountPoolCollectionSkipsSiteInBackoff(t *testing.T) {
 	s.db = db
 	const cooling = "17bf73f5-11b3-41ec-9b35-7bd818076897"
 	const due = "98b13092-92c3-4b3d-b030-83ab76299e38"
+	require.ErrorIs(t, s.StartAccountPoolRefresh(&UpstreamSite{Kind: "sub2api", Purpose: "public", BaseURL: vulcanPoolBaseURL}), errPoolPaused)
 	s.accountPoolRefreshStates = map[string]accountPoolRefreshState{
 		cooling: {Error: "upstream limited", RetryAt: time.Now().Add(-time.Minute)},
 	}
-	mock.ExpectQuery(`SELECT s\.id FROM upstream_sites`).WithArgs(accountPoolBaseURL, vulcanPoolBaseURL, sqlmock.AnyArg()).
+	mock.ExpectQuery(`SELECT s\.id FROM upstream_sites.*s\.base_url=\$1.*COALESCE\(p\.snapshot->>'started_at',p\.snapshot->>'checked_at'\)::timestamptz <= \$2`).
+		WithArgs(accountPoolBaseURL, poolDueCutoff{time.Now()}).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(cooling).AddRow(due))
 	cols := []string{"id", "name", "kind", "base_url", "user_id", "proxy_id", "revision", "token_cipher", "inference_url", "purchase_note", "inventory", "model_catalogs", "refresh_token_cipher", "purpose"}
 	for _, id := range []string{cooling, due} {
@@ -107,9 +110,16 @@ func TestDueAccountPoolCollectionSkipsSiteInBackoff(t *testing.T) {
 	require.Eventually(t, func() bool {
 		s.accountPoolMu.Lock()
 		defer s.accountPoolMu.Unlock()
-		return s.accountPoolSite == "" && s.accountPoolRefreshStates[due].Error != "" && s.accountPoolRefreshStates[cooling].Error == "upstream limited"
+		return s.accountPoolRefreshStates[due].Error != "" && s.accountPoolRefreshStates[cooling].Error == "upstream limited"
 	}, 2*time.Second, 10*time.Millisecond)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+type poolDueCutoff struct{ now time.Time }
+
+func (c poolDueCutoff) Match(value driver.Value) bool {
+	t, ok := value.(time.Time)
+	return ok && t.Add(10*time.Minute).Sub(c.now).Abs() < time.Second
 }
 
 func TestAccountPoolRetryDelay(t *testing.T) {

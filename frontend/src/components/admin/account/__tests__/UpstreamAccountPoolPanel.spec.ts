@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { expect, it, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
 import UpstreamAccountPoolPanel from '../UpstreamAccountPoolPanel.vue'
@@ -38,7 +38,7 @@ it('shows native OAuth rows and filters by upstream membership even when display
   vi.mocked(api.renameAccountPool).mockResolvedValueOnce(renamed)
   const wrapper = mount(UpstreamAccountPoolPanel, {
     props: { siteId: 'site-id' },
-    global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] }
+    global: { stubs: { RouterLink: RouterLinkStub }, plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] }
   })
   try {
     await flushPromises()
@@ -96,7 +96,7 @@ it('shows snapshot rows and allows paging while a full collection is running', a
   vi.mocked(api.refreshAccountPool).mockClear()
   const wrapper = mount(UpstreamAccountPoolPanel, {
     props: { siteId: 'old-site' },
-    global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] },
+    global: { stubs: { RouterLink: RouterLinkStub }, plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] },
   })
   try {
     await flushPromises()

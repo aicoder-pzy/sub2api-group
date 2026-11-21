@@ -1,8 +1,10 @@
 package admin
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"net/http"
 	"os"
 	"slices"
@@ -111,15 +113,71 @@ func (h *AccountHandler) SaveAccountPoolStatusConfig(c *gin.Context) {
 
 func (h *AccountHandler) ExportAccountPoolStatus(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
-	token := os.Getenv("SUB2_ACCOUNT_POOL_STATUS_TOKEN")
-	if len(token) < 32 || token == os.Getenv("SUB2_ACCOUNT_POOL_EXPORT_TOKEN") || token == os.Getenv("SUB2_ACCOUNT_POOLS_EXPORT_TOKEN") {
+	digest, enabled, err := h.poolStatusCredential(c)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	if !enabled {
 		response.NotFound(c, "Account pool status export is disabled")
 		return
 	}
-	if !validAccountPoolBearer(c, token) {
+	got := sha256.Sum256([]byte(c.GetHeader("Authorization")))
+	if subtle.ConstantTimeCompare(digest, got[:]) != 1 {
 		response.Unauthorized(c, "Invalid account pool status credential")
 		return
 	}
+	h.PreviewAccountPoolStatus(c)
+}
+
+func (h *AccountHandler) poolStatusCredential(c *gin.Context) ([]byte, bool, error) {
+	stored, err := h.upstreamBillingProbe.AccountPoolStatusCredential(c.Request.Context())
+	if err != nil || stored == "disabled" {
+		return nil, false, err
+	}
+	if stored != "" {
+		digest, err := hex.DecodeString(stored)
+		return digest, err == nil && len(digest) == sha256.Size, nil
+	}
+	token := os.Getenv("SUB2_ACCOUNT_POOL_STATUS_TOKEN")
+	if len(token) < 32 || token == os.Getenv("SUB2_ACCOUNT_POOL_EXPORT_TOKEN") || token == os.Getenv("SUB2_ACCOUNT_POOLS_EXPORT_TOKEN") {
+		return nil, false, nil
+	}
+	digest := sha256.Sum256([]byte("Bearer " + token))
+	return digest[:], true, nil
+}
+
+func (h *AccountHandler) GetAccountPoolStatusExport(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	_, enabled, err := h.poolStatusCredential(c)
+	if !response.ErrorFrom(c, err) {
+		response.Success(c, gin.H{"enabled": enabled})
+	}
+}
+
+func (h *AccountHandler) IssueAccountPoolStatusToken(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	var secret [32]byte
+	if _, err := rand.Read(secret[:]); response.ErrorFrom(c, err) {
+		return
+	}
+	token := "pool_" + hex.EncodeToString(secret[:])
+	digest := sha256.Sum256([]byte("Bearer " + token))
+	err := h.upstreamBillingProbe.SetAccountPoolStatusCredential(c.Request.Context(), hex.EncodeToString(digest[:]))
+	if !response.ErrorFrom(c, err) {
+		response.Success(c, gin.H{"enabled": true, "token": token})
+	}
+}
+
+func (h *AccountHandler) DisableAccountPoolStatusExport(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	err := h.upstreamBillingProbe.SetAccountPoolStatusCredential(c.Request.Context(), "disabled")
+	if !response.ErrorFrom(c, err) {
+		response.Success(c, gin.H{"enabled": false})
+	}
+}
+
+func (h *AccountHandler) PreviewAccountPoolStatus(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	page, size := response.ParsePagination(c)
 	pools, err := h.upstreamBillingProbe.PublishedAccountPools(c.Request.Context(), page, size)
 	if !response.ErrorFrom(c, err) {

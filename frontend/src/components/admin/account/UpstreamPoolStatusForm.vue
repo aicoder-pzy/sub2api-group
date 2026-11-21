@@ -2,7 +2,6 @@
   <form class="mt-3 space-y-3 text-sm" @submit.prevent="save">
     <p v-if="error" role="alert" class="text-red-600 dark:text-red-400">{{ error }}</p>
     <p v-if="saved" role="status">{{ tr('accountPoolPublishedSaved') }}</p>
-    <code class="block break-all text-xs text-gray-500">GET /api/v1/integrations/account-pool-status</code>
     <fieldset class="space-y-3" :disabled="busy || !loaded">
       <label class="block max-w-md">
         <span>{{ tr('accountPoolSourceGroup') }}</span>
@@ -39,6 +38,7 @@ import { useI18n } from 'vue-i18n'
 import { siteError, upstreamSitesAPI as api, type PoolStatusConfig, type SitePoolDisplay } from '@/api/admin/upstreamSites'
 
 const props = defineProps<{ siteId: string; snapshot: SitePoolDisplay }>()
+const emit = defineEmits<{ saved: [] }>()
 const { t } = useI18n()
 const tr = (key: string, params: Record<string, string> = {}) => t(`upstreamSites.${key}`, params)
 const form = ref<PoolStatusConfig>({ pool_id: '', source_name: '', name: '', plan_map: {}, plans: [] })
@@ -80,6 +80,7 @@ async function save() {
   try {
     fill(await api.savePoolStatusConfig(props.siteId, { ...form.value, plan_map: aliases.value, plans: allowed.value }))
     saved.value = true
+    emit('saved')
   } catch (cause) { error.value = siteError(cause) }
   finally { busy.value = false }
 }
