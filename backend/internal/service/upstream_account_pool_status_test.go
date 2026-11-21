@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
@@ -60,6 +61,49 @@ func TestPublishedAccountPoolStatus(t *testing.T) {
 	raw, err := json.Marshal(result)
 	require.NoError(t, err)
 	for _, private := range []string{"upstream-name", "source_id", "base_url", "plan_map", "Pro 500"} {
+		require.NotContains(t, string(raw), private)
+	}
+}
+
+func TestPublishedAccountPoolDisplayFields(t *testing.T) {
+	var snapshot accountPoolSnapshot
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"updated":"2026-11-21T07:47:00Z", "checked_at":"2026-11-21T07:48:00Z", "site_revision":1,
+		"groups":[{"id":"public","original":"private-group"}], "rows":[
+		 {"number":1,"platform":"openai","plan":"Plus","status":"active","pools":["public"],"current":0,"last_used":"2026-11-21T07:35:00Z"},
+		 {"number":2,"platform":"openai","plan":"Plus","status":"active","pools":["public","private-id"],"current":2,"limit":5,
+		  "last_used":"2026-11-21T07:30:00Z","windows":[{"name":"5h","used":0}],
+		  "admin":{"observed_at":"2026-11-21T07:46:00Z","type":"oauth","source_id":"private-account-id","name":"private-email@example.invalid","account_rate":0.4,"rates":{"public":0.5}}},
+		 {"number":3,"platform":"openai","plan":"Plus","status":"rate_limited","pools":["public"],
+		  "admin":{"usage_updated":"2026-11-21T07:40:00Z","reset_5h":"2026-11-21T12:00:00Z","reset_7d":"2026-11-28T00:00:00Z","recover_at":"2026-11-21T08:00:00Z","priority":17,"intelligence":"private-note"}}
+		]}`), &snapshot))
+	cfg := AccountPoolStatusConfig{PoolID: "public", Name: "Public pool", Plans: []string{"Plus"}}
+	first := cfg.status(snapshot, 1, 1, 2)
+	require.Equal(t, snapshot.CheckedAt, first.CheckedAt)
+	require.Equal(t, 3, first.Total)
+	require.Len(t, first.Rows, 2)
+	active, quota := first.Rows[0], first.Rows[1]
+	require.Equal(t, "active_concurrency", active.ActivityKind)
+	require.Equal(t, active.ObservedAt, active.ActivityAt)
+	require.Equal(t, "2026-11-21T07:30:00Z", active.LastUsed.Format(time.RFC3339))
+	require.Equal(t, "oauth", active.AccountType)
+	require.Equal(t, 2, *active.Current)
+	require.Equal(t, 5, *active.Limit)
+	require.Zero(t, *active.Windows[0].Used)
+	require.Equal(t, "usage_updated", quota.ActivityKind)
+	require.Equal(t, quota.UsageUpdated, quota.ActivityAt)
+	require.Equal(t, "2026-11-21T12:00:00Z", quota.Reset5h.Format(time.RFC3339))
+	require.Equal(t, "2026-11-28T00:00:00Z", quota.Reset7d.Format(time.RFC3339))
+	require.Equal(t, "2026-11-21T08:00:00Z", quota.RecoverAt.Format(time.RFC3339))
+	second := cfg.status(snapshot, 1, 2, 2)
+	require.Len(t, second.Rows, 1)
+	require.Equal(t, 3, second.Rows[0].Number)
+	require.Equal(t, "last_used", second.Rows[0].ActivityKind)
+	require.Zero(t, *second.Rows[0].Current)
+	require.Nil(t, second.Rows[0].Limit)
+	raw, err := json.Marshal(first)
+	require.NoError(t, err)
+	for _, private := range []string{"private-", `"admin"`, `"source_id"`, `"rates"`, `"account_rate"`, `"priority"`} {
 		require.NotContains(t, string(raw), private)
 	}
 }

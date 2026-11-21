@@ -1,3 +1,4 @@
+import type { AccountType } from '@/types'
 import { apiClient } from '../client'
 
 export interface SiteAmount {
@@ -159,11 +160,22 @@ export interface PoolStatusConfig {
 }
 export const accountPoolStatusExportPath = '/api/v1/integrations/account-pool-status'
 const poolStatusAdmin = '/admin/accounts/account-pool-status'
+export interface PublishedPoolRow extends Pick<SitePoolDisplay['rows'][number], 'number' | 'platform' | 'plan' | 'status' | 'current' | 'limit' | 'windows' | 'last_used'> {
+  account_type?: AccountType
+  observed_at?: string
+  usage_updated?: string
+  reset_5h?: string
+  reset_7d?: string
+  recover_at?: string
+  activity_at?: string
+  activity_kind?: 'last_used' | 'usage_updated' | 'active_concurrency'
+}
 export interface PoolStatusPreview {
   pools: {
     id: string; source: string; name: string; updated: string | null; snapshot_available: boolean
+    checked_at?: string
     total: number; pages: number; plans: Record<string, number>; statuses: Record<string, number>
-    rows: { number: number; platform: string; plan: string; status: string }[]
+    rows: PublishedPoolRow[]
   }[]
   page: number
   page_size: number

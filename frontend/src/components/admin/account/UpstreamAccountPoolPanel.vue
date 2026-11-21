@@ -1,10 +1,10 @@
 <template>
-  <div class="space-y-4 px-1 py-4">
+  <div class="min-w-0 space-y-4" :class="{ 'px-1 py-4': !published }">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <p class="text-sm text-gray-500" role="status">
         {{ updated ? tr('accountPoolSnapshot', { count: total, time: formatDateTime(updated) }) : tr(busy ? 'accountPoolLoading' : 'accountPoolEmpty') }}
       </p>
-      <div class="flex flex-wrap items-center gap-2">
+      <div v-if="!published" class="flex flex-wrap items-center gap-2">
         <span v-if="refreshing" class="text-sm text-gray-500" role="status">{{ tr('accountPoolRefreshing') }}</span>
         <button class="btn btn-secondary" type="button" :disabled="groupMode ? busy : requestingRefresh || refreshing" @click="groupMode ? load() : requestRefresh()">
           <Icon name="refresh" size="sm" />{{ tr(groupMode ? 'accountPoolReload' : 'accountPoolRefresh') }}
@@ -28,7 +28,7 @@
       </ul>
     </details>
     <RouterLink v-if="siteId" to="/admin/account-pools" class="text-sm text-primary-600 dark:text-primary-400">{{ tr('accountPoolManagement') }}</RouterLink>
-    <template v-if="groupSnapshot || snapshot?.updated">
+    <template v-if="published || groupSnapshot || snapshot?.updated">
       <div v-if="snapshot && !groupMode" class="flex flex-wrap gap-2">
         <select v-model="selectedPool" class="input w-auto max-w-full" :aria-label="tr('accountPoolSourceGroup')">
           <option value="">{{ tr('accountPoolAll') }}</option>
@@ -43,8 +43,8 @@
       </div>
       <DataTable v-if="shown.length" :columns="columns" :data="shown" row-key="number">
         <template #cell-number="{ row, value }">
-          <span v-if="row.admin?.name" class="text-sm font-medium" :title="row.admin.source_id ? `#${row.admin.source_id}` : undefined">{{ row.admin.name }}</span>
-          <span v-else class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ row.admin?.source_id || value }}</span>
+          <span v-if="!published && row.admin?.name" class="text-sm font-medium" :title="row.admin.source_id ? `#${row.admin.source_id}` : undefined">{{ row.admin.name }}</span>
+          <span v-else class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ (published ? undefined : row.admin?.source_id) || value }}</span>
         </template>
         <template #cell-platform_type="{ row }">
           <PlatformTypeBadge
@@ -52,12 +52,12 @@
             :platform="row.platform"
             :type="accountType(row)"
             :plan-type="row.plan === 'unknown' ? undefined : row.plan"
-            :display-plan-label="row.admin?.plan || (row.plan === 'unknown' ? undefined : row.plan)"
+            :display-plan-label="(!published && row.admin?.plan) || (row.plan === 'unknown' ? undefined : row.plan)"
           />
           <span v-else class="badge badge-gray text-xs">{{ tr('accountPoolState_unknown') }}</span>
         </template>
         <template #cell-status="{ row }">
-          <span :class="['badge text-xs', statusBadge[row.status] || 'badge-gray']" :title="statusDetail(row)">{{ row.status === 'unknown' && row.admin?.status ? row.admin.status : tr(`accountPoolState_${row.status}`) }}</span>
+          <span :class="['badge text-xs', statusBadge[row.status] || 'badge-gray']" :title="statusDetail(row)">{{ !published && row.status === 'unknown' && row.admin?.status ? row.admin.status : statusLabel(row.status) }}</span>
         </template>
         <template #cell-rates="{ row }">
           <span v-if="row.admin?.account_rate != null" class="badge badge-gray tabular-nums">{{ row.admin.account_rate.toFixed(2) }}x</span>
@@ -73,12 +73,12 @@
           </div>
         </template>
         <template #cell-capacity="{ row }">
-          <AccountCapacityCell v-if="row.current != null && row.limit != null" class="!inline-flex" :title="capacityTitle(row)" :account="{ platform: row.platform, type: accountType(row), current_concurrency: row.current, concurrency: row.limit }" />
-          <span v-else class="font-mono text-xs text-gray-500">{{ row.limit == null ? '—' : `— / ${row.limit}` }}</span>
+          <AccountCapacityCell v-if="row.current != null && row.limit != null" class="!inline-flex" :title="capacityTitle(row)" :account="{ platform: row.platform, type: accountType(row) || 'oauth', current_concurrency: row.current, concurrency: row.limit }" />
+          <span v-else class="font-mono text-xs text-gray-500">{{ row.current == null && row.limit == null ? '—' : `${row.current ?? '—'} / ${row.limit ?? '—'}` }}</span>
         </template>
         <template #cell-usage="{ row }">
           <div v-if="row.windows?.length" class="inline-flex flex-col gap-1">
-            <UsageProgressBar v-for="(usageWindow, index) in row.windows" :key="index" :label="usageWindow.name" :utilization="usageWindow.used" :resets-at="usageWindow.name === '5h' ? row.admin?.reset_5h : usageWindow.name === '7d' ? row.admin?.reset_7d : undefined" :color="usageWindow.name === '5h' ? 'indigo' : 'emerald'" :label-width="usageWindow.name.length > 2 ? 'auto' : 'fixed'" />
+            <UsageProgressBar v-for="(usageWindow, index) in row.windows" :key="index" :label="usageWindow.name" :utilization="usageWindow.used" :resets-at="resetAt(row, usageWindow.name)" :color="usageWindow.name === '5h' ? 'indigo' : 'emerald'" :label-width="usageWindow.name.length > 2 ? 'auto' : 'fixed'" />
           </div>
           <span v-else class="text-gray-400">—</span>
         </template>
@@ -101,7 +101,7 @@ import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIntervalFn } from '@vueuse/core'
-import { upstreamSitesAPI, siteError, type GroupPoolDisplay, type SitePool, type SitePoolDisplay } from '@/api/admin/upstreamSites'
+import { upstreamSitesAPI, siteError, type GroupPoolDisplay, type PoolStatusPreview, type PublishedPoolRow, type SitePool, type SitePoolDisplay } from '@/api/admin/upstreamSites'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -110,45 +110,47 @@ import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import type { AccountType } from '@/types'
 
-const props = defineProps<{ siteId?: string; groupId?: number }>()
-const { t: translate } = useI18n()
+const props = defineProps<{ siteId?: string; groupId?: number; published?: PoolStatusPreview['pools'][number] }>()
+const { t: translate, te } = useI18n()
 const tr = (key: string, params: Record<string, string | number> = {}) => translate(`upstreamSites.${key}`, params)
 const snapshot = shallowRef<SitePoolDisplay>(), drafts = ref<Record<string, string>>({})
 const groupSnapshot = ref<GroupPoolDisplay>()
 const groupMode = computed(() => props.groupId != null)
-const updated = computed(() => groupSnapshot.value?.updated ?? snapshot.value?.updated)
-const total = computed(() => groupSnapshot.value?.total ?? snapshot.value?.page_info?.total ?? 0)
+const updated = computed(() => props.published?.updated ?? groupSnapshot.value?.updated ?? snapshot.value?.updated)
+const total = computed(() => props.published?.total ?? groupSnapshot.value?.total ?? snapshot.value?.page_info?.total ?? 0)
 const busy = ref(false), refreshing = ref(false), error = ref('')
 const actionError = ref(''), requestingRefresh = ref(false), savingAlias = ref(false)
 const now = ref(Date.now())
 useIntervalFn(() => { now.value = Date.now() }, 60_000)
 const isOld = (stamp: string | null | undefined) => !stamp || now.value - Date.parse(stamp) >= 15 * 60_000
-const stale = computed(() => !groupMode.value && !!updated.value && isOld(updated.value))
+const stale = computed(() => !props.published && !groupMode.value && !!updated.value && isOld(updated.value))
 const selectedPool = ref(''), selectedPlatform = ref(''), page = ref(1)
 const size = 30
 const platforms = computed(() => snapshot.value?.page_info?.platforms ?? [])
 const siteQuery = () => ({ page: page.value, page_size: size, pool_id: selectedPool.value || undefined, platform: selectedPlatform.value || undefined })
-type PoolRow = SitePoolDisplay['rows'][number]
+type PoolRow = SitePoolDisplay['rows'][number] & Partial<PublishedPoolRow>
 const capacityTitle = (row: PoolRow) => {
-  const stamp = row.admin?.observed_at || updated.value
+  const stamp = props.published ? row.observed_at : row.admin?.observed_at || updated.value
   return stamp ? `${tr('accountPoolObservedAt')} · ${formatDateTime(stamp)}` : undefined
 }
 const concurrencyActivity = (row: PoolRow) => {
   const observed = row.admin?.observed_at
   return (row.current ?? 0) > 0 && observed && Date.parse(observed) > (Date.parse(row.last_used || '') || 0) ? observed : undefined
 }
-const activity = (row: PoolRow) => row.admin?.usage_updated || concurrencyActivity(row) || row.last_used
+const activity = (row: PoolRow) => props.published ? row.activity_at : row.admin?.usage_updated || concurrencyActivity(row) || row.last_used
 const activityTitle = (row: PoolRow) => {
   const stamp = activity(row)
   if (!stamp) return undefined
-  if (!row.admin?.usage_updated && concurrencyActivity(row)) {
+  const kind = props.published ? row.activity_kind : row.admin?.usage_updated ? 'usage_updated' : concurrencyActivity(row) ? 'active_concurrency' : 'last_used'
+  if (kind === 'active_concurrency') {
     const used = row.last_used ? ` · ${tr('accountPoolLastUsed')} ${formatDateTime(row.last_used)}` : ''
     return `${tr('accountPoolObservedAt')} · ${formatDateTime(stamp)}${used}`
   }
-  return `${tr(row.admin?.usage_updated ? 'accountPoolUsageUpdated' : 'accountPoolLastUsed')} · ${formatDateTime(stamp)}`
+  return `${tr(kind === 'usage_updated' ? 'accountPoolUsageUpdated' : 'accountPoolLastUsed')} · ${formatDateTime(stamp)}`
 }
-const accountType = (row: PoolRow): AccountType => (row.admin?.type || 'oauth') as AccountType
-const statusDetail = (row: PoolRow) => [row.admin?.status, row.admin?.intelligence,
+const accountType = (row: PoolRow): AccountType | undefined => props.published ? row.account_type : (row.admin?.type || 'oauth') as AccountType
+const resetAt = (row: PoolRow, name: string) => name === '5h' ? (props.published ? row.reset_5h : row.admin?.reset_5h) : name === '7d' ? (props.published ? row.reset_7d : row.admin?.reset_7d) : undefined
+const statusDetail = (row: PoolRow) => props.published ? (row.recover_at ? tr('accountPoolRecoverAt', { time: formatDateTime(row.recover_at) }) : undefined) : [row.admin?.status, row.admin?.intelligence,
   row.admin?.priority != null ? tr('accountPoolPriority', { value: row.admin.priority }) : '',
   row.admin?.recover_at ? tr('accountPoolRecoverAt', { time: formatDateTime(row.admin.recover_at) }) : ''].filter(Boolean).join(' · ') || undefined
 const poolById = computed(() => new Map(snapshot.value?.pools.map(pool => [pool.id, pool])))
@@ -157,17 +159,26 @@ const memberships = (row: PoolRow) => (row.pools || []).flatMap(id => {
   return pool ? [pool] : []
 })
 const pages = computed(() => groupSnapshot.value?.pages ?? snapshot.value?.page_info?.pages ?? 1)
-const shown = computed(() => groupSnapshot.value?.rows ?? snapshot.value?.rows ?? [])
+const shown = computed<PoolRow[]>(() => props.published?.rows ?? groupSnapshot.value?.rows ?? snapshot.value?.rows ?? [])
 const platformLabel = (id: string) => ({ openai: 'OpenAI', grok: 'Grok', anthropic: 'Anthropic', gemini: 'Gemini' }[id] || tr('accountPoolState_unknown'))
-const columns = computed(() => [
-  { key: 'number', label: tr('accountPoolNumber') },
-  { key: 'platform_type', label: translate('admin.accounts.columns.platformType') },
-  ...(!groupMode.value ? [{ key: 'rates', label: tr('accountPoolEffectiveRate') }] : [{ key: 'status', label: tr('accountPoolStatus') }]),
-  { key: 'capacity', label: tr('accountPoolConcurrency') },
-  ...(!groupMode.value ? [{ key: 'status', label: tr('accountPoolStatus') }, { key: 'groups', label: tr('accountPoolSourceGroup') }] : []),
-  { key: 'usage', label: translate('admin.accounts.columns.usageWindows') },
-  { key: 'last_used', label: tr(groupMode.value ? 'accountPoolLastUsed' : 'accountPoolLastActivity') },
-])
+const columns = computed(() => {
+  const account = { key: 'number', label: tr('accountPoolNumber') }
+  const status = { key: 'status', label: tr('accountPoolStatus') }
+  const platform = { key: 'platform_type', label: translate('admin.accounts.columns.platformType') }
+  const capacity = { key: 'capacity', label: tr('accountPoolConcurrency') }
+  return [
+    account, platform,
+    ...(props.published ? [capacity, status] : groupMode.value ? [status, capacity] : [
+      { key: 'rates', label: tr('accountPoolEffectiveRate') }, capacity, status, { key: 'groups', label: tr('accountPoolSourceGroup') },
+    ]),
+    { key: 'usage', label: translate('admin.accounts.columns.usageWindows') },
+    { key: 'last_used', label: tr(groupMode.value ? 'accountPoolLastUsed' : 'accountPoolLastActivity') },
+  ]
+})
+const statusLabel = (status: string) => {
+  const key = `accountPoolState_${status}`
+  return tr(te(`upstreamSites.${key}`) ? key : 'accountPoolState_unknown')
+}
 const statusBadge: Record<string, string> = { active: 'badge-success', rate_limited: 'badge-warning', temp_unschedulable: 'badge-warning', overload: 'badge-danger', error: 'badge-danger' }
 watch([selectedPool, selectedPlatform], () => { if (page.value === 1) void load(); else page.value = 1 })
 watch(pages, count => { page.value = Math.min(page.value, count) })
@@ -175,10 +186,10 @@ watch(page, () => { void load() })
 
 let request = 0
 let reading = false, unmounted = false
-useIntervalFn(() => { if (!groupMode.value) void load(true) }, computed(() => refreshing.value ? 10_000 : 30_000))
+useIntervalFn(() => { if (props.siteId) void load(true) }, computed(() => refreshing.value ? 10_000 : 30_000))
 
 async function load(quiet = false) {
-  if (unmounted || (quiet && (reading || savingAlias.value))) return
+  if (props.published || unmounted || (quiet && (reading || savingAlias.value))) return
   const id = ++request
   reading = true
   if (!quiet) busy.value = true

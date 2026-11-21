@@ -3,12 +3,42 @@ import { expect, it, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
 import UpstreamAccountPoolPanel from '../UpstreamAccountPoolPanel.vue'
 import en from '@/i18n/locales/en'
-import { upstreamSitesAPI as api, type SitePoolDisplay } from '@/api/admin/upstreamSites'
+import { upstreamSitesAPI as api, type PublishedPoolRow, type SitePoolDisplay } from '@/api/admin/upstreamSites'
 
 vi.mock('@/api/admin/upstreamSites', () => ({
   upstreamSitesAPI: { accountPool: vi.fn(), groupAccountPool: vi.fn(), refreshAccountPool: vi.fn(), renameAccountPool: vi.fn() },
   siteError: (err: Error) => err.message
 }))
+
+it('uses native badges for published rows without showing upstream account details', async () => {
+  vi.mocked(api.accountPool).mockClear()
+  const stamp = new Date(Date.now() - 60_000).toISOString()
+  const row: PublishedPoolRow & Pick<SitePoolDisplay['rows'][number], 'admin'> = {
+    number: 1, platform: 'openai', plan: 'Pro Max', status: 'rate_limited',
+    current: 2, limit: 5, windows: [{ name: '5h', used: 25 }],
+    account_type: 'oauth', observed_at: stamp, activity_at: stamp, activity_kind: 'active_concurrency',
+    admin: { name: 'private account', source_id: '91', type: 'apikey', plan: 'Pro 500', status: 'private status' },
+  }
+  const wrapper = mount(UpstreamAccountPoolPanel, {
+    props: { published: { id: 'exported', source: 'Source', name: 'Public pool', updated: '2026-11-21T07:45:00Z',
+      snapshot_available: true, total: 1, plans: { 'Pro Max': 1 }, statuses: { rate_limited: 1 }, rows: [row], pages: 1 } },
+    global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] },
+  })
+  try {
+    await flushPromises()
+    expect(wrapper.findAll('thead th').map(header => header.text())).toEqual(['Account', 'Platform/Type', 'Concurrency', 'Status', 'Usage Windows', 'Recent activity'])
+    const cells = wrapper.findAll('tbody td')
+    expect(cells[0]!.text()).toBe('#1')
+    expect(cells[1]!.text()).toMatch(/OpenAI.*OAuth.*Pro Max/)
+    expect(cells[2]!.text()).toMatch(/2\s*\/\s*5/)
+    expect(cells[3]!.get('.badge-warning').text()).toBe('Rate limited')
+    expect(cells[4]!.text()).toContain('25%')
+    expect(cells[5]!.get('[title]').attributes('title')).toContain(en.upstreamSites.accountPoolObservedAt)
+    expect(wrapper.text()).not.toMatch(/private|Pro 500/)
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(api.accountPool).not.toHaveBeenCalled()
+  } finally { wrapper.unmount() }
+})
 
 it('shows native OAuth rows and filters by upstream membership even when display names match', async () => {
   const snapshot: SitePoolDisplay = {

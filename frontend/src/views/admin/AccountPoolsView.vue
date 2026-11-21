@@ -53,31 +53,19 @@
         <p v-if="previewError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ previewError }}</p>
         <p v-else-if="!preview" class="text-sm text-gray-500" role="status">{{ tr('accountPoolLoading') }}</p>
         <p v-else-if="!preview.pools.length" class="text-sm text-gray-500">{{ tr('accountPoolNoPublished') }}</p>
-        <article v-for="pool in preview?.pools ?? []" :key="pool.id" class="space-y-3 border-b border-gray-200 pb-5 dark:border-dark-700">
-          <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 class="break-words font-semibold">{{ pool.name }} <span class="text-sm font-normal text-gray-500">{{ pool.source }}</span></h3>
-            <p v-if="pool.updated" class="text-sm text-gray-500">{{ tr('accountPoolSnapshot', { count: pool.total, time: formatDateTime(pool.updated) }) }}</p>
-          </div>
+        <article v-for="pool in preview?.pools ?? []" :key="pool.id" class="min-w-0 space-y-3 border-b border-gray-200 pb-5 dark:border-dark-700">
+          <h3 class="break-words font-semibold">{{ pool.name }} <span class="text-sm font-normal text-gray-500">{{ pool.source }}</span></h3>
           <p v-if="!pool.snapshot_available" class="text-sm text-amber-700 dark:text-amber-300">{{ tr('accountPoolEmpty') }}</p>
           <template v-else>
-            <dl class="flex flex-wrap gap-2 text-sm" :aria-label="tr('accountPoolPlans')">
-              <div v-for="(count, plan) in pool.plans" :key="plan" class="flex items-baseline gap-1.5 rounded-md bg-gray-100 px-2 py-1 dark:bg-dark-800">
-                <dt class="break-all text-gray-600 dark:text-dark-300">{{ plan }}</dt><dd class="font-semibold tabular-nums">{{ count }}</dd>
-              </div>
-              <div v-for="(count, status) in pool.statuses" :key="status" :class="['badge', status === 'active' ? 'badge-success' : 'badge-gray']">
-                <dt>{{ statusLabel(status) }}</dt><dd class="ml-1 tabular-nums">{{ count }}</dd>
-              </div>
-            </dl>
-            <DataTable v-if="pool.rows.length" :columns="columns" :data="pool.rows" row-key="number">
-              <template #cell-number="{ value }"><span class="font-mono text-xs">#{{ value }}</span></template>
-              <template #cell-status="{ value }"><span :class="['badge', value === 'active' ? 'badge-success' : 'badge-gray']">{{ statusLabel(value) }}</span></template>
-            </DataTable>
-            <p v-else class="text-sm text-gray-500">{{ tr('accountPoolNoResults') }}</p>
+            <ul class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700 dark:text-gray-300" :aria-label="tr('accountPoolPlans')">
+              <li v-for="(count, plan) in pool.plans" :key="plan" class="break-words">{{ plan }} <span class="tabular-nums text-gray-500 dark:text-gray-400">{{ count }}</span></li>
+            </ul>
+            <UpstreamAccountPoolPanel :published="pool" />
           </template>
         </article>
-        <div v-if="preview && pageCount > 1" class="flex items-center justify-end gap-2 text-sm">
+        <div v-if="preview && pageCount > 1" class="flex flex-wrap items-center justify-end gap-2 text-sm">
           <button class="btn btn-secondary" type="button" :disabled="previewBusy || preview.page <= 1" :aria-label="tr('accountPoolPrevious')" :title="tr('accountPoolPrevious')" @click="loadPreview(preview.page - 1)">‹</button>
-          <span class="tabular-nums" aria-live="polite">{{ preview.page }} / {{ pageCount }}</span>
+          <span class="px-1 tabular-nums" aria-live="polite">{{ preview.page }} / {{ pageCount }}</span>
           <button class="btn btn-secondary" type="button" :disabled="previewBusy || preview.page >= pageCount" :aria-label="tr('accountPoolNext')" :title="tr('accountPoolNext')" @click="loadPreview(preview.page + 1)">›</button>
         </div>
       </section>
@@ -94,17 +82,15 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import DataTable from '@/components/common/DataTable.vue'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
+import UpstreamAccountPoolPanel from '@/components/admin/account/UpstreamAccountPoolPanel.vue'
 import UpstreamPoolStatusForm from '@/components/admin/account/UpstreamPoolStatusForm.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { isStepUpCancelled, useStepUp } from '@/composables/useStepUp'
-import { formatDateTime } from '@/utils/format'
 import { accountPoolStatusExportPath, siteError, upstreamSitesAPI as api, type PoolStatusPreview, type SitePoolDisplay } from '@/api/admin/upstreamSites'
 
-const { t, te } = useI18n()
+const { t } = useI18n()
 const tr = (key: string, values: Record<string, string | number> = {}) => t(`upstreamSites.${key}`, values)
-const statusLabel = (status: string) => te(`upstreamSites.accountPoolState_${status}`) ? tr(`accountPoolState_${status}`) : tr('accountPoolState_unknown')
 const endpoint = window.location.origin + accountPoolStatusExportPath
 const modes = [{ value: 'preview', label: 'accountPoolShowcase' }, { value: 'settings', label: 'accountPoolExportConfig' }] as const
 const mode = ref<'settings' | 'preview'>('preview')
@@ -116,10 +102,6 @@ const exportEnabled = ref<boolean>(), token = ref('')
 type ExportAction = 'issue' | 'disable'
 const pending = ref<ExportAction | null>(null)
 const pageCount = computed(() => Math.max(1, ...((preview.value?.pools ?? []).map(pool => pool.pages))))
-const columns = computed(() => [
-  { key: 'number', label: tr('accountPoolNumber') }, { key: 'platform', label: tr('accountPoolPlatform') },
-  { key: 'plan', label: tr('accountPoolPlan') }, { key: 'status', label: tr('accountPoolStatus') },
-])
 const { copyToClipboard } = useClipboard()
 const stepUp = useStepUp()
 

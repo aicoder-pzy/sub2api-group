@@ -48,10 +48,22 @@ type storedAccountPoolStatusConfig struct {
 }
 
 type accountPoolStatusRow struct {
-	Number   int    `json:"number"`
-	Platform string `json:"platform"`
-	Plan     string `json:"plan"`
-	Status   string `json:"status"`
+	Number       int                 `json:"number"`
+	Platform     string              `json:"platform"`
+	Plan         string              `json:"plan"`
+	Status       string              `json:"status"`
+	AccountType  string              `json:"account_type,omitempty"`
+	Current      *int                `json:"current,omitempty"`
+	Limit        *int                `json:"limit,omitempty"`
+	Windows      []accountPoolWindow `json:"windows,omitempty"`
+	LastUsed     *time.Time          `json:"last_used,omitempty"`
+	ObservedAt   *time.Time          `json:"observed_at,omitempty"`
+	UsageUpdated *time.Time          `json:"usage_updated,omitempty"`
+	Reset5h      *time.Time          `json:"reset_5h,omitempty"`
+	Reset7d      *time.Time          `json:"reset_7d,omitempty"`
+	RecoverAt    *time.Time          `json:"recover_at,omitempty"`
+	ActivityAt   *time.Time          `json:"activity_at,omitempty"`
+	ActivityKind string              `json:"activity_kind,omitempty"`
 }
 
 type PublishedAccountPoolStatus struct {
@@ -59,6 +71,7 @@ type PublishedAccountPoolStatus struct {
 	Source    string                 `json:"source"`
 	Name      string                 `json:"name"`
 	Updated   *time.Time             `json:"updated"`
+	CheckedAt *time.Time             `json:"checked_at,omitempty"`
 	Available bool                   `json:"snapshot_available"`
 	Total     int                    `json:"total"`
 	Plans     map[string]int         `json:"plans"`
@@ -147,17 +160,32 @@ func (p accountPoolSnapshot) hasCurrentPool(revision int64, poolID string) bool 
 		slices.ContainsFunc(p.Groups, func(group accountPoolSourceGroup) bool { return group.ID == poolID })
 }
 
+func publishedAccountPoolRow(row accountPoolRow, number int) accountPoolStatusRow {
+	out := accountPoolStatusRow{Number: number, Platform: row.Platform, Plan: row.Plan, Status: row.Status,
+		Current: row.Current, Limit: row.Limit, Windows: row.Windows, LastUsed: row.LastUsed}
+	out.ActivityAt, out.ActivityKind = accountPoolActivity(row)
+	if row.Admin != nil {
+		switch row.Admin.Type {
+		case "oauth", "apikey", "setup-token", "upstream", "bedrock", "service_account":
+			out.AccountType = row.Admin.Type
+		}
+		out.ObservedAt, out.UsageUpdated = row.Admin.ObservedAt, row.Admin.UsageUpdated
+		out.Reset5h, out.Reset7d, out.RecoverAt = row.Admin.Reset5h, row.Admin.Reset7d, row.Admin.RecoverAt
+	}
+	return out
+}
+
 func (c AccountPoolStatusConfig) status(snapshot accountPoolSnapshot, revision int64, page, size int) PublishedAccountPoolStatus {
 	out := PublishedAccountPoolStatus{ID: c.PoolID, Source: c.SourceName, Name: c.Name, Plans: map[string]int{}, Statuses: map[string]int{}, Rows: []accountPoolStatusRow{}, Pages: 1}
 	if !snapshot.hasCurrentPool(revision, c.PoolID) {
 		return out
 	}
-	out.Available, out.Updated = true, snapshot.Updated
+	out.Available, out.Updated, out.CheckedAt = true, snapshot.Updated, snapshot.CheckedAt
 	allowed := make(map[string]string, len(c.Plans))
 	for _, plan := range c.Plans {
 		allowed[strings.ToLower(plan)] = plan
 	}
-	start := (page - 1) * size
+	var matching []accountPoolRow
 	for _, row := range snapshot.Rows {
 		if !slices.Contains(row.Groups, c.PoolID) {
 			continue
@@ -172,14 +200,20 @@ func (c AccountPoolStatusConfig) status(snapshot accountPoolSnapshot, revision i
 		if plan == "" {
 			continue
 		}
-		out.Total++
+		row.Plan = plan
+		matching = append(matching, row)
 		out.Plans[plan]++
 		out.Statuses[row.Status]++
-		if out.Total > start && len(out.Rows) < size {
-			out.Rows = append(out.Rows, accountPoolStatusRow{Number: out.Total, Platform: row.Platform, Plan: plan, Status: row.Status})
+	}
+	out.Total = len(matching)
+	out.Pages = max(1, (out.Total+size-1)/size)
+	if page <= out.Pages {
+		slices.SortFunc(matching, compareAccountPoolRows)
+		start := (page - 1) * size
+		for i := start; i < min(start+size, out.Total); i++ {
+			out.Rows = append(out.Rows, publishedAccountPoolRow(matching[i], i+1))
 		}
 	}
-	out.Pages = max(1, (out.Total+size-1)/size)
 	return out
 }
 

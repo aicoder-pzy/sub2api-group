@@ -226,15 +226,7 @@ func (out *AccountPoolDisplay) Paginate(page, size int, poolID, platform string)
 	for _, names := range info.PlansByPool {
 		slices.Sort(names)
 	}
-	slices.SortFunc(matching, func(a, b accountPoolRow) int {
-		if order := accountPoolActivity(b).Compare(accountPoolActivity(a)); order != 0 {
-			return order
-		}
-		if order := poolTime(b.LastUsed).Compare(poolTime(a.LastUsed)); order != 0 {
-			return order
-		}
-		return cmp.Compare(a.Number, b.Number)
-	})
+	slices.SortFunc(matching, compareAccountPoolRows)
 	info.Pages = max(1, (len(matching)+size-1)/size)
 	start := (min(page, info.Pages) - 1) * size
 	out.Page, out.Rows = info, matching[start:min(start+size, len(matching))]
@@ -247,17 +239,31 @@ func poolTime(t *time.Time) time.Time {
 	return *t
 }
 
-func accountPoolActivity(row accountPoolRow) time.Time {
-	last := poolTime(row.LastUsed)
+func compareAccountPoolRows(a, b accountPoolRow) int {
+	at, _ := accountPoolActivity(a)
+	bt, _ := accountPoolActivity(b)
+	if order := poolTime(bt).Compare(poolTime(at)); order != 0 {
+		return order
+	}
+	if order := poolTime(b.LastUsed).Compare(poolTime(a.LastUsed)); order != 0 {
+		return order
+	}
+	return cmp.Compare(a.Number, b.Number)
+}
+
+func accountPoolActivity(row accountPoolRow) (*time.Time, string) {
 	if row.Admin != nil {
 		if row.Admin.UsageUpdated != nil {
-			return *row.Admin.UsageUpdated
+			return row.Admin.UsageUpdated, "usage_updated"
 		}
-		if row.Current != nil && *row.Current > 0 && poolTime(row.Admin.ObservedAt).After(last) {
-			return *row.Admin.ObservedAt
+		if row.Current != nil && *row.Current > 0 && poolTime(row.Admin.ObservedAt).After(poolTime(row.LastUsed)) {
+			return row.Admin.ObservedAt, "active_concurrency"
 		}
 	}
-	return last
+	if row.LastUsed != nil {
+		return row.LastUsed, "last_used"
+	}
+	return nil, ""
 }
 
 func (s *UpstreamBillingProbeService) RenameAccountPool(ctx context.Context, site *UpstreamSite, id, name string) error {

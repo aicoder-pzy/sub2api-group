@@ -6,7 +6,7 @@
         <PlatformIcon :platform="platform" size="xs" />
         <span>{{ platformLabel }}</span>
       </span>
-      <span :class="['inline-flex items-center gap-1 px-1.5 py-1', typeClass]">
+      <span v-if="type" :class="['inline-flex items-center gap-1 px-1.5 py-1', typeClass]">
         <!-- OAuth icon -->
         <svg
           v-if="type === 'oauth'"
@@ -78,7 +78,7 @@ const { t } = useI18n()
 
 interface Props {
   platform: AccountPlatform
-  type: AccountType
+  type?: AccountType
   authMode?: string
   planType?: string
   displayPlanLabel?: string
