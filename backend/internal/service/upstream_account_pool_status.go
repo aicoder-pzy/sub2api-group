@@ -48,22 +48,28 @@ type storedAccountPoolStatusConfig struct {
 }
 
 type accountPoolStatusRow struct {
-	Number       int                 `json:"number"`
-	Platform     string              `json:"platform"`
-	Plan         string              `json:"plan"`
-	Status       string              `json:"status"`
-	AccountType  string              `json:"account_type,omitempty"`
-	Current      *int                `json:"current,omitempty"`
-	Limit        *int                `json:"limit,omitempty"`
-	Windows      []accountPoolWindow `json:"windows,omitempty"`
-	LastUsed     *time.Time          `json:"last_used,omitempty"`
-	ObservedAt   *time.Time          `json:"observed_at,omitempty"`
-	UsageUpdated *time.Time          `json:"usage_updated,omitempty"`
-	Reset5h      *time.Time          `json:"reset_5h,omitempty"`
-	Reset7d      *time.Time          `json:"reset_7d,omitempty"`
-	RecoverAt    *time.Time          `json:"recover_at,omitempty"`
-	ActivityAt   *time.Time          `json:"activity_at,omitempty"`
-	ActivityKind string              `json:"activity_kind,omitempty"`
+	Number       int                        `json:"number"`
+	Platform     string                     `json:"platform"`
+	Plan         string                     `json:"plan"`
+	Status       string                     `json:"status"`
+	AccountType  string                     `json:"account_type,omitempty"`
+	Current      *int                       `json:"current,omitempty"`
+	Limit        *int                       `json:"limit,omitempty"`
+	Windows      []accountPoolWindow        `json:"windows,omitempty"`
+	LastUsed     *time.Time                 `json:"last_used,omitempty"`
+	ObservedAt   *time.Time                 `json:"observed_at,omitempty"`
+	UsageUpdated *time.Time                 `json:"usage_updated,omitempty"`
+	Reset5h      *time.Time                 `json:"reset_5h,omitempty"`
+	Reset7d      *time.Time                 `json:"reset_7d,omitempty"`
+	RecoverAt    *time.Time                 `json:"recover_at,omitempty"`
+	ActivityAt   *time.Time                 `json:"activity_at,omitempty"`
+	ActivityKind string                     `json:"activity_kind,omitempty"`
+	Admin        *accountPoolStatusIdentity `json:"admin,omitempty"`
+}
+
+type accountPoolStatusIdentity struct {
+	Name     string `json:"name,omitempty"`
+	SourceID string `json:"source_id,omitempty"`
 }
 
 type PublishedAccountPoolStatus struct {
@@ -175,7 +181,7 @@ func publishedAccountPoolRow(row accountPoolRow, number int) accountPoolStatusRo
 	return out
 }
 
-func (c AccountPoolStatusConfig) status(snapshot accountPoolSnapshot, revision int64, page, size int) PublishedAccountPoolStatus {
+func (c AccountPoolStatusConfig) status(snapshot accountPoolSnapshot, revision int64, page, size int, includeIdentity bool) PublishedAccountPoolStatus {
 	out := PublishedAccountPoolStatus{ID: c.PoolID, Source: c.SourceName, Name: c.Name, Plans: map[string]int{}, Statuses: map[string]int{}, Rows: []accountPoolStatusRow{}, Pages: 1}
 	if !snapshot.hasCurrentPool(revision, c.PoolID) {
 		return out
@@ -211,13 +217,17 @@ func (c AccountPoolStatusConfig) status(snapshot accountPoolSnapshot, revision i
 		slices.SortFunc(matching, compareAccountPoolRows)
 		start := (page - 1) * size
 		for i := start; i < min(start+size, out.Total); i++ {
-			out.Rows = append(out.Rows, publishedAccountPoolRow(matching[i], i+1))
+			row := publishedAccountPoolRow(matching[i], i+1)
+			if admin := matching[i].Admin; includeIdentity && admin != nil && (admin.Name != "" || admin.SourceID != "") {
+				row.Admin = &accountPoolStatusIdentity{Name: admin.Name, SourceID: admin.SourceID}
+			}
+			out.Rows = append(out.Rows, row)
 		}
 	}
 	return out
 }
 
-func (s *UpstreamBillingProbeService) PublishedAccountPools(ctx context.Context, page, size int) ([]PublishedAccountPoolStatus, error) {
+func (s *UpstreamBillingProbeService) AccountPoolStatus(ctx context.Context, page, size int, includeIdentity bool) ([]PublishedAccountPoolStatus, error) {
 	if s == nil || s.db == nil {
 		return nil, ErrUpstreamBillingProbeUnavailable
 	}
@@ -249,7 +259,7 @@ func (s *UpstreamBillingProbeService) PublishedAccountPools(ctx context.Context,
 		if err := json.Unmarshal(rawSnapshot, &snapshot); err != nil {
 			return nil, err
 		}
-		out = append(out, cfg.status(snapshot, revision, page, size))
+		out = append(out, cfg.status(snapshot, revision, page, size, includeIdentity))
 	}
 	return out, rows.Err()
 }

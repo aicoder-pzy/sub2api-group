@@ -175,7 +175,7 @@ export interface PoolStatusPreview {
     id: string; source: string; name: string; updated: string | null; snapshot_available: boolean
     checked_at?: string
     total: number; pages: number; plans: Record<string, number>; statuses: Record<string, number>
-    rows: PublishedPoolRow[]
+    rows: (PublishedPoolRow & { admin?: Pick<NonNullable<SitePoolDisplay['rows'][number]['admin']>, 'name' | 'source_id'> })[]
   }[]
   page: number
   page_size: number

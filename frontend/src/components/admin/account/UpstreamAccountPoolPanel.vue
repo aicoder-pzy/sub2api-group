@@ -43,8 +43,8 @@
       </div>
       <DataTable v-if="shown.length" :columns="columns" :data="shown" row-key="number">
         <template #cell-number="{ row, value }">
-          <span v-if="!published && row.admin?.name" class="text-sm font-medium" :title="row.admin.source_id ? `#${row.admin.source_id}` : undefined">{{ row.admin.name }}</span>
-          <span v-else class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ (published ? undefined : row.admin?.source_id) || value }}</span>
+          <span v-if="row.admin?.name" class="text-sm font-medium" :title="row.admin.source_id ? `#${row.admin.source_id}` : undefined">{{ row.admin.name }}</span>
+          <span v-else class="font-mono text-xs text-gray-500 dark:text-gray-400">{{ row.admin?.source_id ? `#${row.admin.source_id}` : published ? '\u2014' : `#${value}` }}</span>
         </template>
         <template #cell-platform_type="{ row }">
           <PlatformTypeBadge

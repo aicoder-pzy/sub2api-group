@@ -126,7 +126,7 @@ func (h *AccountHandler) ExportAccountPoolStatus(c *gin.Context) {
 		response.Unauthorized(c, "Invalid account pool status credential")
 		return
 	}
-	h.PreviewAccountPoolStatus(c)
+	h.serveAccountPoolStatus(c, false)
 }
 
 func (h *AccountHandler) poolStatusCredential(c *gin.Context) ([]byte, bool, error) {
@@ -177,9 +177,13 @@ func (h *AccountHandler) DisableAccountPoolStatusExport(c *gin.Context) {
 }
 
 func (h *AccountHandler) PreviewAccountPoolStatus(c *gin.Context) {
+	h.serveAccountPoolStatus(c, true)
+}
+
+func (h *AccountHandler) serveAccountPoolStatus(c *gin.Context, includeIdentity bool) {
 	c.Header("Cache-Control", "no-store")
 	page, size := response.ParsePagination(c)
-	pools, err := h.upstreamBillingProbe.PublishedAccountPools(c.Request.Context(), page, size)
+	pools, err := h.upstreamBillingProbe.AccountPoolStatus(c.Request.Context(), page, size, includeIdentity)
 	if !response.ErrorFrom(c, err) {
 		response.Success(c, gin.H{"pools": pools, "page": page, "page_size": size})
 	}

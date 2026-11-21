@@ -10,25 +10,28 @@ vi.mock('@/api/admin/upstreamSites', () => ({
   siteError: (err: Error) => err.message
 }))
 
-it('uses native badges for published rows without showing upstream account details', async () => {
+it('shows original account identity and native badges in the admin preview', async () => {
   vi.mocked(api.accountPool).mockClear()
   const stamp = new Date(Date.now() - 60_000).toISOString()
   const row: PublishedPoolRow & Pick<SitePoolDisplay['rows'][number], 'admin'> = {
     number: 1, platform: 'openai', plan: 'Pro Max', status: 'rate_limited',
     current: 2, limit: 5, windows: [{ name: '5h', used: 25 }],
     account_type: 'oauth', observed_at: stamp, activity_at: stamp, activity_kind: 'active_concurrency',
-    admin: { name: 'private account', source_id: '91', type: 'apikey', plan: 'Pro 500', status: 'private status' },
+    admin: { name: 'Original account', source_id: '91', type: 'apikey', plan: 'Pro 500', status: 'private status' },
   }
   const wrapper = mount(UpstreamAccountPoolPanel, {
     props: { published: { id: 'exported', source: 'Source', name: 'Public pool', updated: '2026-11-21T07:45:00Z',
-      snapshot_available: true, total: 1, plans: { 'Pro Max': 1 }, statuses: { rate_limited: 1 }, rows: [row], pages: 1 } },
+      snapshot_available: true, total: 3, plans: { 'Pro Max': 3 }, statuses: { rate_limited: 3 },
+      rows: [row, { ...row, number: 2, admin: { source_id: '92' } }, { ...row, number: 3, admin: undefined }], pages: 1 } },
     global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] },
   })
   try {
     await flushPromises()
     expect(wrapper.findAll('thead th').map(header => header.text())).toEqual(['Account', 'Platform/Type', 'Concurrency', 'Status', 'Usage Windows', 'Recent activity'])
     const cells = wrapper.findAll('tbody td')
-    expect(cells[0]!.text()).toBe('#1')
+    expect(cells[0]!.text()).toBe('Original account')
+    expect(cells[0]!.get('[title]').attributes('title')).toBe('#91')
+    expect(wrapper.findAll('tbody tr').map(row => row.get('td').text())).toEqual(['Original account', '#92', '\u2014'])
     expect(cells[1]!.text()).toMatch(/OpenAI.*OAuth.*Pro Max/)
     expect(cells[2]!.text()).toMatch(/2\s*\/\s*5/)
     expect(cells[3]!.get('.badge-warning').text()).toBe('Rate limited')
