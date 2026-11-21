@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,6 +50,66 @@ func TestVulcanAccountPoolPublicOnly(t *testing.T) {
 	require.True(t, accountPoolEnabled(site))
 	site.Purpose = "private"
 	require.False(t, accountPoolEnabled(site))
+}
+
+func TestAdminAccountPoolPaginatesAfterFilteringAndSorting(t *testing.T) {
+	base := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+	last, observed, quota := base.Add(time.Minute), base.Add(2*time.Minute), base.Add(3*time.Minute)
+	current := 1
+	snapshot := accountPoolSnapshot{Rows: []accountPoolRow{
+		{Number: 1, Groups: []string{"pool"}, Platform: "openai", Plan: "Plus"},
+		{Number: 2, Groups: []string{"pool"}, Platform: "openai", Plan: "Team", LastUsed: &last},
+		{Number: 3, Groups: []string{"pool"}, Platform: "openai", Plan: "Pro", LastUsed: &base, Current: &current, Admin: &accountPoolAdminRow{ObservedAt: &observed}},
+		{Number: 4, Groups: []string{"pool"}, Platform: "openai", Plan: "Pro", Admin: &accountPoolAdminRow{UsageUpdated: &quota}},
+		{Number: 5, Groups: []string{"other"}, Platform: "grok", Plan: "SuperGrok", LastUsed: &quota},
+	}}
+	first := snapshot.display(nil, true)
+	first.Paginate(1, 2, "pool", "openai")
+	require.Len(t, first.Rows, 2)
+	require.Equal(t, 4, first.Rows[0].Number)
+	require.Equal(t, 3, first.Rows[1].Number)
+	require.Equal(t, 5, first.Page.Total)
+	require.Equal(t, 2, first.Page.Pages)
+	require.Equal(t, []string{"grok", "openai"}, first.Page.Platforms)
+	require.Equal(t, []string{"Plus", "Pro", "Team"}, first.Page.PlansByPool["pool"])
+	second := snapshot.display(nil, true)
+	second.Paginate(99, 2, "pool", "openai")
+	require.Len(t, second.Rows, 2)
+	require.Equal(t, 2, second.Rows[0].Number)
+	require.Equal(t, 1, second.Rows[1].Number)
+	require.Len(t, snapshot.display(nil, false).Rows, 5)
+	require.Equal(t, 1, snapshot.Rows[0].Number)
+}
+
+func TestDueAccountPoolCollectionSkipsSiteInBackoff(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	s := NewUpstreamBillingProbeService(nil, nil, nil)
+	t.Cleanup(s.Stop)
+	s.db = db
+	const cooling = "17bf73f5-11b3-41ec-9b35-7bd818076897"
+	const due = "98b13092-92c3-4b3d-b030-83ab76299e38"
+	s.accountPoolRefreshStates = map[string]accountPoolRefreshState{
+		cooling: {Error: "upstream limited", RetryAt: time.Now().Add(-time.Minute)},
+	}
+	mock.ExpectQuery(`SELECT s\.id FROM upstream_sites`).WithArgs(accountPoolBaseURL, vulcanPoolBaseURL, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(cooling).AddRow(due))
+	cols := []string{"id", "name", "kind", "base_url", "user_id", "proxy_id", "revision", "token_cipher", "inference_url", "purchase_note", "inventory", "model_catalogs", "refresh_token_cipher", "purpose"}
+	for _, id := range []string{cooling, due} {
+		mock.ExpectQuery("SELECT id,name,kind,base_url").WithArgs(id).
+			WillReturnRows(sqlmock.NewRows(cols).AddRow(id, "upstream", "sub2api", accountPoolBaseURL, 1, nil, 1, "", "", "", "{}", "{}", "", "public"))
+	}
+	// Fail the new run before its upstream request. Failure never reaches the snapshot write.
+	mock.ExpectQuery(`SELECT COALESCE\(p\.snapshot`).WithArgs(due, accountPoolBaseURL, true, vulcanPoolBaseURL).
+		WillReturnError(errPoolChanged)
+	require.NoError(t, s.refreshDueAccountPool(context.Background()))
+	require.Eventually(t, func() bool {
+		s.accountPoolMu.Lock()
+		defer s.accountPoolMu.Unlock()
+		return s.accountPoolSite == "" && s.accountPoolRefreshStates[due].Error != "" && s.accountPoolRefreshStates[cooling].Error == "upstream limited"
+	}, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestAccountPoolRetryDelay(t *testing.T) {

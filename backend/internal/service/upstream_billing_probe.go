@@ -269,11 +269,9 @@ type UpstreamBillingProbeService struct {
 	db           *sql.DB
 	instanceID   string
 
-	accountPoolMu      sync.Mutex
-	accountPoolSite    string
-	accountPoolRunning bool
-	accountPoolError   string
-	accountPoolRetryAt time.Time
+	accountPoolMu            sync.Mutex
+	accountPoolSite          string
+	accountPoolRefreshStates map[string]accountPoolRefreshState
 }
 
 type upstreamBillingProbeSnapshotWriter interface {
@@ -369,6 +367,7 @@ func (s *UpstreamBillingProbeService) Stop() {
 
 func (s *UpstreamBillingProbeService) runLoop() {
 	defer s.wg.Done()
+	s.runAccountPoolCycle()
 	_ = s.RunDue(s.parentCtx)
 	_ = s.RunBalanceDue(s.parentCtx)
 	_ = s.RunBalanceNotifications(s.parentCtx)
@@ -379,6 +378,7 @@ func (s *UpstreamBillingProbeService) runLoop() {
 		case <-s.parentCtx.Done():
 			return
 		case <-ticker.C:
+			s.runAccountPoolCycle()
 			if err := s.RunDue(s.parentCtx); err != nil {
 				logger.LegacyPrintf("service.upstream_billing_probe", "run_due_failed: err=%v", err)
 			}
@@ -389,6 +389,12 @@ func (s *UpstreamBillingProbeService) runLoop() {
 				logger.LegacyPrintf("service.upstream_balance_notifications", "run_failed: err=%v", err)
 			}
 		}
+	}
+}
+
+func (s *UpstreamBillingProbeService) runAccountPoolCycle() {
+	if err := s.refreshDueAccountPool(s.parentCtx); err != nil && s.parentCtx.Err() == nil {
+		logger.LegacyPrintf("service.upstream_account_pool", "schedule_refresh_failed: err=%v", err)
 	}
 }
 

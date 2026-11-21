@@ -18,6 +18,10 @@ func (h *AccountHandler) GetUpstreamAccountPool(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	data, err := h.upstreamBillingProbe.AccountPoolDisplay(c.Request.Context(), c.Param("site_id"), true)
 	if !response.ErrorFrom(c, err) {
+		if c.Query("page") != "" {
+			page, size := response.ParsePagination(c)
+			data.Paginate(page, size, c.Query("pool_id"), c.Query("platform"))
+		}
 		response.Success(c, data)
 	}
 }

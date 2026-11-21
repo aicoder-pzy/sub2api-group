@@ -4,12 +4,15 @@
       <p class="text-sm text-gray-500" role="status">
         {{ updated ? tr('accountPoolSnapshot', { count: total, time: formatDateTime(updated) }) : tr(busy ? 'accountPoolLoading' : 'accountPoolEmpty') }}
       </p>
-      <button class="btn btn-secondary" type="button" :disabled="busy || refreshing" @click="load(!groupMode)">
-        <Icon name="refresh" size="sm" :class="{ 'animate-spin': refreshing }" />{{ tr(groupMode ? 'accountPoolReload' : refreshing ? 'accountPoolRefreshing' : 'accountPoolRefresh') }}
-      </button>
+      <div class="flex flex-wrap items-center gap-2">
+        <span v-if="refreshing" class="text-sm text-gray-500" role="status">{{ tr('accountPoolRefreshing') }}</span>
+        <button class="btn btn-secondary" type="button" :disabled="groupMode ? busy : requestingRefresh || refreshing" @click="groupMode ? load() : requestRefresh()">
+          <Icon name="refresh" size="sm" />{{ tr(groupMode ? 'accountPoolReload' : 'accountPoolRefresh') }}
+        </button>
+      </div>
     </div>
     <p v-if="stale" class="text-sm text-amber-700 dark:text-amber-300" role="status">{{ tr('accountPoolStale') }}</p>
-    <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
+    <p v-if="error || actionError || snapshot?.refresh_error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error || actionError || snapshot?.refresh_error }}</p>
     <p v-if="groupSnapshot && !groupSnapshot.complete" role="status" class="rounded-lg border border-amber-200 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:text-amber-300">{{ tr('accountPoolPartial') }}</p>
     <ul v-if="groupSnapshot?.plans.length" class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700 dark:text-gray-300" :aria-label="tr('accountPoolPlans')">
       <li v-for="plan in groupSnapshot.plans" :key="plan.code">{{ plan.name }} <span class="tabular-nums text-gray-500 dark:text-gray-400">{{ plan.count }}</span></li>
@@ -19,8 +22,8 @@
       <ul class="mt-2 divide-y divide-gray-200 dark:divide-dark-700">
         <li v-for="pool in snapshot.pools" :key="pool.id" class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
           <span class="col-span-2 min-w-0 break-words text-sm sm:col-span-1">{{ pool.original || pool.name }} <span class="text-gray-500">({{ pool.count }})</span></span>
-          <input v-model="drafts[pool.id]" class="input min-w-0" maxlength="60" :aria-label="tr('accountPoolName') + ' · ' + pool.name" :placeholder="pool.name" :disabled="busy" @keydown.enter.prevent="rename(pool)" />
-          <button class="btn btn-secondary whitespace-nowrap" type="button" :disabled="busy || (drafts[pool.id] || '').trim() === (pool.alias || '')" @click="rename(pool)">{{ tr('accountPoolSave') }}</button>
+          <input v-model="drafts[pool.id]" class="input min-w-0" maxlength="60" :aria-label="tr('accountPoolName') + ' · ' + pool.name" :placeholder="pool.name" :disabled="savingAlias" @keydown.enter.prevent="rename(pool)" />
+          <button class="btn btn-secondary whitespace-nowrap" type="button" :disabled="savingAlias || (drafts[pool.id] || '').trim() === (pool.alias || '')" @click="rename(pool)">{{ tr('accountPoolSave') }}</button>
         </li>
       </ul>
     </details>
@@ -88,16 +91,16 @@
       </DataTable>
       <p v-else class="text-sm text-gray-500">{{ tr('accountPoolNoResults') }}</p>
       <div v-if="pages > 1" class="flex flex-wrap items-center justify-end gap-2 text-sm">
-        <button class="btn btn-secondary" type="button" :disabled="busy || page === 1" :aria-label="tr('accountPoolPrevious')" :title="tr('accountPoolPrevious')" @click="page--">‹</button>
+        <button class="btn btn-secondary" type="button" :disabled="(groupMode && busy) || page === 1" :aria-label="tr('accountPoolPrevious')" :title="tr('accountPoolPrevious')" @click="page--">‹</button>
         <span class="px-1 tabular-nums" aria-live="polite">{{ page }} / {{ pages }}</span>
-        <button class="btn btn-secondary" type="button" :disabled="busy || page >= pages" :aria-label="tr('accountPoolNext')" :title="tr('accountPoolNext')" @click="page++">›</button>
+        <button class="btn btn-secondary" type="button" :disabled="(groupMode && busy) || page >= pages" :aria-label="tr('accountPoolNext')" :title="tr('accountPoolNext')" @click="page++">›</button>
       </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIntervalFn } from '@vueuse/core'
 import { upstreamSitesAPI, siteError, type GroupPoolDisplay, type SitePool, type SitePoolDisplay } from '@/api/admin/upstreamSites'
@@ -113,20 +116,22 @@ import type { AccountType } from '@/types'
 const props = defineProps<{ siteId?: string; groupId?: number }>()
 const { t: translate } = useI18n()
 const tr = (key: string, params: Record<string, string | number> = {}) => translate(`upstreamSites.${key}`, params)
-const snapshot = ref<SitePoolDisplay>(), drafts = ref<Record<string, string>>({})
+const snapshot = shallowRef<SitePoolDisplay>(), drafts = ref<Record<string, string>>({})
 const groupSnapshot = ref<GroupPoolDisplay>()
 const editStatus = ref(false)
 const groupMode = computed(() => props.groupId != null)
 const updated = computed(() => groupSnapshot.value?.updated ?? snapshot.value?.updated)
-const total = computed(() => groupSnapshot.value?.total ?? snapshot.value?.rows.length ?? 0)
+const total = computed(() => groupSnapshot.value?.total ?? snapshot.value?.page_info?.total ?? 0)
 const busy = ref(false), refreshing = ref(false), error = ref('')
+const actionError = ref(''), requestingRefresh = ref(false), savingAlias = ref(false)
 const now = ref(Date.now())
 useIntervalFn(() => { now.value = Date.now() }, 60_000)
 const isOld = (stamp: string | null | undefined) => !stamp || now.value - Date.parse(stamp) >= 15 * 60_000
 const stale = computed(() => !groupMode.value && !!updated.value && isOld(updated.value))
 const selectedPool = ref(''), selectedPlatform = ref(''), page = ref(1)
 const size = 30
-const platforms = computed(() => [...new Set(snapshot.value?.rows.map(row => row.platform))].sort())
+const platforms = computed(() => snapshot.value?.page_info?.platforms ?? [])
+const siteQuery = () => ({ page: page.value, page_size: size, pool_id: selectedPool.value || undefined, platform: selectedPlatform.value || undefined })
 type PoolRow = SitePoolDisplay['rows'][number]
 const capacityTitle = (row: PoolRow) => {
   const stamp = row.admin?.observed_at || updated.value
@@ -137,7 +142,6 @@ const concurrencyActivity = (row: PoolRow) => {
   return (row.current ?? 0) > 0 && observed && Date.parse(observed) > (Date.parse(row.last_used || '') || 0) ? observed : undefined
 }
 const activity = (row: PoolRow) => row.admin?.usage_updated || concurrencyActivity(row) || row.last_used
-const activityTime = (row: PoolRow) => Date.parse(activity(row) || '') || 0
 const activityTitle = (row: PoolRow) => {
   const stamp = activity(row)
   if (!stamp) return undefined
@@ -156,11 +160,8 @@ const memberships = (row: PoolRow) => (row.pools || []).flatMap(id => {
   const pool = poolById.value.get(id)
   return pool ? [pool] : []
 })
-const filtered = computed(() => (snapshot.value?.rows || [])
-  .filter(row => (!selectedPool.value || row.pools?.includes(selectedPool.value)) && (!selectedPlatform.value || row.platform === selectedPlatform.value))
-  .sort((a, b) => activityTime(b) - activityTime(a) || (Date.parse(b.last_used || '') || 0) - (Date.parse(a.last_used || '') || 0) || a.number - b.number))
-const pages = computed(() => groupSnapshot.value?.pages ?? Math.max(1, Math.ceil(filtered.value.length / size)))
-const shown = computed(() => groupSnapshot.value?.rows ?? filtered.value.slice((page.value - 1) * size, page.value * size))
+const pages = computed(() => groupSnapshot.value?.pages ?? snapshot.value?.page_info?.pages ?? 1)
+const shown = computed(() => groupSnapshot.value?.rows ?? snapshot.value?.rows ?? [])
 const platformLabel = (id: string) => ({ openai: 'OpenAI', grok: 'Grok', anthropic: 'Anthropic', gemini: 'Gemini' }[id] || tr('accountPoolState_unknown'))
 const columns = computed(() => [
   { key: 'number', label: tr('accountPoolNumber') },
@@ -172,56 +173,63 @@ const columns = computed(() => [
   { key: 'last_used', label: tr(groupMode.value ? 'accountPoolLastUsed' : 'accountPoolLastActivity') },
 ])
 const statusBadge: Record<string, string> = { active: 'badge-success', rate_limited: 'badge-warning', temp_unschedulable: 'badge-warning', overload: 'badge-danger', error: 'badge-danger' }
-watch([selectedPool, selectedPlatform], () => { page.value = 1 })
+watch([selectedPool, selectedPlatform], () => { if (page.value === 1) void load(); else page.value = 1 })
 watch(pages, count => { page.value = Math.min(page.value, count) })
-watch(page, () => { if (groupMode.value) void load(false) })
+watch(page, () => { void load() })
 
-let timer: number | undefined
-let unmounted = false
-function poll() {
-  if (refreshing.value && !unmounted) timer = window.setTimeout(() => { void load(false) }, 5000)
-}
+let request = 0
+let reading = false, unmounted = false
+useIntervalFn(() => { if (!groupMode.value) void load(true) }, computed(() => refreshing.value ? 10_000 : 30_000))
 
-async function load(refresh: boolean) {
-  if (busy.value || unmounted) { poll(); return }
-  if (refresh) refreshing.value = true
-  busy.value = true; error.value = ''
+async function load(quiet = false) {
+  if (unmounted || (quiet && (reading || savingAlias.value))) return
+  const id = ++request
+  reading = true
+  if (!quiet) busy.value = true
   try {
     if (props.groupId != null) {
       const next = await upstreamSitesAPI.groupAccountPool(props.groupId, page.value, size)
+      if (id !== request) return
       groupSnapshot.value = next
-      return
+    } else if (props.siteId) {
+      const next = await upstreamSitesAPI.accountPool(props.siteId, siteQuery())
+      if (id !== request) return
+      now.value = Date.now()
+      const previous = poolById.value
+      for (const pool of next.pools) {
+        if ((drafts.value[pool.id] || '') === (previous.get(pool.id)?.alias || '')) drafts.value[pool.id] = pool.alias || ''
+      }
+      snapshot.value = next
+      refreshing.value = !!next.refreshing
     }
-    if (!props.siteId) return
-    if (refresh) await upstreamSitesAPI.refreshAccountPool(props.siteId)
-    const next = await upstreamSitesAPI.accountPool(props.siteId)
-    now.value = Date.now()
-    const changed = snapshot.value?.updated !== next.updated
-    snapshot.value = next
-    refreshing.value = !!next.refreshing
-    error.value = next.refresh_error || ''
-    if (!next.pools.some(pool => pool.id === selectedPool.value)) selectedPool.value = ''
-    if (!platforms.value.includes(selectedPlatform.value)) selectedPlatform.value = ''
-    if (changed) drafts.value = Object.fromEntries(next.pools.map(pool => [pool.id, pool.alias || '']))
-  } catch (cause) { error.value = siteError(cause); refreshing.value = false }
-  finally { busy.value = false; poll() }
+    error.value = ''
+  } catch (cause) { if (id === request) error.value = siteError(cause) }
+  finally { if (id === request) { reading = false; busy.value = false } }
+}
+
+async function requestRefresh() {
+  if (!props.siteId || requestingRefresh.value || refreshing.value) return
+  requestingRefresh.value = true; actionError.value = ''
+  try {
+    await upstreamSitesAPI.refreshAccountPool(props.siteId)
+    refreshing.value = true
+    void load(true)
+  } catch (cause) { actionError.value = siteError(cause) }
+  finally { requestingRefresh.value = false }
 }
 
 async function rename(pool: SitePool) {
   const name = (drafts.value[pool.id] || '').trim()
-  if (!props.siteId || busy.value || name === (pool.alias || '')) return
-  busy.value = true; error.value = ''
+  if (!props.siteId || savingAlias.value || name === (pool.alias || '')) return
+  savingAlias.value = true; actionError.value = ''
   try {
-    snapshot.value = await upstreamSitesAPI.renameAccountPool(props.siteId, pool.id, name)
+    await upstreamSitesAPI.renameAccountPool(props.siteId, pool.id, name, siteQuery())
     drafts.value[pool.id] = name
-  } catch (cause) { error.value = siteError(cause) }
-  finally { busy.value = false }
+    await load()
+  } catch (cause) { actionError.value = siteError(cause) }
+  finally { savingAlias.value = false }
 }
 
-onMounted(async () => {
-  await load(false)
-  if (unmounted || groupMode.value || !snapshot.value || refreshing.value) return
-  if (isOld(snapshot.value.checked_at || snapshot.value.updated)) await load(true)
-})
-onUnmounted(() => { unmounted = true; window.clearTimeout(timer) })
+onMounted(() => { void load() })
+onUnmounted(() => { unmounted = true; request++ })
 </script>

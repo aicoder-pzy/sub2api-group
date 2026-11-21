@@ -138,6 +138,7 @@ export interface SitePoolDisplay {
   checked_at?: string
   refreshing?: boolean
   refresh_error?: string
+  page_info?: { total: number; pages: number; platforms: string[]; plans_by_pool: Record<string, string[]> }
   pools: SitePool[]
   rows: {
     number: number; platform: string; plan: string; status: string; current?: number; limit?: number
@@ -148,6 +149,7 @@ export interface SitePoolDisplay {
     }
   }[]
 }
+interface SitePoolQuery { page: number; page_size: number; pool_id?: string; platform?: string }
 export interface PoolStatusConfig {
   pool_id: string
   source_name: string
@@ -170,13 +172,13 @@ export const upstreamSitesAPI = {
   async groupAccountPool(id: number, page: number, pageSize: number): Promise<GroupPoolDisplay> {
     return (await apiClient.get(`/admin/groups/${id}/account-pool`, { params: { page, page_size: pageSize } })).data
   },
-  async accountPool(id: string): Promise<SitePoolDisplay> { return (await apiClient.get(`${sitePath(id)}/account-pool`)).data },
+  async accountPool(id: string, params?: SitePoolQuery): Promise<SitePoolDisplay> { return (await apiClient.get(`${sitePath(id)}/account-pool`, { params })).data },
   async poolStatusConfig(id: string): Promise<PoolStatusConfig> { return (await apiClient.get(`${sitePath(id)}/account-pool-status`)).data },
   async savePoolStatusConfig(id: string, config: PoolStatusConfig): Promise<PoolStatusConfig> {
     return (await apiClient.put(`${sitePath(id)}/account-pool-status`, { config })).data
   },
   async refreshAccountPool(id: string): Promise<void> { await apiClient.post(`${sitePath(id)}/account-pool/refresh`) },
-  async renameAccountPool(id: string, pool: string, name: string): Promise<SitePoolDisplay> { return (await apiClient.put(`${sitePath(id)}/account-pool/${encodeURIComponent(pool)}`, { name })).data },
+  async renameAccountPool(id: string, pool: string, name: string, params?: SitePoolQuery): Promise<SitePoolDisplay> { return (await apiClient.put(`${sitePath(id)}/account-pool/${encodeURIComponent(pool)}`, { name }, { params })).data },
   async list(): Promise<UpstreamSite[]> { return (await apiClient.get(endpoint)).data },
   async save(id: string, form: SiteForm): Promise<UpstreamSite> {
     return (await (id ? apiClient.put(sitePath(id), form, { timeout: 60_000 }) : apiClient.post(endpoint, form, { timeout: 60_000 }))).data

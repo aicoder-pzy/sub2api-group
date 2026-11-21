@@ -17,7 +17,7 @@ it('publishes the displayed plans after a source plan is renamed', async () => {
   const wrapper = mount(UpstreamPoolStatusForm, {
     props: { siteId: 'qiu', snapshot: { updated: null,
       pools: [{ id: 'pool', name: 'Default', original: 'Original pool', count: 2 }],
-      rows: ['Pro 500', 'Team'].map((plan, index) => ({ number: index + 1, platform: 'openai', plan, status: 'active', pools: ['pool'] })),
+      rows: [], page_info: { total: 2, pages: 2, platforms: ['openai'], plans_by_pool: { pool: ['Pro 500', 'Team'] } },
     } },
     global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] },
   })

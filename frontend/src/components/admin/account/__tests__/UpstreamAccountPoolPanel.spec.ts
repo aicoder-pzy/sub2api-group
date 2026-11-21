@@ -24,11 +24,18 @@ it('shows native OAuth rows and filters by upstream membership even when display
       current: 0, limit: 2, windows: [{ name: '5h', used: 25 }]
     }))
   }
-  vi.mocked(api.accountPool).mockResolvedValueOnce(snapshot)
+  const info = { total: 32, pages: 2, platforms: ['grok', 'openai'], plans_by_pool: {} }
+  const renamed = { ...snapshot, pools: [{ ...snapshot.pools[0]!, name: 'My pool', alias: 'My pool' }, snapshot.pools[1]!] }
+  vi.mocked(api.accountPool)
+    .mockResolvedValueOnce({ ...snapshot, page_info: info, rows: snapshot.rows.slice(0, 30) })
+    .mockResolvedValueOnce({ ...snapshot, page_info: info, rows: snapshot.rows.slice(30) })
+    .mockResolvedValueOnce({ ...snapshot, page_info: { ...info, pages: 1 }, rows: snapshot.rows.slice(30) })
+    .mockResolvedValueOnce({ ...snapshot, page_info: { ...info, pages: 1 }, rows: snapshot.rows.slice(31) })
+    .mockResolvedValueOnce({ ...snapshot, page_info: { ...info, pages: 1 }, rows: snapshot.rows.slice(30) })
+    .mockResolvedValueOnce({ ...snapshot, page_info: info, rows: snapshot.rows.slice(0, 30) })
+    .mockResolvedValueOnce({ ...renamed, page_info: info, rows: snapshot.rows.slice(0, 30) })
   vi.mocked(api.refreshAccountPool).mockRejectedValueOnce(new Error('Refresh failed'))
-  vi.mocked(api.renameAccountPool).mockResolvedValueOnce({
-    ...snapshot, pools: [{ ...snapshot.pools[0]!, name: 'My pool', alias: 'My pool' }, snapshot.pools[1]!]
-  })
+  vi.mocked(api.renameAccountPool).mockResolvedValueOnce(renamed)
   const wrapper = mount(UpstreamAccountPoolPanel, {
     props: { siteId: 'site-id' },
     global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] }
@@ -41,20 +48,28 @@ it('shows native OAuth rows and filters by upstream membership even when display
     expect(wrapper.get('tbody tr .badge-success').text()).toBe('Available')
     expect(wrapper.find('tbody button').exists()).toBe(false)
     await wrapper.get('[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+    expect(api.accountPool).toHaveBeenLastCalledWith('site-id', expect.objectContaining({ page: 2, page_size: 30 }))
     expect(wrapper.findAll('tbody tr')).toHaveLength(2)
     const group = wrapper.get('[aria-label="Upstream group"]')
     expect(group.text()).toContain('Upstream B · Shared alias (2)')
     await group.setValue('other-id')
+    await flushPromises()
+    expect(api.accountPool).toHaveBeenLastCalledWith('site-id', expect.objectContaining({ page: 1, pool_id: 'other-id' }))
     expect(wrapper.findAll('tbody tr').map(row => row.get('td').text())).toEqual(['#31', '#32'])
     await wrapper.get('[aria-label="Platform"]').setValue('grok')
+    await flushPromises()
+    expect(api.accountPool).toHaveBeenLastCalledWith('site-id', expect.objectContaining({ platform: 'grok' }))
     expect(wrapper.findAll('tbody tr').map(row => row.get('td').text())).toEqual(['#32'])
     await wrapper.get('[aria-label="Platform"]').setValue('')
+    await flushPromises()
     await group.setValue('pool-id')
+    await flushPromises()
     expect(wrapper.findAll('tbody tr')).toHaveLength(30)
     await wrapper.get('input').setValue('My pool')
     await wrapper.get('input').trigger('keydown.enter')
     await flushPromises()
-    expect(api.renameAccountPool).toHaveBeenCalledWith('site-id', 'pool-id', 'My pool')
+    expect(api.renameAccountPool).toHaveBeenCalledWith('site-id', 'pool-id', 'My pool', expect.objectContaining({ page: 1 }))
     expect(wrapper.get('option[value="pool-id"]').text()).toContain('Upstream A · My pool')
     expect(wrapper.findAll('tbody tr')).toHaveLength(30)
     await wrapper.findAll('button').find(b => b.text() === 'Refresh pools')!.trigger('click')
@@ -66,25 +81,26 @@ it('shows native OAuth rows and filters by upstream membership even when display
   }
 })
 
-it('sorts both activity sources across pages, leaves missing dates last, and refreshes an old snapshot', async () => {
+it('shows snapshot rows and allows paging while a full collection is running', async () => {
   const snapshot: SitePoolDisplay = {
-    updated: '2026-11-19T09:13:00Z', pools: [],
-    rows: Array.from({ length: 32 }, (_, i) => ({ number: i + 1, platform: 'openai', plan: 'Pro Max', status: 'active' })),
+    updated: '2026-11-19T09:13:00Z', pools: [], refreshing: true,
+    page_info: { total: 32, pages: 2, platforms: ['openai'], plans_by_pool: {} },
+    rows: [32, 30, 31, 1].map(number => ({ number, platform: 'openai', plan: 'Pro Max', status: 'active' })),
   }
-  snapshot.rows[31] = { ...snapshot.rows[31]!, last_used: '2026-11-19T09:12:00Z' }
-  snapshot.rows[30] = { ...snapshot.rows[30]!, admin: { usage_updated: '2026-11-19T09:11:00Z' } }
-  snapshot.rows[29] = { ...snapshot.rows[29]!, current: 2, limit: 4, last_used: '2026-11-19T09:00:00Z',
+  snapshot.rows[0] = { ...snapshot.rows[0]!, last_used: '2026-11-19T09:12:00Z' }
+  snapshot.rows[2] = { ...snapshot.rows[2]!, admin: { usage_updated: '2026-11-19T09:11:00Z' } }
+  snapshot.rows[1] = { ...snapshot.rows[1]!, current: 2, limit: 4, last_used: '2026-11-19T09:00:00Z',
     admin: { observed_at: '2026-11-19T09:11:30Z', account_rate: 0.12 } }
-  snapshot.rows[0] = { ...snapshot.rows[0]!, current: 1, limit: 4 }
-  vi.mocked(api.accountPool).mockResolvedValueOnce(snapshot).mockResolvedValueOnce({ ...snapshot, refreshing: true })
-  vi.mocked(api.refreshAccountPool).mockClear().mockResolvedValueOnce(undefined)
+  snapshot.rows[3] = { ...snapshot.rows[3]!, current: 1, limit: 4 }
+  vi.mocked(api.accountPool).mockResolvedValueOnce(snapshot).mockResolvedValueOnce({ ...snapshot, rows: [{ ...snapshot.rows[0]!, number: 29 }] })
+  vi.mocked(api.refreshAccountPool).mockClear()
   const wrapper = mount(UpstreamAccountPoolPanel, {
     props: { siteId: 'old-site' },
     global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] },
   })
   try {
     await flushPromises()
-    expect(api.refreshAccountPool).toHaveBeenCalledWith('old-site')
+    expect(api.refreshAccountPool).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Recent activity')
     expect(wrapper.text()).toContain('Showing a previous snapshot')
     const rows = wrapper.findAll('tbody tr')
@@ -94,6 +110,10 @@ it('sorts both activity sources across pages, leaves missing dates last, and ref
     expect(rows[1]!.text()).toContain('0.12x')
     expect(rows[2]!.findAll('td').at(-1)!.get('[title]').attributes('title')).toMatch(/^Quota updated/)
     expect(rows[3]!.findAll('td').at(-1)!.text()).toBe('—')
+    await wrapper.get('[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+    expect(api.accountPool).toHaveBeenLastCalledWith('old-site', expect.objectContaining({ page: 2 }))
+    expect(wrapper.get('tbody tr').text()).toContain('#29')
   } finally {
     wrapper.unmount()
   }

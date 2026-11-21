@@ -46,7 +46,7 @@ const aliases = ref<Record<string, string>>({})
 const allowed = ref<string[]>([])
 const busy = ref(false), loaded = ref(false), saved = ref(false), error = ref('')
 const selected = computed(() => props.snapshot.pools.find(pool => pool.id === form.value.pool_id))
-const originalPlans = computed(() => [...new Set(props.snapshot.rows.filter(row => row.pools?.includes(form.value.pool_id)).map(row => row.plan))].sort())
+const originalPlans = computed(() => props.snapshot.page_info?.plans_by_pool[form.value.pool_id] ?? [])
 const defaultPlan = (plan: string) => plan.toLowerCase() === 'promax' ? 'Pro Max' : plan
 const displayPlan = (plan: string) => aliases.value[plan.toLowerCase()] || defaultPlan(plan)
 const displayedPlans = computed(() => [...new Map([...originalPlans.value.map(displayPlan), ...allowed.value].map(plan => [plan.toLowerCase(), plan])).values()].sort())

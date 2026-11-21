@@ -1,12 +1,14 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,8 +20,9 @@ import (
 )
 
 const (
-	accountPoolBaseURL = "https://aishenji.top"
-	vulcanPoolBaseURL  = "https://vulcanapi.com"
+	accountPoolBaseURL         = "https://aishenji.top"
+	vulcanPoolBaseURL          = "https://vulcanapi.com"
+	accountPoolRefreshInterval = 15 * time.Minute
 )
 
 var (
@@ -98,6 +101,19 @@ type AccountPoolDisplay struct {
 	Rows         []accountPoolRow   `json:"rows"`
 	Refreshing   bool               `json:"refreshing,omitempty"`
 	RefreshError string             `json:"refresh_error,omitempty"`
+	Page         *accountPoolPage   `json:"page_info,omitempty"`
+}
+
+type accountPoolPage struct {
+	Total       int                 `json:"total"`
+	Pages       int                 `json:"pages"`
+	Platforms   []string            `json:"platforms"`
+	PlansByPool map[string][]string `json:"plans_by_pool"`
+}
+
+type accountPoolRefreshState struct {
+	Error   string
+	RetryAt time.Time
 }
 
 func accountPoolEnabled(site *UpstreamSite) bool {
@@ -166,9 +182,8 @@ func (s *UpstreamBillingProbeService) AccountPoolDisplay(ctx context.Context, si
 	var refreshError string
 	if admin {
 		s.accountPoolMu.Lock()
-		if s.accountPoolSite == siteID {
-			running, refreshError = s.accountPoolRunning, s.accountPoolError
-		}
+		running = s.accountPoolSite == siteID
+		refreshError = s.accountPoolRefreshStates[siteID].Error
 		s.accountPoolMu.Unlock()
 	}
 	snapshot, aliases, err := s.readAccountPool(ctx, siteID, admin)
@@ -178,6 +193,69 @@ func (s *UpstreamBillingProbeService) AccountPoolDisplay(ctx context.Context, si
 	out := snapshot.display(aliases, admin)
 	out.Refreshing, out.RefreshError = running, refreshError
 	return out, nil
+}
+
+// Paginate the admin view without hiding filter and publication options from later pages.
+func (out *AccountPoolDisplay) Paginate(page, size int, poolID, platform string) {
+	page, size = max(1, page), max(1, size)
+	info := &accountPoolPage{Total: len(out.Rows), Platforms: []string{}, PlansByPool: map[string][]string{}}
+	platforms := map[string]bool{}
+	plans := map[string]map[string]bool{}
+	matching := make([]accountPoolRow, 0, len(out.Rows))
+	for _, row := range out.Rows {
+		if !platforms[row.Platform] {
+			platforms[row.Platform] = true
+			info.Platforms = append(info.Platforms, row.Platform)
+		}
+		for _, id := range row.Groups {
+			if plans[id] == nil {
+				plans[id] = map[string]bool{}
+			}
+			if !plans[id][row.Plan] {
+				plans[id][row.Plan] = true
+				info.PlansByPool[id] = append(info.PlansByPool[id], row.Plan)
+			}
+		}
+		if (platform == "" || row.Platform == platform) && (poolID == "" || slices.Contains(row.Groups, poolID)) {
+			matching = append(matching, row)
+		}
+	}
+	slices.Sort(info.Platforms)
+	for _, names := range info.PlansByPool {
+		slices.Sort(names)
+	}
+	slices.SortFunc(matching, func(a, b accountPoolRow) int {
+		if order := accountPoolActivity(b).Compare(accountPoolActivity(a)); order != 0 {
+			return order
+		}
+		if order := poolTime(b.LastUsed).Compare(poolTime(a.LastUsed)); order != 0 {
+			return order
+		}
+		return cmp.Compare(a.Number, b.Number)
+	})
+	info.Pages = max(1, (len(matching)+size-1)/size)
+	start := (min(page, info.Pages) - 1) * size
+	out.Page, out.Rows = info, matching[start:min(start+size, len(matching))]
+}
+
+func poolTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
+}
+
+func accountPoolActivity(row accountPoolRow) time.Time {
+	last := poolTime(row.LastUsed)
+	if row.Admin != nil {
+		if row.Admin.UsageUpdated != nil {
+			return *row.Admin.UsageUpdated
+		}
+		if row.Current != nil && *row.Current > 0 && poolTime(row.Admin.ObservedAt).After(last) {
+			return *row.Admin.ObservedAt
+		}
+	}
+	return last
 }
 
 func (s *UpstreamBillingProbeService) RenameAccountPool(ctx context.Context, site *UpstreamSite, id, name string) error {
@@ -206,16 +284,26 @@ func (s *UpstreamBillingProbeService) RenameAccountPool(ctx context.Context, sit
 }
 
 func (s *UpstreamBillingProbeService) StartAccountPoolRefresh(site *UpstreamSite) error {
+	return s.startAccountPoolRefresh(site, false)
+}
+
+func (s *UpstreamBillingProbeService) startAccountPoolRefresh(site *UpstreamSite, automatic bool) error {
 	if !accountPoolEnabled(site) {
 		return errPoolSite
 	}
 	// ponytail: one refresh per process; add distributed locking for a multi-writer deployment.
 	s.accountPoolMu.Lock()
 	defer s.accountPoolMu.Unlock()
-	if s.accountPoolRunning || time.Now().Before(s.accountPoolRetryAt) {
+	state := s.accountPoolRefreshStates[site.ID]
+	retryAt := state.RetryAt
+	if automatic && state.Error != "" {
+		retryAt = retryAt.Add(accountPoolRefreshInterval - time.Minute)
+	}
+	if s.accountPoolSite != "" || time.Now().Before(retryAt) {
 		return errPoolBusy
 	}
-	s.accountPoolSite, s.accountPoolRunning, s.accountPoolError = site.ID, true, ""
+	s.accountPoolSite = site.ID
+	delete(s.accountPoolRefreshStates, site.ID)
 	go func() {
 		ctx, cancel := context.WithTimeout(s.parentCtx, 25*time.Minute)
 		defer cancel()
@@ -228,20 +316,72 @@ func (s *UpstreamBillingProbeService) StartAccountPoolRefresh(site *UpstreamSite
 		err := s.refreshAccountPool(ctx, site, fetch.get)
 		s.accountPoolMu.Lock()
 		defer s.accountPoolMu.Unlock()
+		state := accountPoolRefreshState{RetryAt: time.Now().Add(time.Minute)}
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				s.accountPoolError = "Account pool collection timed out; previous snapshot kept"
+				state.Error = "Account pool collection timed out; previous snapshot kept"
 			} else {
 				_, status := infraerrors.ToHTTP(err)
-				s.accountPoolError = status.Message
+				state.Error = status.Message
 			}
 		}
-		s.accountPoolRetryAt = time.Now().Add(time.Minute)
-		if fetch.retryAt.After(s.accountPoolRetryAt) {
-			s.accountPoolRetryAt = fetch.retryAt
+		if fetch.retryAt.After(state.RetryAt) {
+			state.RetryAt = fetch.retryAt
 		}
-		s.accountPoolRunning = false
+		if s.accountPoolRefreshStates == nil {
+			s.accountPoolRefreshStates = map[string]accountPoolRefreshState{}
+		}
+		s.accountPoolRefreshStates[site.ID] = state
+		s.accountPoolSite = ""
 	}()
+	return nil
+}
+
+func (s *UpstreamBillingProbeService) refreshDueAccountPool(ctx context.Context) error {
+	if s.db == nil {
+		return nil
+	}
+	s.accountPoolMu.Lock()
+	running := s.accountPoolSite != ""
+	s.accountPoolMu.Unlock()
+	if running {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	rows, err := s.db.QueryContext(ctx, `SELECT s.id FROM upstream_sites s
+		LEFT JOIN upstream_site_account_pools p ON p.site_id=s.id
+		WHERE s.purpose='public' AND s.kind='sub2api' AND s.base_url IN ($1,$2)
+		AND ((p.snapshot->>'checked_at')::timestamptz IS NULL OR (p.snapshot->>'checked_at')::timestamptz <= $3
+		     OR (p.snapshot->>'site_revision')::bigint IS DISTINCT FROM s.revision)
+		ORDER BY (p.snapshot->>'checked_at')::timestamptz NULLS FIRST,s.id`,
+		accountPoolBaseURL, vulcanPoolBaseURL, time.Now().Add(-accountPoolRefreshInterval))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		site, err := s.GetUpstreamSite(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := s.startAccountPoolRefresh(site, true); err == nil {
+			return nil
+		} else if !errors.Is(err, errPoolBusy) && !errors.Is(err, errPoolSite) {
+			return err
+		}
+	}
 	return nil
 }
 
