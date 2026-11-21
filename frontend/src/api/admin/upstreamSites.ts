@@ -137,6 +137,7 @@ export interface SitePool {
 export interface SitePoolDisplay {
   updated: string | null
   checked_at?: string
+  recent_checked_at?: string
   refreshing?: boolean
   refresh_error?: string
   page_info?: { total: number; pages: number; platforms: string[]; plans_by_pool: Record<string, string[]> }
@@ -174,6 +175,7 @@ export interface PoolStatusPreview {
   pools: {
     id: string; source: string; name: string; updated: string | null; snapshot_available: boolean
     checked_at?: string
+    recent_checked_at?: string
     total: number; pages: number; plans: Record<string, number>; statuses: Record<string, number>
     rows: (PublishedPoolRow & { admin?: Pick<NonNullable<SitePoolDisplay['rows'][number]['admin']>, 'name' | 'source_id'> })[]
   }[]

@@ -20,7 +20,7 @@ it('shows original account identity and native badges in the admin preview', asy
     admin: { name: 'Original account', source_id: '91', type: 'apikey', plan: 'Pro 500', status: 'private status' },
   }
   const wrapper = mount(UpstreamAccountPoolPanel, {
-    props: { published: { id: 'exported', source: 'Source', name: 'Public pool', updated: '2026-11-21T07:45:00Z',
+    props: { published: { id: 'exported', source: 'Source', name: 'Public pool', updated: '2026-11-21T07:45:00Z', recent_checked_at: stamp,
       snapshot_available: true, total: 3, plans: { 'Pro Max': 3 }, statuses: { rate_limited: 3 },
       rows: [row, { ...row, number: 2, admin: { source_id: '92' } }, { ...row, number: 3, admin: undefined }], pages: 1 } },
     global: { plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })] },
@@ -37,6 +37,7 @@ it('shows original account identity and native badges in the admin preview', asy
     expect(cells[3]!.get('.badge-warning').text()).toBe('Rate limited')
     expect(cells[4]!.text()).toContain('25%')
     expect(cells[5]!.get('[title]').attributes('title')).toContain(en.upstreamSites.accountPoolObservedAt)
+    expect(wrapper.text()).toContain('Recent activity sampled')
     expect(wrapper.text()).not.toMatch(/private|Pro 500/)
     expect(wrapper.find('button').exists()).toBe(false)
     expect(api.accountPool).not.toHaveBeenCalled()
@@ -135,7 +136,7 @@ it('shows snapshot rows and allows paging while a full collection is running', a
     await flushPromises()
     expect(api.refreshAccountPool).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Recent activity')
-    expect(wrapper.text()).toContain('Showing a previous snapshot')
+    expect(wrapper.text()).toContain(en.upstreamSites.accountPoolStale)
     const rows = wrapper.findAll('tbody tr')
     expect(rows.slice(0, 4).map(row => row.get('td').text())).toEqual(['#32', '#30', '#31', '#1'])
     expect(rows[0]!.findAll('td').at(-1)!.get('[title]').attributes('title')).toMatch(/^Last used/)

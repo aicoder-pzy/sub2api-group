@@ -77,7 +77,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { useDocumentVisibility, useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -113,16 +114,25 @@ async function loadSources() {
   finally { sourcesLoaded.value = true }
 }
 
-let previewRequest = 0
-async function loadPreview(page: number) {
+let previewRequest = 0, readingPreview = false
+async function loadPreview(page: number, quiet = false) {
+  if (quiet && readingPreview) return
   const request = ++previewRequest
-  previewBusy.value = true; previewError.value = ''
+  readingPreview = true
+  if (!quiet) { previewBusy.value = true; previewError.value = '' }
   try {
     const data = await api.previewPoolStatus(page, 30)
-    if (request === previewRequest) preview.value = data
-  } catch (error) { if (request === previewRequest) previewError.value = siteError(error) }
-  finally { if (request === previewRequest) previewBusy.value = false }
+    if (request === previewRequest) { preview.value = data; previewError.value = '' }
+  } catch (error) { if (request === previewRequest && (!quiet || !preview.value)) previewError.value = siteError(error) }
+  finally { if (request === previewRequest) { readingPreview = false; previewBusy.value = false } }
 }
+
+const visibility = useDocumentVisibility()
+const refreshPreview = () => {
+  if (mode.value === 'preview' && visibility.value === 'visible') void loadPreview(preview.value?.page ?? 1, true)
+}
+useIntervalFn(refreshPreview, 20_000)
+watch([mode, visibility], refreshPreview)
 
 async function loadExportState() {
   try { exportEnabled.value = (await api.poolStatusExport()).enabled }
@@ -151,4 +161,5 @@ async function changeExport(action: ExportAction) {
 }
 
 onMounted(() => { void loadPreview(1); void loadSources(); void loadExportState() })
+onUnmounted(() => { previewRequest++ })
 </script>

@@ -95,9 +95,9 @@ func TestDueAccountPoolCollectionOnlyCollectsShenjiAndSkipsBackoff(t *testing.T)
 	s.accountPoolRefreshStates = map[string]accountPoolRefreshState{
 		cooling: {Error: "upstream limited", RetryAt: time.Now().Add(-time.Minute)},
 	}
-	mock.ExpectQuery(`SELECT s\.id FROM upstream_sites.*s\.base_url=\$1.*COALESCE\(p\.snapshot->>'started_at',p\.snapshot->>'checked_at'\)::timestamptz <= \$2`).
+	mock.ExpectQuery(`SELECT s\.id,.*COALESCE\(p\.snapshot->>'started_at',p\.snapshot->>'checked_at'\)::timestamptz <= \$2.*s\.base_url=\$1`).
 		WithArgs(accountPoolBaseURL, poolDueCutoff{time.Now()}).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(cooling).AddRow(due))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "due"}).AddRow(cooling, true).AddRow(due, true))
 	cols := []string{"id", "name", "kind", "base_url", "user_id", "proxy_id", "revision", "token_cipher", "inference_url", "purchase_note", "inventory", "model_catalogs", "refresh_token_cipher", "purpose"}
 	for _, id := range []string{cooling, due} {
 		mock.ExpectQuery("SELECT id,name,kind,base_url").WithArgs(id).
@@ -170,13 +170,13 @@ func TestCollectAccountPool(t *testing.T) {
 			return json.Marshal(map[string]any{"page": page, "page_size": width, "total": reported, "pages": 2, "items": items})
 		}
 	}
-	first, err := collectAccountPool(get(101, 101), nil)
+	first, err := collectAccountPool(get(101, 101), nil, nil)
 	require.NoError(t, err)
 	require.Len(t, first.Rows, 101)
 	require.Len(t, first.Groups, 1)
 	poolID := first.Groups[0].ID
 	require.Equal(t, 101, first.Groups[0].Count)
-	second, err := collectAccountPool(get(101, 101), first.Groups)
+	second, err := collectAccountPool(get(101, 101), first.Groups, nil)
 	require.NoError(t, err)
 	require.Equal(t, poolID, second.Groups[0].ID)
 	aliases := map[string]string{poolID: "Display label"}
@@ -205,16 +205,52 @@ func TestCollectAccountPool(t *testing.T) {
 			return get(100, 101)(path)
 		}
 		return get(101, 101)(path)
-	}, first.Groups)
+	}, first.Groups, nil)
 	require.NoError(t, err)
 	require.Equal(t, 5, calls)
 	require.Len(t, recovered.Rows, 101)
 	require.Equal(t, 101, recovered.Groups[0].Count)
 	require.Equal(t, 1, *recovered.Rows[99].Current)
 	for _, edge := range []struct{ id, total int }{{100, 101}, {101, 102}} {
-		incomplete, err := collectAccountPool(get(edge.id, edge.total), first.Groups)
+		incomplete, err := collectAccountPool(get(edge.id, edge.total), first.Groups, nil)
 		require.ErrorIs(t, err, errPoolChanged)
 		require.Nil(t, incomplete.Updated)
 		require.Equal(t, 101, first.Groups[0].Count)
 	}
+	calls = 0
+	targeted, err := collectAccountPool(func(path string) ([]byte, error) {
+		calls++
+		if strings.Contains(path, "search=") {
+			require.Contains(t, path, "search=101")
+			return []byte(`{"page":1,"page_size":100,"total":1,"pages":1,"items":[{"id":101,"groups":[{"id":37,"name":"original-pool"}]}]}`), nil
+		}
+		return get(100, 101)(path)
+	}, first.Groups, first.Rows)
+	require.NoError(t, err)
+	require.Equal(t, 4, calls)
+	require.Len(t, targeted.Rows, 101)
+	require.Equal(t, "101", targeted.Rows[100].Admin.SourceID)
+}
+
+func TestAccountPoolHeadUpdatesKnownRowsWithoutAdvancingFullSnapshot(t *testing.T) {
+	s := &UpstreamBillingProbeService{}
+	site := &UpstreamSite{ID: "shenji", Revision: 2}
+	old := time.Now().UTC().Add(-time.Minute)
+	future := old.Add(time.Hour)
+	snapshot := accountPoolSnapshot{SiteRevision: 2, Updated: &old, CheckedAt: &old, Rows: []accountPoolRow{
+		{Groups: []string{"full"}, Status: "active", Admin: &accountPoolAdminRow{SourceID: "1", Name: "Original", ObservedAt: &old}},
+		{Status: "active", Admin: &accountPoolAdminRow{SourceID: "2", ObservedAt: &future}},
+	}}
+	raw := []byte(`{"page":1,"page_size":100,"total":3,"items":[{"id":1,"status":"rate_limited","current_concurrency":0,"last_used_at":"2026-11-21T09:00:00Z"},{"id":2,"status":"paused"},{"id":3,"status":"active"}]}`)
+	require.True(t, s.recordAccountPoolHead(site, raw))
+	require.Nil(t, s.applyAccountPoolHead("other-site", &snapshot))
+	recent := s.applyAccountPoolHead(site.ID, &snapshot)
+	require.NotNil(t, recent)
+	require.Equal(t, old, *snapshot.Updated)
+	require.Len(t, snapshot.Rows, 2)
+	require.Equal(t, "rate_limited", snapshot.Rows[0].Status)
+	require.Zero(t, *snapshot.Rows[0].Current)
+	require.Equal(t, []string{"full"}, snapshot.Rows[0].Groups)
+	require.Equal(t, "Original", snapshot.Rows[0].Admin.Name)
+	require.Equal(t, "active", snapshot.Rows[1].Status)
 }

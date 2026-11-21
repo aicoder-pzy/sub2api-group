@@ -1,5 +1,6 @@
 export default {
-  accountPool: 'Account pools', accountPoolSnapshot: '{count} accounts · Updated {time}', accountPoolEmpty: 'No account pool snapshot',
+  accountPool: 'Account pools', accountPoolSnapshot: '{count} accounts · Full snapshot {time}', accountPoolEmpty: 'No account pool snapshot',
+  accountPoolRecentChecked: 'Recent activity sampled {time}',
   accountPoolPublish: 'Status API', accountPoolUnpublished: 'Do not publish', accountPoolMissingGroup: 'Saved group missing from the current snapshot',
   accountPoolSourceName: 'Public source name', accountPoolPublicName: 'Public pool name', accountPoolPlanAlias: 'Public name for {plan}',
   accountPoolAllowedPlans: 'Published plans', accountPoolPublishedSaved: 'Status API settings saved',
@@ -15,7 +16,7 @@ export default {
   accountPoolName: 'Display name', accountPoolSave: 'Save', accountPoolSourceGroup: 'Upstream group', accountPoolAll: 'All upstream groups', accountPoolAllPlatforms: 'All platforms',
   accountPoolNumber: 'Account', accountPoolPlatform: 'Platform', accountPoolStatus: 'Status',
   accountPoolConcurrency: 'Concurrency', accountPoolLastUsed: 'Last used', accountPoolNoResults: 'No matching accounts',
-  accountPoolLastActivity: 'Recent activity', accountPoolUsageUpdated: 'Quota updated', accountPoolStale: 'Showing a previous snapshot. It updates after a complete collection.',
+  accountPoolLastActivity: 'Recent activity', accountPoolUsageUpdated: 'Quota updated', accountPoolStale: 'The full account pool snapshot is over 15 minutes old.',
   accountPoolObservedAt: 'Concurrency observed',
   accountPoolEffectiveRate: 'Effective rate', accountPoolPriority: 'Priority {value}', accountPoolRecoverAt: 'Recovery {time}',
   accountPoolPrevious: 'Previous page', accountPoolNext: 'Next page', accountPoolState_active: 'Available', accountPoolState_error: 'Error',

@@ -73,17 +73,18 @@ type accountPoolStatusIdentity struct {
 }
 
 type PublishedAccountPoolStatus struct {
-	ID        string                 `json:"id"`
-	Source    string                 `json:"source"`
-	Name      string                 `json:"name"`
-	Updated   *time.Time             `json:"updated"`
-	CheckedAt *time.Time             `json:"checked_at,omitempty"`
-	Available bool                   `json:"snapshot_available"`
-	Total     int                    `json:"total"`
-	Plans     map[string]int         `json:"plans"`
-	Statuses  map[string]int         `json:"statuses"`
-	Rows      []accountPoolStatusRow `json:"rows"`
-	Pages     int                    `json:"pages"`
+	ID              string                 `json:"id"`
+	Source          string                 `json:"source"`
+	Name            string                 `json:"name"`
+	Updated         *time.Time             `json:"updated"`
+	CheckedAt       *time.Time             `json:"checked_at,omitempty"`
+	RecentCheckedAt *time.Time             `json:"recent_checked_at,omitempty"`
+	Available       bool                   `json:"snapshot_available"`
+	Total           int                    `json:"total"`
+	Plans           map[string]int         `json:"plans"`
+	Statuses        map[string]int         `json:"statuses"`
+	Rows            []accountPoolStatusRow `json:"rows"`
+	Pages           int                    `json:"pages"`
 }
 
 func (s *UpstreamBillingProbeService) AccountPoolStatusConfig(ctx context.Context, site *UpstreamSite) (AccountPoolStatusConfig, error) {
@@ -231,7 +232,7 @@ func (s *UpstreamBillingProbeService) AccountPoolStatus(ctx context.Context, pag
 	if s == nil || s.db == nil {
 		return nil, ErrUpstreamBillingProbeUnavailable
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT s.base_url, s.revision, conf.value, COALESCE(p.snapshot,'{}')
+	rows, err := s.db.QueryContext(ctx, `SELECT s.id, s.base_url, s.revision, conf.value, COALESCE(p.snapshot,'{}')
 		FROM upstream_sites s JOIN settings conf ON conf.key=$1 || s.id::text
 		LEFT JOIN upstream_site_account_pools p ON s.id=p.site_id
 		WHERE s.purpose='public' AND s.kind='sub2api' AND s.base_url IN ($2,$3)
@@ -242,10 +243,10 @@ func (s *UpstreamBillingProbeService) AccountPoolStatus(ctx context.Context, pag
 	defer rows.Close()
 	out := []PublishedAccountPoolStatus{}
 	for rows.Next() {
-		var baseURL string
+		var siteID, baseURL string
 		var revision int64
 		var rawConfig, rawSnapshot []byte
-		if err := rows.Scan(&baseURL, &revision, &rawConfig, &rawSnapshot); err != nil {
+		if err := rows.Scan(&siteID, &baseURL, &revision, &rawConfig, &rawSnapshot); err != nil {
 			return nil, err
 		}
 		var cfg storedAccountPoolStatusConfig
@@ -259,7 +260,17 @@ func (s *UpstreamBillingProbeService) AccountPoolStatus(ctx context.Context, pag
 		if err := json.Unmarshal(rawSnapshot, &snapshot); err != nil {
 			return nil, err
 		}
-		out = append(out, cfg.status(snapshot, revision, page, size, includeIdentity))
+		if baseURL == accountPoolBaseURL && snapshot.SiteRevision == revision {
+			s.applyAccountPoolHead(siteID, &snapshot)
+		}
+		status := cfg.status(snapshot, revision, page, size, includeIdentity)
+		for _, row := range status.Rows {
+			if baseURL == accountPoolBaseURL && poolTime(row.ObservedAt).After(poolTime(snapshot.CheckedAt)) &&
+				poolTime(row.ObservedAt).After(poolTime(status.RecentCheckedAt)) {
+				status.RecentCheckedAt = row.ObservedAt
+			}
+		}
+		out = append(out, status)
 	}
 	return out, rows.Err()
 }

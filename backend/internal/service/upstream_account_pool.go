@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/uuid"
 )
 
@@ -23,6 +25,8 @@ const (
 	accountPoolBaseURL         = "https://aishenji.top"
 	vulcanPoolBaseURL          = "https://vulcanapi.com"
 	accountPoolRefreshInterval = 10 * time.Minute
+	accountPoolHeadInterval    = 90 * time.Second
+	accountPoolFirstPage       = "/api/v1/account-pool?page=1&page_size=100"
 )
 
 var (
@@ -97,13 +101,14 @@ type accountPoolGroup struct {
 }
 
 type AccountPoolDisplay struct {
-	Updated      *time.Time         `json:"updated"`
-	CheckedAt    *time.Time         `json:"checked_at,omitempty"`
-	Pools        []accountPoolGroup `json:"pools"`
-	Rows         []accountPoolRow   `json:"rows"`
-	Refreshing   bool               `json:"refreshing,omitempty"`
-	RefreshError string             `json:"refresh_error,omitempty"`
-	Page         *accountPoolPage   `json:"page_info,omitempty"`
+	Updated         *time.Time         `json:"updated"`
+	CheckedAt       *time.Time         `json:"checked_at,omitempty"`
+	RecentCheckedAt *time.Time         `json:"recent_checked_at,omitempty"`
+	Pools           []accountPoolGroup `json:"pools"`
+	Rows            []accountPoolRow   `json:"rows"`
+	Refreshing      bool               `json:"refreshing,omitempty"`
+	RefreshError    string             `json:"refresh_error,omitempty"`
+	Page            *accountPoolPage   `json:"page_info,omitempty"`
 }
 
 type accountPoolPage struct {
@@ -116,6 +121,73 @@ type accountPoolPage struct {
 type accountPoolRefreshState struct {
 	Error   string
 	RetryAt time.Time
+}
+
+type accountPoolHead struct {
+	revision int64
+	rows     map[string]accountPoolRow
+}
+
+func (s *UpstreamBillingProbeService) recordAccountPoolHead(site *UpstreamSite, raw []byte) bool {
+	var page upstreamPoolPage
+	if json.Unmarshal(raw, &page) != nil || page.Page != 1 || page.Size != 100 || page.Total == nil ||
+		*page.Total < 0 || len(page.Items) != min(*page.Total, page.Size) {
+		return false
+	}
+	observedAt := time.Now().UTC()
+	head := accountPoolHead{revision: site.Revision, rows: make(map[string]accountPoolRow, len(page.Items))}
+	for _, item := range page.Items {
+		id := item.ID.String()
+		if _, duplicate := head.rows[id]; id == "" || duplicate {
+			return false
+		}
+		row := item.liveStatus()
+		row.Admin.ObservedAt = &observedAt
+		head.rows[id] = row
+	}
+	s.accountPoolMu.Lock()
+	defer s.accountPoolMu.Unlock()
+	if s.accountPoolHeads == nil {
+		s.accountPoolHeads = make(map[string]accountPoolHead)
+	}
+	if previous := s.accountPoolHeads[site.ID]; previous.revision == head.revision {
+		for id, row := range previous.rows {
+			if _, exists := head.rows[id]; !exists && observedAt.Sub(*row.Admin.ObservedAt) < accountPoolRefreshInterval {
+				head.rows[id] = row
+			}
+		}
+	}
+	s.accountPoolHeads[site.ID] = head
+	return true
+}
+
+// Apply fresh observations only to members of the last verified inventory.
+func (s *UpstreamBillingProbeService) applyAccountPoolHead(siteID string, snapshot *accountPoolSnapshot) *time.Time {
+	s.accountPoolMu.Lock()
+	head, ok := s.accountPoolHeads[siteID]
+	s.accountPoolMu.Unlock()
+	if !ok || snapshot.Updated == nil || head.revision != snapshot.SiteRevision {
+		return nil
+	}
+	var recent *time.Time
+	for i := range snapshot.Rows {
+		row := &snapshot.Rows[i]
+		if row.Admin == nil {
+			continue
+		}
+		live, ok := head.rows[row.Admin.SourceID]
+		if !ok || !live.Admin.ObservedAt.After(poolTime(row.Admin.ObservedAt)) {
+			continue
+		}
+		row.Status, row.Current, row.Limit, row.Windows = live.Status, live.Current, live.Limit, live.Windows
+		row.LastUsed = live.LastUsed
+		row.Admin.Status = live.Admin.Status
+		row.Admin.ObservedAt = live.Admin.ObservedAt
+		if live.Admin.ObservedAt.After(poolTime(recent)) {
+			recent = live.Admin.ObservedAt
+		}
+	}
+	return recent
 }
 
 func accountPoolEnabled(site *UpstreamSite) bool {
@@ -192,7 +264,12 @@ func (s *UpstreamBillingProbeService) AccountPoolDisplay(ctx context.Context, si
 	if err != nil {
 		return AccountPoolDisplay{}, err
 	}
+	var recent *time.Time
+	if admin {
+		recent = s.applyAccountPoolHead(siteID, &snapshot)
+	}
 	out := snapshot.display(aliases, admin)
+	out.RecentCheckedAt = recent
 	out.Refreshing, out.RefreshError = running, refreshError
 	return out, nil
 }
@@ -292,10 +369,10 @@ func (s *UpstreamBillingProbeService) RenameAccountPool(ctx context.Context, sit
 }
 
 func (s *UpstreamBillingProbeService) StartAccountPoolRefresh(site *UpstreamSite) error {
-	return s.startAccountPoolRefresh(site, false)
+	return s.startAccountPoolRefresh(site, false, true)
 }
 
-func (s *UpstreamBillingProbeService) startAccountPoolRefresh(site *UpstreamSite, automatic bool) error {
+func (s *UpstreamBillingProbeService) startAccountPoolRefresh(site *UpstreamSite, automatic, full bool) error {
 	if !accountPoolEnabled(site) {
 		return errPoolSite
 	}
@@ -307,7 +384,7 @@ func (s *UpstreamBillingProbeService) startAccountPoolRefresh(site *UpstreamSite
 	defer s.accountPoolMu.Unlock()
 	state := s.accountPoolRefreshStates[site.ID]
 	retryAt := state.RetryAt
-	if automatic && state.Error != "" {
+	if automatic && full && state.Error != "" {
 		retryAt = retryAt.Add(accountPoolRefreshInterval - time.Minute)
 	}
 	started := time.Now().UTC()
@@ -315,20 +392,54 @@ func (s *UpstreamBillingProbeService) startAccountPoolRefresh(site *UpstreamSite
 		return errPoolBusy
 	}
 	s.accountPoolSite = site.ID
-	delete(s.accountPoolRefreshStates, site.ID)
+	if full {
+		delete(s.accountPoolRefreshStates, site.ID)
+	}
 	go func() {
-		ctx, cancel := context.WithTimeout(s.parentCtx, 25*time.Minute)
+		timeout := 90 * time.Second
+		if full {
+			timeout = 25 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(s.parentCtx, timeout)
 		defer cancel()
+		requests := 0
 		fetch := &accountPoolFetcher{ctx: ctx, request: func(path string) ([]byte, error) {
-			if site.BaseURL == vulcanPoolBaseURL {
-				return s.upstreamSiteRequestWithToken(ctx, site, http.MethodGet, path, nil, "")
-			}
+			requests++
 			return s.upstreamSiteRequestWithStatus(ctx, site, http.MethodGet, path, nil)
 		}}
-		err := s.refreshAccountPool(ctx, site, started, fetch.get)
+		var err error
+		if full {
+			var headAt time.Time
+			err = s.refreshAccountPool(ctx, site, started, func(path string) ([]byte, error) {
+				if path != accountPoolFirstPage && !headAt.IsZero() && time.Since(headAt) >= accountPoolHeadInterval {
+					raw, err := fetch.get(accountPoolFirstPage)
+					if code, _ := infraerrors.ToHTTP(err); code == http.StatusTooManyRequests {
+						return nil, err
+					}
+					if err == nil {
+						s.recordAccountPoolHead(site, raw)
+					}
+					headAt = time.Now()
+				}
+				raw, err := fetch.get(path)
+				if err == nil && path == accountPoolFirstPage {
+					s.recordAccountPoolHead(site, raw)
+					headAt = time.Now()
+				}
+				return raw, err
+			})
+		} else {
+			raw, fetchErr := fetch.get(accountPoolFirstPage)
+			if fetchErr == nil {
+				s.recordAccountPoolHead(site, raw)
+			}
+		}
 		s.accountPoolMu.Lock()
 		defer s.accountPoolMu.Unlock()
-		state := accountPoolRefreshState{RetryAt: time.Now().Add(time.Minute)}
+		state := s.accountPoolRefreshStates[site.ID]
+		if full {
+			state = accountPoolRefreshState{RetryAt: time.Now().Add(time.Minute)}
+		}
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				state.Error = "Account pool collection timed out; previous snapshot kept"
@@ -339,6 +450,10 @@ func (s *UpstreamBillingProbeService) startAccountPoolRefresh(site *UpstreamSite
 		}
 		if fetch.retryAt.After(state.RetryAt) {
 			state.RetryAt = fetch.retryAt
+		}
+		if full && s.parentCtx.Err() == nil {
+			code, status := infraerrors.ToHTTP(err)
+			logger.LegacyPrintf("service.upstream_account_pool", "full_refresh_finished: status=%d reason=%s requests=%d elapsed_ms=%d", code, status.Reason, requests, time.Since(started).Milliseconds())
 		}
 		if s.accountPoolRefreshStates == nil {
 			s.accountPoolRefreshStates = map[string]accountPoolRefreshState{}
@@ -361,35 +476,40 @@ func (s *UpstreamBillingProbeService) refreshDueAccountPool(ctx context.Context)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	rows, err := s.db.QueryContext(ctx, `SELECT s.id FROM upstream_sites s
+	rows, err := s.db.QueryContext(ctx, `SELECT s.id,
+		(COALESCE(p.snapshot->>'started_at',p.snapshot->>'checked_at')::timestamptz IS NULL
+		 OR COALESCE(p.snapshot->>'started_at',p.snapshot->>'checked_at')::timestamptz <= $2
+		 OR (p.snapshot->>'site_revision')::bigint IS DISTINCT FROM s.revision) AS due
+		FROM upstream_sites s
 		LEFT JOIN upstream_site_account_pools p ON p.site_id=s.id
 		WHERE s.purpose='public' AND s.kind='sub2api' AND s.base_url=$1
-		AND (COALESCE(p.snapshot->>'started_at',p.snapshot->>'checked_at')::timestamptz IS NULL
-		     OR COALESCE(p.snapshot->>'started_at',p.snapshot->>'checked_at')::timestamptz <= $2
-		     OR (p.snapshot->>'site_revision')::bigint IS DISTINCT FROM s.revision)
-		ORDER BY COALESCE(p.snapshot->>'started_at',p.snapshot->>'checked_at')::timestamptz NULLS FIRST,s.id`,
+		ORDER BY due DESC, COALESCE(p.snapshot->>'started_at',p.snapshot->>'checked_at')::timestamptz NULLS FIRST,s.id`,
 		accountPoolBaseURL, time.Now().Add(-accountPoolRefreshInterval))
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	var ids []string
+	type candidate struct {
+		id  string
+		due bool
+	}
+	var sites []candidate
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var next candidate
+		if err := rows.Scan(&next.id, &next.due); err != nil {
 			return err
 		}
-		ids = append(ids, id)
+		sites = append(sites, next)
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, id := range ids {
-		site, err := s.GetUpstreamSite(ctx, id)
+	for _, next := range sites {
+		site, err := s.GetUpstreamSite(ctx, next.id)
 		if err != nil {
 			return err
 		}
-		if err := s.startAccountPoolRefresh(site, true); err == nil {
+		if err := s.startAccountPoolRefresh(site, true, next.due); err == nil {
 			return nil
 		} else if !errors.Is(err, errPoolBusy) && !errors.Is(err, errPoolSite) && !errors.Is(err, errPoolPaused) {
 			return err
@@ -465,7 +585,10 @@ func (s *UpstreamBillingProbeService) refreshAccountPool(ctx context.Context, si
 			snapshot, err = collectVulcanPool(raw, previous.Groups)
 		}
 	} else {
-		snapshot, err = collectShenjiPool(get, previous.Groups)
+		if previous.SiteRevision != site.Revision {
+			previous.Rows = nil
+		}
+		snapshot, err = collectShenjiPool(get, previous)
 	}
 	if err != nil {
 		return err
@@ -492,7 +615,7 @@ func (s *UpstreamBillingProbeService) refreshAccountPool(ctx context.Context, si
 	return nil
 }
 
-func collectShenjiPool(get func(string) ([]byte, error), previous []accountPoolSourceGroup) (accountPoolSnapshot, error) {
+func collectShenjiPool(get func(string) ([]byte, error), previous accountPoolSnapshot) (accountPoolSnapshot, error) {
 	data, err := get("/api/v1/account-pool/access")
 	if err != nil {
 		return accountPoolSnapshot{}, err
@@ -503,49 +626,64 @@ func collectShenjiPool(get func(string) ([]byte, error), previous []accountPoolS
 	if json.Unmarshal(data, &access) != nil || !access.Verified {
 		return accountPoolSnapshot{}, upstreamSiteError("The saved upstream login does not have account pool access")
 	}
-	return collectAccountPool(get, previous)
+	return collectAccountPool(get, previous.Groups, previous.Rows)
 }
 
 type upstreamPoolPage struct {
-	Page  int  `json:"page"`
-	Size  int  `json:"page_size"`
-	Total *int `json:"total"`
-	Pages int  `json:"pages"`
-	Items []struct {
-		ID          json.Number `json:"id"`
-		Name        string      `json:"display_name"`
-		Type        string      `json:"auth_type"`
-		Platform    string      `json:"platform"`
-		Plan        string      `json:"plan_label"`
-		Status      string      `json:"status"`
-		Current     *int        `json:"current_concurrency"`
-		Limit       *int        `json:"concurrency"`
-		LastUsed    string      `json:"last_used_at"`
-		RateEnabled *bool       `json:"account_rate_enabled"`
-		Rate        *float64    `json:"rate_multiplier"`
-		Windows     []struct {
-			Name string   `json:"label"`
-			Used *float64 `json:"utilization"`
-		} `json:"usage_windows"`
-		Groups []struct {
-			ID        json.Number `json:"id"`
-			Name      string      `json:"name"`
-			Effective *float64    `json:"effective_multiplier"`
-			Rate      *float64    `json:"rate_multiplier"`
-		} `json:"groups"`
-	} `json:"items"`
+	Page  int                `json:"page"`
+	Size  int                `json:"page_size"`
+	Total *int               `json:"total"`
+	Pages int                `json:"pages"`
+	Items []upstreamPoolItem `json:"items"`
 }
 
-func collectAccountPool(get func(string) ([]byte, error), previous []accountPoolSourceGroup) (accountPoolSnapshot, error) {
-	snapshot, err := collectAccountPoolPass(get, previous)
+type upstreamPoolItem struct {
+	ID          json.Number `json:"id"`
+	Name        string      `json:"display_name"`
+	Type        string      `json:"auth_type"`
+	Platform    string      `json:"platform"`
+	Plan        string      `json:"plan_label"`
+	Status      string      `json:"status"`
+	Current     *int        `json:"current_concurrency"`
+	Limit       *int        `json:"concurrency"`
+	LastUsed    string      `json:"last_used_at"`
+	RateEnabled *bool       `json:"account_rate_enabled"`
+	Rate        *float64    `json:"rate_multiplier"`
+	Windows     []struct {
+		Name string   `json:"label"`
+		Used *float64 `json:"utilization"`
+	} `json:"usage_windows"`
+	Groups []struct {
+		ID        json.Number `json:"id"`
+		Name      string      `json:"name"`
+		Effective *float64    `json:"effective_multiplier"`
+		Rate      *float64    `json:"rate_multiplier"`
+	} `json:"groups"`
+}
+
+func (item upstreamPoolItem) liveStatus() accountPoolRow {
+	row := accountPoolRow{Status: poolEnum(item.Status, "active", "error", "rate_limited", "paused", "disabled", "inactive"),
+		Current: poolNumber(item.Current), Limit: poolNumber(item.Limit), LastUsed: poolTimestamp(item.LastUsed),
+		Admin: &accountPoolAdminRow{Status: item.Status}}
+	for _, w := range item.Windows[:min(6, len(item.Windows))] {
+		name := poolEnum(w.Name, "5h", "7d", "requests", "tokens")
+		if name != "unknown" && w.Used != nil && *w.Used >= 0 && *w.Used < 1e9 {
+			row.Windows = append(row.Windows, accountPoolWindow{Name: name, Used: w.Used})
+		}
+	}
+	return row
+}
+
+func collectAccountPool(get func(string) ([]byte, error), previous []accountPoolSourceGroup, known []accountPoolRow) (accountPoolSnapshot, error) {
+	snapshot, err := collectAccountPoolPass(get, previous, known)
 	// Reset coverage if the upstream inventory changed or could not be covered.
 	if errors.Is(err, errPoolChanged) {
-		return collectAccountPoolPass(get, previous)
+		return collectAccountPoolPass(get, previous, nil)
 	}
 	return snapshot, err
 }
 
-func collectAccountPoolPass(get func(string) ([]byte, error), previous []accountPoolSourceGroup) (accountPoolSnapshot, error) {
+func collectAccountPoolPass(get func(string) ([]byte, error), previous []accountPoolSourceGroup, known []accountPoolRow) (accountPoolSnapshot, error) {
 	const size, maxPages = 100, 100
 	out := accountPoolSnapshot{Groups: append([]accountPoolSourceGroup{}, previous...)}
 	groupIndex := make(map[string]int)
@@ -556,8 +694,12 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 	positions := map[json.Number]int{}
 	total := -1
 	pageCount := func(width int) int { return max(1, (total+width-1)/width) }
-	read := func(page, width int) error {
-		data, err := get(fmt.Sprintf("/api/v1/account-pool?page=%d&page_size=%d", page, width))
+	read := func(page, width int, exactID string) error {
+		path := fmt.Sprintf("/api/v1/account-pool?page=%d&page_size=%d", page, width)
+		if exactID != "" {
+			path += "&search=" + url.QueryEscape(exactID)
+		}
+		data, err := get(path)
 		if err != nil {
 			return err
 		}
@@ -565,11 +707,17 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 		if json.Unmarshal(data, &result) != nil || result.Total == nil || result.Items == nil || *result.Total < 0 || *result.Total > size*maxPages {
 			return errPoolChanged
 		}
-		if total < 0 {
-			total = *result.Total
-		}
-		if result.Page != page || result.Size != width || *result.Total != total || result.Pages != pageCount(width) || len(result.Items) != min(width, total-(page-1)*width) {
-			return errPoolChanged
+		if exactID != "" {
+			if result.Page != 1 || result.Size != width || result.Pages != 1 || *result.Total != 1 || len(result.Items) != 1 || result.Items[0].ID.String() != exactID {
+				return nil
+			}
+		} else {
+			if total < 0 {
+				total = *result.Total
+			}
+			if result.Page != page || result.Size != width || *result.Total != total || result.Pages != pageCount(width) || len(result.Items) != min(width, total-(page-1)*width) {
+				return errPoolChanged
+			}
 		}
 		observedAt := time.Now().UTC()
 		inPage := make(map[json.Number]bool, len(result.Items))
@@ -590,17 +738,10 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 			if strings.EqualFold(plan, "Pro Max") || strings.EqualFold(plan, "promax") {
 				plan = "promax"
 			}
-			row := accountPoolRow{Number: index + 1, Platform: poolEnum(item.Platform, "openai", "grok", "anthropic", "gemini"),
-				Plan:   poolEnum(plan, "promax", "Pro", "Plus", "Team", "Free", "go", "SuperGrok Heavy", "pro20", "SuperGrok"),
-				Status: poolEnum(item.Status, "active", "error", "rate_limited", "paused", "disabled", "inactive"), Current: poolNumber(item.Current), Limit: poolNumber(item.Limit),
-				Admin: &accountPoolAdminRow{SourceID: item.ID.String(), Name: item.Name, Type: item.Type, Plan: item.Plan, Status: item.Status, ObservedAt: &observedAt}}
-			row.LastUsed = poolTimestamp(item.LastUsed)
-			for _, w := range item.Windows[:min(6, len(item.Windows))] {
-				name := poolEnum(w.Name, "5h", "7d", "requests", "tokens")
-				if name != "unknown" && w.Used != nil && *w.Used >= 0 && *w.Used < 1e9 {
-					row.Windows = append(row.Windows, accountPoolWindow{Name: name, Used: w.Used})
-				}
-			}
+			row := item.liveStatus()
+			row.Number, row.Platform = index+1, poolEnum(item.Platform, "openai", "grok", "anthropic", "gemini")
+			row.Plan = poolEnum(plan, "promax", "Pro", "Plus", "Team", "Free", "go", "SuperGrok Heavy", "pro20", "SuperGrok")
+			row.Admin.SourceID, row.Admin.Name, row.Admin.Type, row.Admin.Plan, row.Admin.ObservedAt = item.ID.String(), item.Name, item.Type, item.Plan, &observedAt
 			for _, group := range item.Groups {
 				if group.ID == "" {
 					return errPoolChanged
@@ -649,14 +790,14 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 		}
 		return nil
 	}
-	if err := read(1, size); err != nil {
+	if err := read(1, size, ""); err != nil {
 		return accountPoolSnapshot{}, err
 	}
 	pages := pageCount(size)
 	firstDrift, lastDrift := 1, 1
 	for page := pages; page > 1; page-- {
 		before := len(out.Rows)
-		if err := read(page, size); err != nil {
+		if err := read(page, size, ""); err != nil {
 			return accountPoolSnapshot{}, err
 		}
 		if len(out.Rows)-before < min(size, total-(page-1)*size) {
@@ -665,6 +806,38 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 			}
 			firstDrift = page
 		}
+	}
+	// A small number of missing members can be cheaper to check by verified ID.
+	triedKnown := false
+	fillKnown := func() error {
+		missing := total - len(out.Rows)
+		if triedKnown || missing == 0 || missing > 6 {
+			return nil
+		}
+		triedKnown = true
+		attempts := 0
+		for _, row := range known {
+			if row.Admin == nil || row.Admin.SourceID == "" {
+				continue
+			}
+			if _, seen := positions[json.Number(row.Admin.SourceID)]; seen {
+				continue
+			}
+			if err := read(1, size, row.Admin.SourceID); err != nil {
+				if errors.Is(err, errPoolChanged) {
+					break
+				}
+				return err
+			}
+			attempts++
+			if len(out.Rows) == total || attempts == missing {
+				break
+			}
+		}
+		return nil
+	}
+	if err := fillKnown(); err != nil {
+		return accountPoolSnapshot{}, err
 	}
 	// ponytail: Shenji has no stable cursor. Shift the boundaries around pages
 	// that overlapped before falling back to a full sweep at a different width.
@@ -675,7 +848,10 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 			start, end = 1, pageCount(width)
 		}
 		for page := start; page <= end && len(out.Rows) < total; page++ {
-			if err := read(page, width); err != nil {
+			if err := read(page, width, ""); err != nil {
+				return accountPoolSnapshot{}, err
+			}
+			if err := fillKnown(); err != nil {
 				return accountPoolSnapshot{}, err
 			}
 		}
@@ -684,7 +860,7 @@ func collectAccountPoolPass(get func(string) ([]byte, error), previous []account
 		return accountPoolSnapshot{}, errPoolChanged
 	}
 	if pages > 1 {
-		if err := read(1, size); err != nil {
+		if err := read(1, size, ""); err != nil {
 			return accountPoolSnapshot{}, err
 		}
 	}

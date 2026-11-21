@@ -37,11 +37,11 @@ func TestPublishedAccountPoolStatus(t *testing.T) {
 	shenjiConfig := config(accountPoolBaseURL, "public-1", "Shenji", "Full pool", nil, "Pro Max", "Team")
 	qiuConfig := config(vulcanPoolBaseURL, "public-2", "Qiu API", "Codex pool", map[string]string{" Pro 500 ": "Pro Max"}, "Pro Max")
 	mock.ExpectQuery(`WHERE s.purpose='public' AND s.kind='sub2api'`).WithArgs(poolStatusSettingPrefix, accountPoolBaseURL, vulcanPoolBaseURL).
-		WillReturnRows(sqlmock.NewRows([]string{"base_url", "revision", "value", "snapshot"}).
-			AddRow(accountPoolBaseURL, 3, shenjiConfig, shenji).
-			AddRow(vulcanPoolBaseURL, 2, qiuConfig, qiu).
-			AddRow(vulcanPoolBaseURL, 3, qiuConfig, qiu).
-			AddRow(accountPoolBaseURL, 2, qiuConfig, qiu))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "base_url", "revision", "value", "snapshot"}).
+			AddRow("site-1", accountPoolBaseURL, 3, shenjiConfig, shenji).
+			AddRow("site-2", vulcanPoolBaseURL, 2, qiuConfig, qiu).
+			AddRow("site-3", vulcanPoolBaseURL, 3, qiuConfig, qiu).
+			AddRow("site-4", accountPoolBaseURL, 2, qiuConfig, qiu))
 	result, err := s.AccountPoolStatus(t.Context(), 1, 1, false)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())

@@ -272,6 +272,7 @@ type UpstreamBillingProbeService struct {
 	accountPoolMu            sync.Mutex
 	accountPoolSite          string
 	accountPoolRefreshStates map[string]accountPoolRefreshState
+	accountPoolHeads         map[string]accountPoolHead
 }
 
 type upstreamBillingProbeSnapshotWriter interface {

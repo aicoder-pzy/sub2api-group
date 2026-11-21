@@ -6,11 +6,12 @@
 
 ## 号池管理与独立导出
 
-- 后台「号池管理」可选择上游分组、对外名称、套餐映射和套餐白名单。管理员预览与对外接口使用同一套筛选和状态数据，另仅在管理员预览中提供原始账号名称和 ID。未启用导出时也能预览。神鸡正常约每 10 分钟启动一次后台采集，页面和导出只读最后一次完整快照。
+- 后台「号池管理」可选择上游分组、对外名称、套餐映射和套餐白名单。管理员预览与对外接口使用同一套筛选和状态数据，另仅在管理员预览中提供原始账号名称和 ID。预览打开时显示已有快照，前台每 20 秒读取本地数据。神鸡后台约每 10 分钟启动一次全量采集；使用相同限速补采上游最新一页，仅刷新已核实成员的状态、并发、额度及活动时间。全量采集成功后才更换成员列表。
 - 对接服务端使用 `GET /api/v1/integrations/account-pool-status?page=1&page_size=20`，请求头为 `Authorization: Bearer <独立导出令牌>`。令牌在后台启用导出时生成，不放进浏览器。接口默认关闭，关闭时返回 `404`，令牌错误返回 `401`。响应含 `Cache-Control: no-store`。
 - `data` 含 `pools`、`page` 和 `page_size`，每个号池独立分页。号池含 `id`、`source`、`name`、`snapshot_available`、`updated`、`checked_at`、`total`、`pages`、`plans`、`statuses` 和 `rows`。套餐与状态统计覆盖全部符合配置的账号，不受分页影响。`updated` 是快照的更新时间，`checked_at` 是本次完整采集完成时间。没有当前快照时 `snapshot_available` 为 `false`，`updated` 为 `null`。
 - 账号字段：`number` 是当前快照中按排序分配的展示编号；`platform`、`account_type`、`plan`、`status` 用于展示。`plan` 是映射后的公开套餐名。`current` 和 `limit` 是采集到的当前并发和上限；`windows[].name` 标识额度窗口，`windows[].used` 是使用百分比，`25` 表示 25%。`reset_5h`、`reset_7d`、`recover_at` 分别表示额度重置及状态预计恢复时间。
 - `last_used` 是上游报告的最近使用，`usage_updated` 是上游报告的额度更新时间，`observed_at` 是采集到账号状态的时间。`activity_at` 是与上游站点页同口径的展示及排序时间，`activity_kind` 为 `usage_updated`、`active_concurrency` 或 `last_used`。上游未给的数据不返回，`0` 保留实际含义；时间均为 RFC3339。不要把采集时正在使用的观测时间当作上游报告的最后使用时间。
+- `recent_checked_at`（如有）是当前页中晚于上次完整采集的状态观测时间。它不改变 `updated`、`checked_at` 或号池成员范围。
 - 只返回配置选中的号池与套餐。邮箱、原始账号和分组标识、凭证和采购倍率保留在站内。对外接口不触发采集。
 
 ## 旧版神鸡接口

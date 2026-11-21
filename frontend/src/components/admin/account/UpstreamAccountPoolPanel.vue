@@ -1,9 +1,10 @@
 <template>
   <div class="min-w-0 space-y-4" :class="{ 'px-1 py-4': !published }">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <p class="text-sm text-gray-500" role="status">
-        {{ updated ? tr('accountPoolSnapshot', { count: total, time: formatDateTime(updated) }) : tr(busy ? 'accountPoolLoading' : 'accountPoolEmpty') }}
-      </p>
+      <div class="flex flex-wrap gap-x-3 gap-y-1 text-sm text-gray-500" role="status">
+        <span>{{ updated ? tr('accountPoolSnapshot', { count: total, time: formatDateTime(updated) }) : tr(busy ? 'accountPoolLoading' : 'accountPoolEmpty') }}</span>
+        <span v-if="recentCheckedAt">{{ tr('accountPoolRecentChecked', { time: formatDateTime(recentCheckedAt) }) }}</span>
+      </div>
       <div v-if="!published" class="flex flex-wrap items-center gap-2">
         <span v-if="refreshing" class="text-sm text-gray-500" role="status">{{ tr('accountPoolRefreshing') }}</span>
         <button class="btn btn-secondary" type="button" :disabled="groupMode ? busy : requestingRefresh || refreshing" @click="groupMode ? load() : requestRefresh()">
@@ -117,13 +118,14 @@ const snapshot = shallowRef<SitePoolDisplay>(), drafts = ref<Record<string, stri
 const groupSnapshot = ref<GroupPoolDisplay>()
 const groupMode = computed(() => props.groupId != null)
 const updated = computed(() => props.published?.updated ?? groupSnapshot.value?.updated ?? snapshot.value?.updated)
+const recentCheckedAt = computed(() => props.published?.recent_checked_at ?? snapshot.value?.recent_checked_at)
 const total = computed(() => props.published?.total ?? groupSnapshot.value?.total ?? snapshot.value?.page_info?.total ?? 0)
 const busy = ref(false), refreshing = ref(false), error = ref('')
 const actionError = ref(''), requestingRefresh = ref(false), savingAlias = ref(false)
 const now = ref(Date.now())
 useIntervalFn(() => { now.value = Date.now() }, 60_000)
 const isOld = (stamp: string | null | undefined) => !stamp || now.value - Date.parse(stamp) >= 15 * 60_000
-const stale = computed(() => !props.published && !groupMode.value && !!updated.value && isOld(updated.value))
+const stale = computed(() => !groupMode.value && !!updated.value && isOld(updated.value))
 const selectedPool = ref(''), selectedPlatform = ref(''), page = ref(1)
 const size = 30
 const platforms = computed(() => snapshot.value?.page_info?.platforms ?? [])
