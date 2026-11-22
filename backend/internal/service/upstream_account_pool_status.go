@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -49,6 +50,7 @@ type storedAccountPoolStatusConfig struct {
 
 type accountPoolStatusRow struct {
 	Number       int                        `json:"number"`
+	DisplayName  string                     `json:"display_name,omitempty"`
 	Platform     string                     `json:"platform"`
 	Plan         string                     `json:"plan"`
 	Status       string                     `json:"status"`
@@ -182,7 +184,9 @@ func publishedAccountPoolRow(row accountPoolRow, number int) accountPoolStatusRo
 	return out
 }
 
-func (c AccountPoolStatusConfig) status(snapshot accountPoolSnapshot, revision int64, page, size int, includeIdentity bool) PublishedAccountPoolStatus {
+var shenjiPublicAccountName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9 .+_-]{0,31}账号 #[0-9]{1,20}$`)
+
+func (c AccountPoolStatusConfig) status(snapshot accountPoolSnapshot, revision int64, page, size int, includeIdentity, shenji bool) PublishedAccountPoolStatus {
 	out := PublishedAccountPoolStatus{ID: c.PoolID, Source: c.SourceName, Name: c.Name, Plans: map[string]int{}, Statuses: map[string]int{}, Rows: []accountPoolStatusRow{}, Pages: 1}
 	if !snapshot.hasCurrentPool(revision, c.PoolID) {
 		return out
@@ -219,8 +223,20 @@ func (c AccountPoolStatusConfig) status(snapshot accountPoolSnapshot, revision i
 		start := (page - 1) * size
 		for i := start; i < min(start+size, out.Total); i++ {
 			row := publishedAccountPoolRow(matching[i], i+1)
-			if admin := matching[i].Admin; includeIdentity && admin != nil && (admin.Name != "" || admin.SourceID != "") {
-				row.Admin = &accountPoolStatusIdentity{Name: admin.Name, SourceID: admin.SourceID}
+			if admin := matching[i].Admin; admin != nil {
+				if shenji {
+					name := admin.Name
+					// Older snapshots were collected without the upstream locale header.
+					if plan, ok := strings.CutSuffix(name, " Account #"+admin.SourceID); ok && (plan == "Pro" || plan == "promax") {
+						name = plan + "账号 #" + admin.SourceID
+					}
+					if shenjiPublicAccountName.MatchString(name) && strings.HasSuffix(name, " #"+admin.SourceID) {
+						row.DisplayName = name
+					}
+				}
+				if includeIdentity && (admin.Name != "" || admin.SourceID != "") {
+					row.Admin = &accountPoolStatusIdentity{Name: admin.Name, SourceID: admin.SourceID}
+				}
 			}
 			out.Rows = append(out.Rows, row)
 		}
@@ -263,7 +279,7 @@ func (s *UpstreamBillingProbeService) AccountPoolStatus(ctx context.Context, pag
 		if baseURL == accountPoolBaseURL && snapshot.SiteRevision == revision {
 			s.applyAccountPoolHead(siteID, &snapshot)
 		}
-		status := cfg.status(snapshot, revision, page, size, includeIdentity)
+		status := cfg.status(snapshot, revision, page, size, includeIdentity, baseURL == accountPoolBaseURL)
 		for _, row := range status.Rows {
 			if baseURL == accountPoolBaseURL && poolTime(row.ObservedAt).After(poolTime(snapshot.CheckedAt)) &&
 				poolTime(row.ObservedAt).After(poolTime(status.RecentCheckedAt)) {

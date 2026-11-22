@@ -26,15 +26,20 @@ func TestPublishedAccountPoolStatus(t *testing.T) {
 	}
 	const shenji = `{"updated":"2026-11-21T00:00:00Z","site_revision":3,
 		"groups":[{"source_id":"9","id":"public-1","original":"upstream-name"}],
-		"rows":[{"pools":["public-1"],"plan":"promax","status":"active"},
-		{"pools":["public-1"],"plan":"Team","status":"disabled"},
+		"rows":[{"pools":["public-1"],"plan":"promax","status":"active","admin":{"name":"promax账号 #64220","source_id":"64220"}},
+		{"pools":["public-1"],"plan":"Pro","status":"disabled","admin":{"name":"Pro Account #64221","source_id":"64221"}},
 		{"pools":["public-1"],"plan":"Free","status":"active"},
 		{"pools":["other"],"plan":"Team","status":"active"}]}`
+	var shenjiSnapshot accountPoolSnapshot
+	require.NoError(t, json.Unmarshal([]byte(shenji), &shenjiSnapshot))
+	status := AccountPoolStatusConfig{PoolID: "public-1", Plans: []string{"Pro Max", "Pro"}}.status(shenjiSnapshot, 3, 2, 1, false, true)
+	require.Len(t, status.Rows, 1)
+	require.Equal(t, "Pro账号 #64221", status.Rows[0].DisplayName)
 	const qiu = `{"updated":"2026-11-21T00:05:00Z","site_revision":2,
 		"groups":[{"source_id":"97","id":"public-2"}],
 		"rows":[{"pools":["public-2"],"platform":"openai","plan":"Pro 500","status":"rate_limited"},
 		{"pools":["public-2"],"plan":"Plus","status":"active"}]}`
-	shenjiConfig := config(accountPoolBaseURL, "public-1", "Shenji", "Full pool", nil, "Pro Max", "Team")
+	shenjiConfig := config(accountPoolBaseURL, "public-1", "Shenji", "Full pool", nil, "Pro Max", "Pro")
 	qiuConfig := config(vulcanPoolBaseURL, "public-2", "Qiu API", "Codex pool", map[string]string{" Pro 500 ": "Pro Max"}, "Pro Max")
 	mock.ExpectQuery(`WHERE s.purpose='public' AND s.kind='sub2api'`).WithArgs(poolStatusSettingPrefix, accountPoolBaseURL, vulcanPoolBaseURL).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "base_url", "revision", "value", "snapshot"}).
@@ -47,11 +52,12 @@ func TestPublishedAccountPoolStatus(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Len(t, result, 3)
 	require.Equal(t, "Full pool", result[0].Name)
-	require.Equal(t, map[string]int{"Pro Max": 1, "Team": 1}, result[0].Plans)
+	require.Equal(t, map[string]int{"Pro Max": 1, "Pro": 1}, result[0].Plans)
 	require.Equal(t, map[string]int{"active": 1, "disabled": 1}, result[0].Statuses)
 	require.Equal(t, 2, result[0].Total)
 	require.Equal(t, 2, result[0].Pages)
 	require.Len(t, result[0].Rows, 1)
+	require.Equal(t, "promax账号 #64220", result[0].Rows[0].DisplayName)
 	require.Equal(t, "Qiu API", result[1].Source)
 	require.Equal(t, []accountPoolStatusRow{{Number: 1, Platform: "openai", Plan: "Pro Max", Status: "rate_limited"}}, result[1].Rows)
 	require.Equal(t, 1, result[1].Total)
@@ -78,7 +84,7 @@ func TestPublishedAccountPoolDisplayFields(t *testing.T) {
 		  "admin":{"usage_updated":"2026-11-21T07:40:00Z","reset_5h":"2026-11-21T12:00:00Z","reset_7d":"2026-11-28T00:00:00Z","recover_at":"2026-11-21T08:00:00Z","priority":17,"intelligence":"private-note"}}
 		]}`), &snapshot))
 	cfg := AccountPoolStatusConfig{PoolID: "public", Name: "Public pool", Plans: []string{"Plus"}}
-	first := cfg.status(snapshot, 1, 1, 2, false)
+	first := cfg.status(snapshot, 1, 1, 2, false, true)
 	require.Equal(t, snapshot.CheckedAt, first.CheckedAt)
 	require.Equal(t, 3, first.Total)
 	require.Len(t, first.Rows, 2)
@@ -95,7 +101,7 @@ func TestPublishedAccountPoolDisplayFields(t *testing.T) {
 	require.Equal(t, "2026-11-21T12:00:00Z", quota.Reset5h.Format(time.RFC3339))
 	require.Equal(t, "2026-11-28T00:00:00Z", quota.Reset7d.Format(time.RFC3339))
 	require.Equal(t, "2026-11-21T08:00:00Z", quota.RecoverAt.Format(time.RFC3339))
-	second := cfg.status(snapshot, 1, 2, 2, false)
+	second := cfg.status(snapshot, 1, 2, 2, false, true)
 	require.Len(t, second.Rows, 1)
 	require.Equal(t, 3, second.Rows[0].Number)
 	require.Equal(t, "last_used", second.Rows[0].ActivityKind)
@@ -106,7 +112,7 @@ func TestPublishedAccountPoolDisplayFields(t *testing.T) {
 	for _, private := range []string{"private-", `"admin"`, `"source_id"`, `"rates"`, `"account_rate"`, `"priority"`} {
 		require.NotContains(t, string(raw), private)
 	}
-	preview := cfg.status(snapshot, 1, 1, 2, true)
+	preview := cfg.status(snapshot, 1, 1, 2, true, true)
 	require.Equal(t, &accountPoolStatusIdentity{Name: "private-email@example.invalid", SourceID: "private-account-id"}, preview.Rows[0].Admin)
 	require.Nil(t, preview.Rows[1].Admin)
 	preview.Rows[0].Admin = nil

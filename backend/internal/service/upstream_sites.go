@@ -216,6 +216,9 @@ func (s *UpstreamBillingProbeService) upstreamSiteRequestWithToken(ctx context.C
 		return nil, upstreamSiteError("Cannot build management request")
 	}
 	req.Header.Set("Accept", "application/json")
+	if site.BaseURL == accountPoolBaseURL && strings.HasPrefix(path, "/api/v1/account-pool") {
+		req.Header.Set("Accept-Language", "zh")
+	}
 	if secret != "" {
 		req.Header.Set("Authorization", "Bearer "+secret)
 	}
