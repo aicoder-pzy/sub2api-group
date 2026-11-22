@@ -13,11 +13,13 @@ import (
 )
 
 type SchedulingAgentActivity struct {
-	Model         string    `json:"model"`
-	At            time.Time `json:"latest_activity"`
-	FailureSince  time.Time `json:"second_latest_502_at,omitzero"`
-	FailedAccount int64     `json:"upstream_502_account_id,omitempty"`
-	Failures      int       `json:"upstream_502_requests_5m,omitempty"`
+	Cache         *SchedulingAgentCacheIncident `json:"cache_incident,omitempty"`
+	Trial         *SchedulingAgentTrialResult   `json:"trial_result,omitempty"`
+	Model         string                        `json:"model"`
+	At            time.Time                     `json:"latest_activity"`
+	FailureSince  time.Time                     `json:"second_latest_502_at,omitzero"`
+	FailedAccount int64                         `json:"upstream_502_account_id,omitempty"`
+	Failures      int                           `json:"upstream_502_requests_5m,omitempty"`
 }
 
 func (a SchedulingAgentActivity) urgentAfter(at time.Time) bool {
@@ -63,8 +65,11 @@ type schedulingAgentFailureReader interface {
 }
 
 type schedulingAgentReview struct {
-	Through  time.Time               `json:"through"`
-	Decision schedulingAgentDecision `json:"decision"`
+	CacheThrough  time.Time               `json:"cache_through,omitzero"`
+	CacheAffected int                     `json:"cache_affected,omitempty"`
+	CacheAccount  int64                   `json:"cache_account,omitempty"`
+	Through       time.Time               `json:"through"`
+	Decision      schedulingAgentDecision `json:"decision"`
 }
 
 type schedulingAgentInvestigationReader interface {
@@ -143,6 +148,12 @@ func (r *schedulingAgentRuntime) investigate(ctx context.Context, g *Group, p Sc
 		Failures []SchedulingAgentFailure  `json:"stream_failures_and_recovered_attempts"`
 	}{signal, prior.Decision, run.Evidence, run.Traffic, run.FailureEvidence})
 	messages := []map[string]string{{"role": "system", "content": schedulingAgentInstructions(p.MinWaitMS, canInspect)}, {"role": "user", "content": string(payload)}}
+	if signal.Cache != nil {
+		messages[0]["content"] += ` This investigation was triggered by two completed 10-minute streaming windows below the same warm session's baseline. Check whether compaction, a change of account, or shared channel trouble explains it. Isolated session changes are not evidence for a group route change. With multiple affected sessions, investigate other eligible accounts and decide whether a small natural trial is worthwhile. Reuse inspect for comparable cache and latency evidence. Consider cache hit rate together with success, first event latency and quality. Do not treat provider metrics for a related model as measurements of this model.`
+	}
+	if signal.Trial != nil {
+		messages[0]["content"] += ` This is a follow-up on an existing trial. Matched cohorts compare actual assigned new trial and control sessions, after the first turn. Consider Sub2 failures, confidence, warm cache, first event latency and quality. Return stop_trial if the trial harms users, prefer_route if there is convincing sustained benefit, or hold and explain what further evidence would settle the question. The current route keeps admitting a limited number of new trial sessions until it expires, is stopped or is promoted. Do not request another trial in this review.`
+	}
 	canInspectFailures = canInspectFailures && r.codex != nil && len(run.FailureEvidence) == 0
 	if canInspectFailures {
 		messages[0]["content"] += ` For bursts, request {"action":"inspect_failures","model":the exact model,"reason":what you are checking} to see Sub2's recent streaming failures and recovered attempts by phase, client status, upstream status and account. This does not include failures before reaching Sub2. Use it at most once. Investigate the dominant uncertainty first. Do not blame or switch an account for a gateway-only error.`

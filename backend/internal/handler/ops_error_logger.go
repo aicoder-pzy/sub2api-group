@@ -463,7 +463,11 @@ func setOpsEndpointContext(c *gin.Context, upstreamModel string, requestType int
 	}
 	c.Set(opsRequestTypeKey, requestType)
 	if c.Request != nil && (requestType == int16(service.RequestTypeStream) || requestType == int16(service.RequestTypeWSV2)) {
-		c.Request = c.Request.WithContext(service.WithSchedulingAgentRequestType(c.Request.Context(), service.RequestType(requestType)))
+		ctx := service.WithSchedulingAgentRequestType(c.Request.Context(), service.RequestType(requestType))
+		if key := getOpsAPIKey(c); key != nil {
+			ctx = service.WithSchedulingAgentSessionIdentity(ctx, key.ID, service.ExtractClientSessionID(c))
+		}
+		c.Request = c.Request.WithContext(ctx)
 	}
 }
 

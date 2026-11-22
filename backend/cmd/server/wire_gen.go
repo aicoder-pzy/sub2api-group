@@ -61,7 +61,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		return nil, err
 	}
 	leaderLockCache := repository.NewLeaderLockCache(redisClient)
-	settingService := service.ProvideSettingService(scopedAdminKeyRepository, settingRepository, groupRepository, proxyRepository, configConfig, accountRepository, usageLogRepository, secretEncryptor, leaderLockCache)
+	gatewayCache := repository.NewGatewayCache(redisClient)
+	settingService := service.ProvideSettingService(scopedAdminKeyRepository, settingRepository, groupRepository, proxyRepository, configConfig, accountRepository, usageLogRepository, secretEncryptor, leaderLockCache, gatewayCache)
 	emailCache := repository.NewEmailCache(redisClient)
 	emailService := service.NewEmailService(settingRepository, emailCache)
 	turnstileVerifier := repository.NewTurnstileVerifier()
@@ -109,7 +110,6 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	usageBillingBatchRepository := repository.NewUsageBillingRepository(client, db)
 	usageBillingLaneCombiner := service.NewUsageBillingLaneCombiner(usageBillingBatchRepository)
 	usageBillingRepository := service.ProvideUsageBillingRepository(usageBillingLaneCombiner)
-	gatewayCache := repository.NewGatewayCache(redisClient)
 	schedulerOutboxRepository := repository.NewSchedulerOutboxRepository(db)
 	schedulerSnapshotService := service.ProvideSchedulerSnapshotService(schedulerCache, schedulerOutboxRepository, accountRepository, groupRepository, configConfig)
 	pricingRemoteClient := repository.ProvidePricingRemoteClient(configConfig)

@@ -47,6 +47,15 @@ export interface SchedulingRun {
   decision?: { action: string; model: string; account_id: number; wait_ms: number; reason: string }
   inspections?: { action?: string; model: string; effort?: string; hours: number; reason: string }[]
   evidence?: SchedulingEvidence[]
+  signal?: {
+    cache_incident?: { account_id: number; affected_sessions: number; comparable_sessions: number; window_end: string;
+      low_sessions: { session: string; baseline: number; previous: number; latest: number; compacted: boolean; changed_account: boolean }[] }
+    trial_result?: { account_id: number; control_id: number; matched_cohorts: {
+      effort: string; endpoint: string; protocol: number; context_bucket: number; trial_sessions: number; control_sessions: number;
+      trial_warm_requests: number; control_warm_requests: number; trial_cache: number; control_cache: number;
+      trial_first_event_p95_ms: number; control_first_event_p95_ms: number
+    }[] }
+  }
   feedback?: SchedulingEvidence[]
   applied_requests?: number
   completed_attempts?: number

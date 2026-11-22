@@ -144,19 +144,22 @@ type schedulingAgentRuntime struct {
 	client       *http.Client
 	codex        *http.Client
 	monitor      atomic.Pointer[UpstreamBillingProbeService]
+	trials       schedulingAgentTrialReader
+	cacheScans   map[int64]schedulingAgentCacheScan // Accessed only by the automatic cycle.
 	mu           sync.Mutex
 	queue        map[schedulingQueueKey]schedulingQueueSample
 	actions      map[int64]schedulingActionCount
 	cancel       context.CancelFunc
 }
 
-func (s *SettingService) startSchedulingAgent(groups GroupRepository, accounts AccountRepository, usage UsageLogRepository, secrets SecretEncryptor, lock LeaderLockCache) {
+func (s *SettingService) startSchedulingAgent(groups GroupRepository, accounts AccountRepository, usage UsageLogRepository, secrets SecretEncryptor, lock LeaderLockCache, cache GatewayCache) {
 	ctx, cancel := context.WithCancel(context.Background())
 	observations, _ := usage.(modelAutoQualityRepository)
 	runtime := &schedulingAgentRuntime{settings: s, groups: groups, accounts: accounts, observations: observations, secrets: secrets, lock: lock, cancel: cancel, queue: make(map[schedulingQueueKey]schedulingQueueSample), actions: make(map[int64]schedulingActionCount), client: newSchedulingAgentClient(), done: make(chan struct{})}
 	if socket := os.Getenv("SUB2_SCHEDULING_CODEX_SOCKET"); socket != "" {
 		runtime.codex = newSchedulingCodexClient(socket)
 	}
+	runtime.trials, _ = cache.(schedulingAgentTrialReader)
 	s.schedulingAgent = runtime
 	go runtime.loop(ctx)
 }
@@ -561,12 +564,25 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 	var signal SchedulingAgentActivity
 	if automatic {
 		signal, err = r.nextActivity(ctx, g.ID, models, run.Reviews, last.At)
-		if err != nil || signal.Model == "" {
+		if err != nil {
 			return last, err
 		}
 		if now.Sub(last.At) < time.Duration(c.IntervalMinutes)*time.Minute &&
 			!(signal.urgentAfter(last.At) && signal.urgentAfter(run.Reviews[signal.Model].Through)) {
 			return last, nil
+		}
+		// A burst of user-visible 502s takes priority. A steady trickle of other
+		// errors must not prevent an existing trial or cache incident being reviewed.
+		if !signal.urgentAfter(last.At) || !signal.urgentAfter(run.Reviews[signal.Model].Through) {
+			experience, experienceErr := r.nextExperienceActivity(ctx, g.ID, models, run)
+			switch {
+			case experience.Model == "" && signal.Model == "":
+				return last, experienceErr
+			case experience.Trial != nil:
+				signal = experience
+			case experience.Cache != nil && (signal.Model == "" || !run.Reviews[experience.Model].CacheThrough.After(run.Reviews[signal.Model].Through)):
+				signal = experience
+			}
 		}
 		run.Signal = &signal
 		models = []string{signal.Model}
@@ -639,11 +655,23 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 		if run.Reviews == nil {
 			run.Reviews = make(map[string]schedulingAgentReview)
 		}
-		run.Reviews[signal.Model] = schedulingAgentReview{Through: signal.At, Decision: decision}
+		review := run.Reviews[signal.Model]
+		review.Decision = decision
+		switch {
+		case signal.Cache != nil:
+			review.CacheThrough, review.CacheAffected, review.CacheAccount = signal.Cache.At, signal.Cache.Affected, signal.Cache.AccountID
+		case signal.Trial != nil:
+			route := run.Routes[signal.Model]
+			route.TrialReviewedSamples = signal.Trial.samples()
+			run.Routes[signal.Model] = route
+		default:
+			review.Through = signal.At
+		}
+		run.Reviews[signal.Model] = review
 	}
 	run.State = "observed"
-	route, changeRoute := schedulingRouteChange(p, run.Routes[decision.Model], decision, run.Evidence, time.Now(), run.FailureEvidence)
-	if p.AgentMode == "auto" && (changeRoute || allowedSchedulingDecision(p, decision, run.Evidence)) {
+	route, changeRoute := schedulingRouteChange(p, run.Routes[decision.Model], decision, run.Evidence, time.Now(), run.FailureEvidence, signal)
+	if p.AgentMode == "auto" && (changeRoute || (signal.Cache == nil && signal.Trial == nil && allowedSchedulingDecision(p, decision, run.Evidence))) {
 		current, readErr := r.settings.GetSchedulingPolicy(ctx, g.ID)
 		currentConnection, configErr := readSchedulingJSON[SchedulingAgentConnection](ctx, r.settings.settingRepo, schedulingAgentConnectionKey)
 		if readErr == nil && configErr == nil && current.Version == p.Version && currentConnection.Version == c.Version {

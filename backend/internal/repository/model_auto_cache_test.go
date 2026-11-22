@@ -2,7 +2,10 @@ package repository
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -209,4 +212,31 @@ func TestSmartChannelRedisTrialsRespectSharedCooldownAndSessionLimit(t *testing.
 	trials, err := server.Get("model_auto:session:8:bQ:trial-count")
 	require.NoError(t, err)
 	require.Equal(t, "1", trials, "concurrent replicas cannot multiply trial reservations")
+}
+
+func TestSchedulingAgentRedisTracksOnlyFirstAssignmentPerTrial(t *testing.T) {
+	server := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = redisClient.Close() })
+	cache := &gatewayCache{rdb: redisClient}
+	ctx := context.Background()
+	started := time.Now()
+	key := fmt.Sprintf("model_auto:session:24:%s:observed:%d", base64.RawURLEncoding.EncodeToString([]byte("\x00scheduling-agent:sol")), started.UnixMilli())
+	first, second := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	assign := func(session, identity string) {
+		_, err := assignModelAutoSessionScript.Run(ctx, redisClient, []string{"session:" + session, "counter", "sequence", "trials", "cooldown", key}, 1, "[1,3]", "[3]", 60, identity).Int64Slice()
+		require.NoError(t, err)
+	}
+	assign("first", first)
+	assign("second", second)
+	assign("first", strings.Repeat("c", 64))
+	assignments, err := cache.GetSchedulingAgentTrialAssignments(ctx, 24, "sol", started)
+	require.NoError(t, err)
+	require.Len(t, assignments, 2)
+	for entry, account := range assignments {
+		id, at, ok := strings.Cut(entry, "/")
+		require.True(t, ok)
+		require.NotEmpty(t, at)
+		require.Equal(t, map[string]int64{first: 3, second: 1}[id], account)
+	}
 }

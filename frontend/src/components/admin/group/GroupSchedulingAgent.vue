@@ -106,6 +106,20 @@
         <div v-if="status.run.state" class="space-y-2 rounded border border-gray-200 p-3 text-sm dark:border-dark-600">
           <p>{{ stateLabel(status.run.state) }}<template v-if="status.run.engine === 'codex'"> · Codex</template> · {{ date(status.run.at) }} · 今日 {{ status.run.calls }} 次 · 本轮输入 {{ status.run.input_tokens }} / 输出 {{ status.run.output_tokens }} Token</p>
           <p v-if="status.run.decision?.reason" class="break-words">{{ status.run.decision.reason }}</p>
+          <div v-if="status.run.signal?.cache_incident" class="space-y-1">
+            <p>缓存异常 · {{ accountLabel(status.run.signal.cache_incident.account_id) }} · {{ status.run.signal.cache_incident.affected_sessions }} / {{ status.run.signal.cache_incident.comparable_sessions }} 个可比会话</p>
+            <p v-for="session in status.run.signal.cache_incident.low_sessions" :key="session.session" class="text-xs text-gray-500">
+              会话 {{ session.session.slice(0, 8) }} · {{ percent(session.baseline) }} → {{ percent(session.previous) }} → {{ percent(session.latest) }}
+              <span v-if="session.compacted"> · 有上下文压缩</span><span v-if="session.changed_account"> · 有账号变动</span>
+            </p>
+          </div>
+          <div v-if="status.run.signal?.trial_result" class="space-y-1">
+            <p>试跑复评 · {{ accountLabel(status.run.signal.trial_result.account_id) }} 对比 {{ accountLabel(status.run.signal.trial_result.control_id) }}</p>
+            <p v-for="cohort in status.run.signal.trial_result.matched_cohorts" :key="`${cohort.effort}:${cohort.endpoint}:${cohort.protocol}:${cohort.context_bucket}`" class="text-xs text-gray-500">
+              {{ cohort.effort || '未指定强度' }} · 上下文档位 {{ cohort.context_bucket }} · 样本 {{ cohort.trial_warm_requests }} / {{ cohort.control_warm_requests }} 条
+              · 缓存 {{ percent(cohort.trial_cache) }} / {{ percent(cohort.control_cache) }} · 首输出 P95 {{ Math.round(cohort.trial_first_event_p95_ms) }} / {{ Math.round(cohort.control_first_event_p95_ms) }} ms
+            </p>
+          </div>
           <p v-for="(inspection, index) in status.run.inspections" :key="index" class="break-words">
             取证：{{ inspection.model }} · <template v-if="inspection.action === 'inspect_failures'">近 30 分钟 5xx</template><template v-else>{{ inspection.effort || '常用档位' }} · 最近 {{ inspection.hours }} 小时</template> · {{ inspection.reason }}
           </p>
@@ -170,6 +184,7 @@ const message = ref('')
 let routeKey = 0
 
 const date = (value: string) => new Date(value).toLocaleString()
+const percent = (ratio: number) => `${(ratio * 100).toFixed(1)}%`
 const stateLabel = (state: string) => ({ reassessed: '已重新评估', reverted_after_failures: '备用失败，已恢复基础等待', observed: '已观察', applied: '已应用临时动作', route_selected: '已更新该模型的优先线路', route_trial: '已开始少量试用', trial_stopped: '已停止接收试用会话', expired: '动作已到期', revoked: '动作已撤回', insufficient_evidence: '样本不足', budget_exhausted: '今日调用额度已用完', calling: '正在分析', connected: '连接测试通过', model_timeout: '等待模型响应超时', model_unreachable: '模型无法连接', invalid_model_decision: '模型返回的决策格式无效', invalid_inspection: '取证范围无效或达到上限' }[state] ?? state)
 function accountLabel(id: number) {
   const account = status.value?.accounts.find(a => a.id === id)

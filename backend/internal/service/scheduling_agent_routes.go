@@ -26,14 +26,18 @@ type schedulingAgentSpeedReader interface {
 }
 
 type SchedulingAgentRoute struct {
-	AccountID        int64     `json:"account_id,omitempty"`
-	SelectedAt       time.Time `json:"selected_at"`
-	Reason           string    `json:"reason,omitempty"`
-	TrialID          int64     `json:"trial_id,omitempty"`
-	TrialUntil       time.Time `json:"trial_until"`
-	TrialReason      string    `json:"trial_reason,omitempty"`
-	TrialEffort      string    `json:"trial_effort,omitempty"`
-	TrialFromMonitor bool      `json:"trial_from_monitor,omitempty"`
+	AccountID            int64     `json:"account_id,omitempty"`
+	SelectedAt           time.Time `json:"selected_at"`
+	Reason               string    `json:"reason,omitempty"`
+	TrialID              int64     `json:"trial_id,omitempty"`
+	TrialUntil           time.Time `json:"trial_until"`
+	TrialReason          string    `json:"trial_reason,omitempty"`
+	TrialEffort          string    `json:"trial_effort,omitempty"`
+	TrialFromMonitor     bool      `json:"trial_from_monitor,omitempty"`
+	TrialStartedAt       time.Time `json:"trial_started_at,omitzero"`
+	TrialControlID       int64     `json:"trial_control_id,omitempty"`
+	TrialReviewedSamples int       `json:"trial_reviewed_samples,omitempty"`
+	TrialForCache        bool      `json:"trial_for_cache,omitempty"`
 }
 
 func schedulingWindowUsable(w SchedulingAgentSpeedWindow) bool {
@@ -83,16 +87,19 @@ func schedulingMaterialImprovement(current, candidate SchedulingAgentSpeedWindow
 	return (latencyBetter && (!outputKnown || candidate.OutputTPS >= current.OutputTPS*0.90)) || outputBetter
 }
 
-func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decision schedulingAgentDecision, evidence []schedulingAgentEvidence, now time.Time, failures []SchedulingAgentFailure) (SchedulingAgentRoute, bool) {
+func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decision schedulingAgentDecision, evidence []schedulingAgentEvidence, now time.Time, failures []SchedulingAgentFailure, signal SchedulingAgentActivity) (SchedulingAgentRoute, bool) {
 	if strings.TrimSpace(decision.Reason) == "" || !slices.Contains(p.analysisModels(), decision.Model) || !slices.Contains(p.order(decision.Model), decision.AccountID) {
 		return last, false
 	}
+	if signal.Cache != nil && !signal.Cache.channelWide() || signal.Trial != nil && decision.AccountID != signal.Trial.AccountID {
+		return last, false
+	}
 	if decision.Action == "stop_trial" {
-		if decision.AccountID != last.TrialID || !now.Before(last.TrialUntil) {
+		if decision.AccountID != last.TrialID || (!now.Before(last.TrialUntil) && signal.Trial == nil) {
 			return last, false
 		}
 		// Retain the original deadline as a cooldown after stopping admission.
-		last.TrialID, last.TrialReason, last.TrialFromMonitor = 0, decision.Reason, false
+		last = SchedulingAgentRoute{AccountID: last.AccountID, SelectedAt: last.SelectedAt, Reason: last.Reason, TrialUntil: last.TrialUntil, TrialReason: decision.Reason}
 		return last, true
 	}
 	var current, candidate schedulingAgentEvidence
@@ -116,13 +123,21 @@ func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decisi
 	better := schedulingRouteEvidence(current, candidate)
 	switch decision.Action {
 	case schedulingTrialRoute:
-		faultTrial := candidate.RecentFailures == 0 && candidate.FullSlots == 0 &&
+		if signal.Trial != nil || (signal.Cache != nil && current.AccountID != signal.Cache.AccountID) || now.Before(last.TrialUntil) {
+			return last, false
+		}
+		cacheTrial := candidate.QualityVerified && schedulingEvidenceHealthy(candidate) &&
+			cacheEvidenceSupportsTrial(signal.Cache, candidate, decision.Effort, now)
+		if signal.Cache != nil && !cacheTrial {
+			return last, false
+		}
+		faultTrial := signal.Cache == nil && candidate.RecentFailures == 0 && candidate.FullSlots == 0 &&
 			candidate.Failures <= candidate.Successes/10 && hasHealthySchedulingMonitor(candidate.Monitors, now) &&
 			slices.ContainsFunc(failures, func(f SchedulingAgentFailure) bool {
 				return f.AccountID == current.AccountID && f.Status >= 400 && !f.LastAt.Before(now.Add(-15*time.Minute)) &&
 					(f.Phase == "upstream" || f.Phase == "account_auth")
 			})
-		if better || now.Before(last.TrialUntil) || (!faultTrial && (!candidate.QualityVerified || !schedulingEvidenceHealthy(candidate))) {
+		if (!cacheTrial && better) || (!faultTrial && (!candidate.QualityVerified || !schedulingEvidenceHealthy(candidate))) {
 			return last, false
 		}
 		effort := candidate.QualityEffort
@@ -148,13 +163,25 @@ func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decisi
 				return last, false
 			}
 			last.TrialFromMonitor = true
-		} else if !valid {
+		} else if !valid && !cacheTrial {
 			return last, false
 		} else {
 			last.TrialFromMonitor = false
 		}
 		last.TrialID, last.TrialUntil, last.TrialReason, last.TrialEffort = decision.AccountID, now.Add(schedulingTrialPeriod), decision.Reason, effort
+		last.TrialStartedAt, last.TrialControlID = now, current.AccountID
+		last.TrialReviewedSamples, last.TrialForCache = 0, cacheTrial
 	case schedulingPreferRoute:
+		if signal.Cache != nil {
+			return last, false
+		}
+		if signal.Trial != nil || (last.TrialForCache && decision.AccountID == last.TrialID && now.Before(last.TrialUntil)) {
+			if signal.Trial == nil || signal.Trial.AccountID != last.TrialID || !signal.Trial.StartedAt.Equal(last.TrialStartedAt) ||
+				current.AccountID != last.TrialControlID || !candidate.QualityVerified || !schedulingEvidenceHealthy(candidate) {
+				return last, false
+			}
+			better = signal.Trial.improves(last.TrialEffort, last.TrialForCache)
+		}
 		incumbent := GroupModelAccountQuality{Successes: current.Successes, Failures: current.Failures}
 		alternate := GroupModelAccountQuality{Successes: candidate.Successes, Failures: candidate.Failures}
 		if !better || !candidate.QualityVerified || !schedulingEvidenceHealthy(candidate) || alternate.failureRate() > incumbent.failureRate()+0.01 {
@@ -198,6 +225,12 @@ func orderSchedulingAgentRoute(ctx context.Context, scope fixedSchedulingScope, 
 		return candidates
 	}
 	primary := candidates[0].ID
+	if route.TrialForCache && (primary != route.TrialControlID || ctx.Value(schedulingAgentSessionIdentityKey{}) == nil) {
+		return candidates
+	}
+	if !route.TrialStartedAt.IsZero() && primary == route.TrialControlID {
+		ctx = context.WithValue(ctx, schedulingAgentTrialAssignmentKey{}, route.TrialStartedAt)
+	}
 	claim, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
 	defer cancel()
 	// Give agent trials their own Redis namespace; share the existing cooldown

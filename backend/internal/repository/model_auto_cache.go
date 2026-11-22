@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -116,6 +118,11 @@ if #backups>0 then
   end
 end
 redis.call('SET',KEYS[1],selected,'EX',3600)
+if ARGV[5]~='' and redis.call('HLEN',KEYS[6])<256 then
+  local now=redis.call('TIME')
+  redis.call('HSETNX',KEYS[6],ARGV[5],tostring(selected)..'/'..now[1]..'.'..string.format('%06d',tonumber(now[2])))
+  redis.call('EXPIRE',KEYS[6],7200)
+end
 return {selected,1}
 `)
 
@@ -136,7 +143,11 @@ func (c *gatewayCache) AssignModelAutoSession(ctx context.Context, groupID int64
 	}
 	prefix := fmt.Sprintf("model_auto:session:%d:%s:", groupID, base64.RawURLEncoding.EncodeToString([]byte(model)))
 	digest := sha256.Sum256([]byte(session))
-	values, err := assignModelAutoSessionScript.Run(ctx, c.rdb, []string{prefix + hex.EncodeToString(digest[:]), prefix + "counter", prefix + "trial-sequence", prefix + "trial-count", prefix + "trial-cooldown"}, primary, validJSON, backupJSON, int64(trialCooldown/time.Second)).Int64Slice()
+	started, identity := service.SchedulingAgentTrialAssignment(ctx)
+	if started.IsZero() {
+		identity = ""
+	}
+	values, err := assignModelAutoSessionScript.Run(ctx, c.rdb, []string{prefix + hex.EncodeToString(digest[:]), prefix + "counter", prefix + "trial-sequence", prefix + "trial-count", prefix + "trial-cooldown", prefix + "observed:" + strconv.FormatInt(started.UnixMilli(), 10)}, primary, validJSON, backupJSON, int64(trialCooldown/time.Second), identity).Int64Slice()
 	if err != nil {
 		return 0, false, err
 	}
@@ -144,4 +155,21 @@ func (c *gatewayCache) AssignModelAutoSession(ctx context.Context, groupID int64
 		return 0, false, errors.New("invalid model auto session assignment")
 	}
 	return values[0], values[1] == 1, nil
+}
+
+func (c *gatewayCache) GetSchedulingAgentTrialAssignments(ctx context.Context, groupID int64, model string, started time.Time) (map[string]int64, error) {
+	key := fmt.Sprintf("model_auto:session:%d:%s:observed:%d", groupID, base64.RawURLEncoding.EncodeToString([]byte("\x00scheduling-agent:"+model)), started.UnixMilli())
+	rows, err := c.rdb.HGetAll(ctx, key).Result()
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]int64, len(rows))
+	for identity, row := range rows {
+		id, at, _ := strings.Cut(row, "/")
+		account, err := strconv.ParseInt(id, 10, 64)
+		if err == nil && len(identity) == 64 && at != "" {
+			result[identity+"/"+at] = account
+		}
+	}
+	return result, nil
 }

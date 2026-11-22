@@ -811,12 +811,12 @@ func ProvideOpsIngressRejectAggregator(opsRepo OpsRepository, opsService *OpsSer
 }
 
 // ProvideSettingService wires SettingService with group reader and proxy repo.
-func ProvideSettingService(scopedKeys ScopedAdminKeyRepository, settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, cfg *config.Config, accounts AccountRepository, usage UsageLogRepository, secrets SecretEncryptor, lock LeaderLockCache) *SettingService {
+func ProvideSettingService(scopedKeys ScopedAdminKeyRepository, settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, cfg *config.Config, accounts AccountRepository, usage UsageLogRepository, secrets SecretEncryptor, lock LeaderLockCache, cache GatewayCache) *SettingService {
 	svc := NewSettingService(settingRepo, cfg)
 	svc.scopedAdminKeyRepo = scopedKeys
 	svc.SetDefaultSubscriptionGroupReader(groupRepo)
 	svc.SetProxyRepository(proxyRepo)
-	svc.startSchedulingAgent(groupRepo, accounts, usage, secrets, lock)
+	svc.startSchedulingAgent(groupRepo, accounts, usage, secrets, lock, cache)
 	if err := svc.LoadForwardedClientIPSettings(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: load forwarded client IP settings failed: %v", err)
 	}

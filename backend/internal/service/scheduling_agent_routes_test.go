@@ -309,7 +309,7 @@ func TestSchedulingAgentTrialsAfterFaultUsingOtherModelMonitor(t *testing.T) {
 		{Model: "sol", AccountID: 3, Eligible: true, Monitors: monitors},
 	}
 	failures := []SchedulingAgentFailure{{AccountID: 1, Phase: "upstream", Status: 502, Upstream: 502, LastAt: now}}
-	route, ok := schedulingRouteChange(p, SchedulingAgentRoute{}, d, evidence, now, failures)
+	route, ok := schedulingRouteChange(p, SchedulingAgentRoute{}, d, evidence, now, failures, SchedulingAgentActivity{})
 	require.True(t, ok)
 	require.EqualValues(t, 3, route.TrialID)
 	require.True(t, route.TrialFromMonitor)
@@ -321,7 +321,7 @@ func TestSchedulingAgentTrialsAfterFaultUsingOtherModelMonitor(t *testing.T) {
 		e[1].Monitors = append([]schedulingAgentMonitor(nil), monitors...)
 		f, decision := append([]SchedulingAgentFailure(nil), failures...), d
 		change(e, f, &decision)
-		_, allowed := schedulingRouteChange(p, SchedulingAgentRoute{}, decision, e, now, f)
+		_, allowed := schedulingRouteChange(p, SchedulingAgentRoute{}, decision, e, now, f, SchedulingAgentActivity{})
 		require.False(t, allowed)
 	}
 	check(func(_ []schedulingAgentEvidence, f []SchedulingAgentFailure, _ *schedulingAgentDecision) {
@@ -375,8 +375,109 @@ func TestSchedulingAgentRouteRejectsUnmatchedOrWeakEvidence(t *testing.T) {
 				{Model: "sol", AccountID: 3, Eligible: true, Successes: 20, QualityEffort: "xhigh", QualityVerified: true, Windows: agentRouteWindows(12000, 25000)},
 			}
 			tc.edit(e)
-			_, ok := schedulingRouteChange(p, SchedulingAgentRoute{}, d, e, now, nil)
+			_, ok := schedulingRouteChange(p, SchedulingAgentRoute{}, d, e, now, nil, SchedulingAgentActivity{})
 			require.False(t, ok)
 		})
 	}
+}
+
+// Replay a cache trial follow-up while an unrelated failure awaits review.
+func TestSchedulingAgentReviewsCacheTrialWithoutNewTrialErrors(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	group := &Group{ID: 24, AccountSchedulingMode: AccountSchedulingModeSmartChannel}
+	policy := testSchedulingPoolPolicy()
+	quality := GroupModelAccountQuality{Successes: 35, Quality: &AccountQualityEvidence{LatestAt: &now, LatestVerdict: "normal", NormalStreak: 2, TestEffort: "xhigh"}}
+	window := now.Add(-time.Minute).Truncate(10 * time.Minute)
+	low := SchedulingAgentCacheSession{Session: "first", Effort: "xhigh", Baseline: .93, Previous: .74, Latest: .72}
+	observations := &agentCacheFixture{
+		agentInvestigationFixture: agentInvestigationFixture{agentRouteObservations: agentRouteObservations{samples: map[int64]GroupModelAccountQuality{1: quality, 3: quality}}},
+		incidents:                 []SchedulingAgentCacheIncident{{Model: "sol", At: window, AccountID: 1, Affected: 1, Comparable: 10, Low: []SchedulingAgentCacheSession{low}}},
+	}
+	var calls atomic.Int32
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		decision := schedulingAgentDecision{Model: "sol", Effort: "xhigh", AccountID: 3, Reason: "fixture"}
+		switch calls.Add(1) {
+		case 1:
+			if !bytes.Contains(body, []byte(`\"affected_sessions\":1`)) {
+				w.WriteHeader(400)
+				return
+			}
+			decision.Action = schedulingTrialRoute // Even a bad model answer cannot move the group.
+		case 2:
+			if !bytes.Contains(body, []byte(`\"affected_sessions\":2`)) {
+				w.WriteHeader(400)
+				return
+			}
+			decision.Action = schedulingTrialRoute
+		default:
+			if !bytes.Contains(body, []byte(`\"trial_warm_requests\":4`)) {
+				w.WriteHeader(400)
+				return
+			}
+			decision.Action = "stop_trial"
+		}
+		data, _ := json.Marshal(decision)
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": string(data)}}}})
+	}))
+	defer endpoint.Close()
+	repo := &agentTestSettings{values: map[string]string{}}
+	settings := &SettingService{settingRepo: repo}
+	r := &schedulingAgentRuntime{settings: settings, observations: observations, trials: observations, client: endpoint.Client(), secrets: agentTestEncryptor{}, lock: &fakeLeaderLockCache{}}
+	cfg := SchedulingAgentConnection{Version: 7, APIKey: "encrypted:model-key", URL: endpoint.URL, Model: "judge", DailyCalls: 12}
+	require.NoError(t, writeSchedulingJSON(ctx, repo, schedulingAgentConnectionKey, cfg))
+	require.NoError(t, writeSchedulingJSON(ctx, repo, schedulingPolicyKey(group.ID), policy))
+	run, err := r.runForActivity(ctx, group, policy, cfg, true)
+	require.NoError(t, err)
+	require.Equal(t, "observed", run.State)
+	require.Equal(t, 10, run.Signal.Cache.Comparable)
+	advance := func() {
+		run.At = run.At.Add(-11 * time.Minute)
+		require.NoError(t, r.storeRun(ctx, group.ID, run))
+	}
+	advance()
+	_, err = r.runForActivity(ctx, group, policy, cfg, true)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, calls.Load(), "the same cache window is reviewed once")
+	low.Session = "second"
+	observations.incidents[0].At = window.Add(10 * time.Minute)
+	observations.incidents[0].Affected = 2
+	observations.incidents[0].Low = append(observations.incidents[0].Low, low)
+	clear(r.cacheScans)
+	run, err = r.runForActivity(ctx, group, policy, cfg, true)
+	require.NoError(t, err)
+	require.Equal(t, "route_trial", run.State)
+	route := run.Routes["sol"]
+	route.TrialStartedAt = now.Add(-12 * time.Minute)
+	run.Routes["sol"] = route
+	observations.cohorts = []SchedulingAgentTrialCohort{{Effort: "xhigh", TrialSessions: 2, ControlSessions: 2, TrialRequests: 4, ControlRequests: 5, TrialCache: .66, ControlCache: .76, TrialP95: 3000, ControlP95: 2000}}
+	observations.activity = []SchedulingAgentActivity{{Model: "sol", At: now}}
+	advance()
+	run, err = r.runForActivity(ctx, group, policy, cfg, true)
+	require.NoError(t, err)
+	require.Equal(t, "trial_stopped", run.State)
+	require.NotNil(t, run.Signal.Trial)
+	require.Zero(t, run.Routes["sol"].TrialID)
+	require.EqualValues(t, 3, calls.Load())
+}
+
+type agentCacheFixture struct {
+	agentInvestigationFixture
+	incidents []SchedulingAgentCacheIncident
+	cohorts   []SchedulingAgentTrialCohort
+}
+
+func (o *agentCacheFixture) GetSchedulingAgentCacheIncidents(context.Context, int64, []string) ([]SchedulingAgentCacheIncident, error) {
+	return o.incidents, nil
+}
+func (o *agentCacheFixture) GetSchedulingAgentCacheRatios(context.Context, int64, string, []int64) (map[int64]*float64, error) {
+	cache := .94
+	return map[int64]*float64{3: &cache}, nil
+}
+func (o *agentCacheFixture) GetSchedulingAgentTrialAssignments(context.Context, int64, string, time.Time) (map[string]int64, error) {
+	return map[string]int64{"test1": 3, "test2": 3, "control1": 1, "control2": 1}, nil
+}
+func (o *agentCacheFixture) GetSchedulingAgentTrialCohorts(context.Context, int64, string, SchedulingAgentRoute, map[string]int64) ([]SchedulingAgentTrialCohort, error) {
+	return o.cohorts, nil
 }
