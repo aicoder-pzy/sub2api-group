@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -71,6 +72,7 @@ type SchedulingAgentRun struct {
 	Evidence          []schedulingAgentEvidence        `json:"evidence,omitempty"`
 	Signal            *SchedulingAgentActivity         `json:"signal,omitempty"`
 	Traffic           []SchedulingAgentTraffic         `json:"traffic_last_hour,omitempty"`
+	FailureEvidence   []SchedulingAgentFailure         `json:"stream_failures,omitempty"`
 	Feedback          []schedulingAgentEvidence        `json:"feedback,omitempty"`
 	Routes            map[string]SchedulingAgentRoute  `json:"routes,omitempty"`
 	NextModel         int                              `json:"next_model,omitempty"`
@@ -83,6 +85,8 @@ type schedulingAgentCacheReader interface {
 }
 
 type schedulingAgentEvidence struct {
+	Monitors        []schedulingAgentMonitor `json:"upstream_monitors,omitempty"`
+	monitorLink     schedulingAgentMonitorLink
 	PoolID          string                       `json:"pool_id,omitempty"`
 	PoolName        string                       `json:"pool_name,omitempty"`
 	Eligible        bool                         `json:"eligible"`
@@ -103,6 +107,7 @@ type schedulingAgentEvidence struct {
 	TrialReason     string                       `json:"trial_reason,omitempty"`
 	QualityEffort   string                       `json:"quality_effort,omitempty"`
 	QualityVerified bool                         `json:"quality_verified,omitempty"`
+	QualityBlocked  bool                         `json:"quality_blocked,omitempty"`
 	Windows         []SchedulingAgentSpeedWindow `json:"recent_windows,omitempty"`
 }
 
@@ -138,6 +143,7 @@ type schedulingAgentRuntime struct {
 	lock         LeaderLockCache
 	client       *http.Client
 	codex        *http.Client
+	monitor      atomic.Pointer[UpstreamBillingProbeService]
 	mu           sync.Mutex
 	queue        map[schedulingQueueKey]schedulingQueueSample
 	actions      map[int64]schedulingActionCount
@@ -402,6 +408,7 @@ func (r *schedulingAgentRuntime) evidence(ctx context.Context, g *Group, policy 
 			break
 		}
 		base := context.WithValue(context.WithValue(ctx, ctxkey.Group, g), ctxkey.Model, model)
+		base = context.WithValue(base, schedulingAgentStreamingEvidenceKey{}, true)
 		modelCtx, cancel := context.WithTimeout(base, 2*time.Second)
 		samples, err := r.observations.GetModelAutoAccountQuality(modelCtx, g.ID, model, "")
 		var cacheRatios map[int64]*float64
@@ -436,6 +443,7 @@ func (r *schedulingAgentRuntime) evidence(ctx context.Context, g *Group, policy 
 			if accounts != nil {
 				account := accounts[id]
 				item.Eligible = account != nil && account.IsSchedulableForModelWithContext(base, model) && r.settings.IsModelAccountAllowed(base, &g.ID, model, id, account)
+				item.monitorLink = schedulingAgentAccountMonitorLink(account, model)
 			}
 			if pool := policy.pool(id); pool != nil {
 				item.PoolID, item.PoolName = pool.ID, pool.Name
@@ -448,10 +456,11 @@ func (r *schedulingAgentRuntime) evidence(ctx context.Context, g *Group, policy 
 					}
 				}
 			}
+			item.QualityBlocked = modelAutoPending(sample) || sample.qualityDegraded()
 			if sample.Quality != nil {
 				item.QualityTier = QualityEvidenceTier(sample.Quality)
 				item.QualityEffort = sample.Quality.TestEffort
-				item.QualityVerified = sample.Quality.tier(time.Now()) <= 1 && !modelAutoPending(sample) && !sample.qualityDegraded()
+				item.QualityVerified = sample.Quality.tier(time.Now()) <= 1 && !item.QualityBlocked
 			}
 			item.Windows = windows[id]
 			entries = append(entries, item)
@@ -551,7 +560,7 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 	}
 	var signal SchedulingAgentActivity
 	if automatic {
-		signal, err = r.nextActivity(ctx, g.ID, p, models, run.Reviews, last.At)
+		signal, err = r.nextActivity(ctx, g.ID, models, run.Reviews, last.At)
 		if err != nil || signal.Model == "" {
 			return last, err
 		}
@@ -633,7 +642,7 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 		run.Reviews[signal.Model] = schedulingAgentReview{Through: signal.At, Decision: decision}
 	}
 	run.State = "observed"
-	route, changeRoute := schedulingRouteChange(p, run.Routes[decision.Model], decision, run.Evidence, time.Now())
+	route, changeRoute := schedulingRouteChange(p, run.Routes[decision.Model], decision, run.Evidence, time.Now(), run.FailureEvidence)
 	if p.AgentMode == "auto" && (changeRoute || allowedSchedulingDecision(p, decision, run.Evidence)) {
 		current, readErr := r.settings.GetSchedulingPolicy(ctx, g.ID)
 		currentConnection, configErr := readSchedulingJSON[SchedulingAgentConnection](ctx, r.settings.settingRepo, schedulingAgentConnectionKey)
@@ -826,6 +835,9 @@ func schedulingAgentTimedOut(err error) bool {
 }
 
 func recordSchedulingQueue(ctx context.Context, id int64, elapsed time.Duration) {
+	if ctx.Value(schedulingAgentStreamRequestKey{}) == nil || qualityProbe(ctx) {
+		return
+	}
 	scope := fixedScheduling(ctx)
 	if len(scope.order) < 2 || scope.policy.AgentMode == "off" || scope.policy.AgentMode == "" {
 		return

@@ -26,13 +26,14 @@ type schedulingAgentSpeedReader interface {
 }
 
 type SchedulingAgentRoute struct {
-	AccountID   int64     `json:"account_id,omitempty"`
-	SelectedAt  time.Time `json:"selected_at"`
-	Reason      string    `json:"reason,omitempty"`
-	TrialID     int64     `json:"trial_id,omitempty"`
-	TrialUntil  time.Time `json:"trial_until"`
-	TrialReason string    `json:"trial_reason,omitempty"`
-	TrialEffort string    `json:"trial_effort,omitempty"`
+	AccountID        int64     `json:"account_id,omitempty"`
+	SelectedAt       time.Time `json:"selected_at"`
+	Reason           string    `json:"reason,omitempty"`
+	TrialID          int64     `json:"trial_id,omitempty"`
+	TrialUntil       time.Time `json:"trial_until"`
+	TrialReason      string    `json:"trial_reason,omitempty"`
+	TrialEffort      string    `json:"trial_effort,omitempty"`
+	TrialFromMonitor bool      `json:"trial_from_monitor,omitempty"`
 }
 
 func schedulingWindowUsable(w SchedulingAgentSpeedWindow) bool {
@@ -82,7 +83,7 @@ func schedulingMaterialImprovement(current, candidate SchedulingAgentSpeedWindow
 	return (latencyBetter && (!outputKnown || candidate.OutputTPS >= current.OutputTPS*0.90)) || outputBetter
 }
 
-func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decision schedulingAgentDecision, evidence []schedulingAgentEvidence, now time.Time) (SchedulingAgentRoute, bool) {
+func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decision schedulingAgentDecision, evidence []schedulingAgentEvidence, now time.Time, failures []SchedulingAgentFailure) (SchedulingAgentRoute, bool) {
 	if strings.TrimSpace(decision.Reason) == "" || !slices.Contains(p.analysisModels(), decision.Model) || !slices.Contains(p.order(decision.Model), decision.AccountID) {
 		return last, false
 	}
@@ -91,7 +92,7 @@ func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decisi
 			return last, false
 		}
 		// Retain the original deadline as a cooldown after stopping admission.
-		last.TrialID, last.TrialReason = 0, decision.Reason
+		last.TrialID, last.TrialReason, last.TrialFromMonitor = 0, decision.Reason, false
 		return last, true
 	}
 	var current, candidate schedulingAgentEvidence
@@ -106,7 +107,7 @@ func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decisi
 			candidate = item
 		}
 	}
-	if current.AccountID == 0 || current.AccountID == decision.AccountID || !candidate.QualityVerified || !schedulingEvidenceHealthy(candidate) {
+	if current.AccountID == 0 || current.AccountID == decision.AccountID || candidate.QualityBlocked || !candidate.Eligible {
 		return last, false
 	}
 	if last.AccountID != 0 && current.AccountID == last.AccountID && now.Sub(last.SelectedAt) < schedulingRouteHold {
@@ -115,11 +116,17 @@ func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decisi
 	better := schedulingRouteEvidence(current, candidate)
 	switch decision.Action {
 	case schedulingTrialRoute:
-		if better || now.Before(last.TrialUntil) {
+		faultTrial := candidate.RecentFailures == 0 && candidate.FullSlots == 0 &&
+			candidate.Failures <= candidate.Successes/10 && hasHealthySchedulingMonitor(candidate.Monitors, now) &&
+			slices.ContainsFunc(failures, func(f SchedulingAgentFailure) bool {
+				return f.AccountID == current.AccountID && f.Status >= 400 && !f.LastAt.Before(now.Add(-15*time.Minute)) &&
+					(f.Phase == "upstream" || f.Phase == "account_auth")
+			})
+		if better || now.Before(last.TrialUntil) || (!faultTrial && (!candidate.QualityVerified || !schedulingEvidenceHealthy(candidate))) {
 			return last, false
 		}
 		effort := candidate.QualityEffort
-		if decision.Effort != "" && !strings.EqualFold(decision.Effort, effort) {
+		if !faultTrial && decision.Effort != "" && !strings.EqualFold(decision.Effort, effort) {
 			return last, false
 		}
 		valid := false
@@ -135,14 +142,22 @@ func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decisi
 				break
 			}
 		}
-		if !valid {
+		if faultTrial && (!valid || !candidate.QualityVerified || (decision.Effort != "" && !strings.EqualFold(decision.Effort, effort))) {
+			effort = strings.ToLower(strings.TrimSpace(decision.Effort))
+			if !slices.Contains([]string{"", "none", "minimal", "low", "medium", "high", "xhigh", "ultra", "max"}, effort) {
+				return last, false
+			}
+			last.TrialFromMonitor = true
+		} else if !valid {
 			return last, false
+		} else {
+			last.TrialFromMonitor = false
 		}
 		last.TrialID, last.TrialUntil, last.TrialReason, last.TrialEffort = decision.AccountID, now.Add(schedulingTrialPeriod), decision.Reason, effort
 	case schedulingPreferRoute:
 		incumbent := GroupModelAccountQuality{Successes: current.Successes, Failures: current.Failures}
 		alternate := GroupModelAccountQuality{Successes: candidate.Successes, Failures: candidate.Failures}
-		if !better || alternate.failureRate() > incumbent.failureRate()+0.01 {
+		if !better || !candidate.QualityVerified || !schedulingEvidenceHealthy(candidate) || alternate.failureRate() > incumbent.failureRate()+0.01 {
 			return last, false
 		}
 		last = SchedulingAgentRoute{AccountID: decision.AccountID, SelectedAt: now, Reason: decision.Reason}
@@ -170,7 +185,11 @@ func orderSchedulingAgentRoute(ctx context.Context, scope fixedSchedulingScope, 
 		return candidates
 	}
 	trial := samples[route.TrialID]
-	if !schedulingRouteCandidate(trial) || !smartChannelTrialEligible(WithRequestedReasoningEffort(ctx, route.TrialEffort), trial) ||
+	healthy := schedulingRouteCandidate(trial) && smartChannelTrialEligible(WithRequestedReasoningEffort(ctx, route.TrialEffort), trial)
+	if route.TrialFromMonitor {
+		healthy = trial.RecentFailures == 0 && trial.Failures <= trial.Successes/10 && !trial.qualityDegraded() && !modelAutoPending(trial)
+	}
+	if !healthy ||
 		!slices.ContainsFunc(candidates, func(a *Account) bool { return a.ID == route.TrialID }) {
 		return candidates
 	}

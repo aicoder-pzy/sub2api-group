@@ -8,21 +8,31 @@ import (
 	"github.com/lib/pq"
 )
 
-const schedulingAgentActivitySQL = `WITH failures AS (
- SELECT COALESCE(NULLIF(BTRIM(requested_model),''),model) AS model, created_at,
-        upstream_status_code, account_id, api_key_id, request_id
- FROM ops_error_logs WHERE group_id=$1 AND api_key_id IS NOT NULL AND created_at>=NOW()-INTERVAL '15 minutes'
- AND error_phase IN ('upstream','account_auth','concurrency') AND COALESCE(is_count_tokens,false)=false
+// Use the inbound protocol, even when an error occurs before opening the stream.
+// Known request types override the legacy stream flag. Recovered attempts have
+// a successful client status and can inform diagnosis without starting it.
+const schedulingAgentFinalFailure = `status_code >= 400
+ AND api_key_id IS NOT NULL AND COALESCE(is_count_tokens,false)=false
  AND COALESCE(error_owner,'') NOT IN ('client','user')
-), activity AS (
- SELECT COALESCE(NULLIF(BTRIM(requested_model),''),model) AS model, created_at
- FROM usage_logs WHERE group_id=$1 AND created_at>=NOW()-INTERVAL '15 minutes'
- UNION ALL
- SELECT model, created_at FROM failures
+ AND ((error_phase IN ('upstream','account_auth','network','routing','internal') AND NOT COALESCE(is_business_limited,false))
+      OR (error_phase='concurrency' AND (account_id>0 OR status_code>=500)))`
+
+func schedulingAgentStreamSQL(prefix string) string {
+	return `(` + prefix + `request_type IN (2,3) OR (COALESCE(` + prefix + `request_type,0)=0 AND ` + prefix + `stream))`
+}
+
+var schedulingAgentActivitySQL = `WITH failures AS (
+ SELECT COALESCE(NULLIF(BTRIM(requested_model),''),model) AS model, created_at,
+        COALESCE(upstream_status_code,status_code) AS upstream_status_code, account_id, api_key_id, request_id, client_request_id, error_phase
+ FROM ops_error_logs WHERE group_id=$1 AND created_at>=NOW()-INTERVAL '15 minutes'
+ AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=ANY($2)
+ AND ` + schedulingAgentStreamSQL("") + ` AND ` + schedulingAgentFinalFailure + `
 ), request_502s AS (
  SELECT model, account_id, max(created_at) AS at FROM failures
- WHERE model=ANY($2) AND upstream_status_code=502 AND account_id>0 AND NULLIF(request_id,'') IS NOT NULL
- AND created_at>=NOW()-INTERVAL '5 minutes' GROUP BY model, account_id, api_key_id, request_id
+ WHERE upstream_status_code=502 AND account_id>0 AND error_phase IN ('upstream','account_auth')
+ AND COALESCE(NULLIF(client_request_id,''),NULLIF(request_id,'')) IS NOT NULL
+ AND created_at>=NOW()-INTERVAL '5 minutes'
+ GROUP BY model, account_id, api_key_id, COALESCE('client:'||NULLIF(client_request_id,''),request_id)
 ), bursts AS (
  SELECT model, account_id, count(*) AS requests, (array_agg(at ORDER BY at DESC))[2] AS second_latest_at
  FROM request_502s GROUP BY model, account_id HAVING count(*)>=2
@@ -30,9 +40,9 @@ const schedulingAgentActivitySQL = `WITH failures AS (
  SELECT DISTINCT ON (model) model, account_id, requests, second_latest_at FROM bursts
  ORDER BY model, second_latest_at DESC, account_id
 )
-SELECT a.model, max(a.created_at), u.second_latest_at, COALESCE(u.account_id,0), COALESCE(u.requests,0)
-FROM activity a LEFT JOIN urgent u USING (model) WHERE a.model=ANY($2)
-GROUP BY a.model, u.second_latest_at, u.account_id, u.requests`
+SELECT f.model, max(f.created_at), u.second_latest_at, COALESCE(u.account_id,0), COALESCE(u.requests,0)
+FROM failures f LEFT JOIN urgent u USING (model)
+GROUP BY f.model, u.second_latest_at, u.account_id, u.requests`
 
 func (r *usageLogRepository) GetSchedulingAgentActivity(ctx context.Context, groupID int64, models []string) ([]service.SchedulingAgentActivity, error) {
 	rows, err := r.sql.QueryContext(ctx, schedulingAgentActivitySQL, groupID, pq.Array(models))
@@ -55,11 +65,11 @@ func (r *usageLogRepository) GetSchedulingAgentActivity(ctx context.Context, gro
 	return result, rows.Err()
 }
 
-const schedulingAgentTrafficSQL = `SELECT account_id, COALESCE(inbound_endpoint,''), stream,
+var schedulingAgentTrafficSQL = `SELECT account_id, COALESCE(inbound_endpoint,''), true,
  COALESCE(NULLIF(LOWER(BTRIM(reasoning_effort)),''),''), count(*),
  percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE duration_ms>0)
  FROM usage_logs WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=$2
- AND created_at>=NOW()-INTERVAL '1 hour' GROUP BY 1,2,3,4 ORDER BY count(*) DESC,1,2,3,4 LIMIT 24`
+ AND created_at>=NOW()-INTERVAL '1 hour' AND ` + schedulingAgentStreamSQL("") + ` GROUP BY 1,2,4 ORDER BY count(*) DESC,1,2,4 LIMIT 24`
 
 func (r *usageLogRepository) GetSchedulingAgentTraffic(ctx context.Context, groupID int64, model string) ([]service.SchedulingAgentTraffic, error) {
 	rows, err := r.sql.QueryContext(ctx, schedulingAgentTrafficSQL, groupID, model)
@@ -79,10 +89,11 @@ func (r *usageLogRepository) GetSchedulingAgentTraffic(ctx context.Context, grou
 }
 
 func (r *usageLogRepository) GetSchedulingAgentFailures(ctx context.Context, groupID int64, model string) ([]service.SchedulingAgentFailure, error) {
-	rows, err := r.sql.QueryContext(ctx, `SELECT COALESCE(account_id,0), COALESCE(error_phase,''), COALESCE(status_code,0), COALESCE(upstream_status_code,0), count(*)
+	rows, err := r.sql.QueryContext(ctx, `SELECT COALESCE(account_id,0), COALESCE(error_phase,''), COALESCE(status_code,0), COALESCE(upstream_status_code,0), count(*), max(created_at)
  FROM ops_error_logs WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=$2
  AND created_at>=NOW()-INTERVAL '30 minutes' AND api_key_id IS NOT NULL AND COALESCE(is_count_tokens,false)=false
- AND (status_code BETWEEN 500 AND 599 OR upstream_status_code BETWEEN 500 AND 599)
+ AND `+schedulingAgentStreamSQL("")+` AND (`+schedulingAgentFinalFailure+`
+ OR (status_code BETWEEN 200 AND 299 AND error_phase IN ('upstream','account_auth')))
  GROUP BY 1,2,3,4 ORDER BY count(*) DESC,1,2,3,4 LIMIT 24`, groupID, model)
 	if err != nil {
 		return nil, err
@@ -91,7 +102,7 @@ func (r *usageLogRepository) GetSchedulingAgentFailures(ctx context.Context, gro
 	result := []service.SchedulingAgentFailure{}
 	for rows.Next() {
 		var row service.SchedulingAgentFailure
-		if err := rows.Scan(&row.AccountID, &row.Phase, &row.Status, &row.Upstream, &row.Count); err != nil {
+		if err := rows.Scan(&row.AccountID, &row.Phase, &row.Status, &row.Upstream, &row.Count, &row.LastAt); err != nil {
 			return nil, err
 		}
 		result = append(result, row)
@@ -104,7 +115,7 @@ func (r *usageLogRepository) GetSchedulingAgentCacheRatios(ctx context.Context, 
 	rows, err := r.sql.QueryContext(ctx, `SELECT account_id,
   SUM(cache_read_tokens)::double precision / NULLIF(SUM(input_tokens + cache_creation_tokens + cache_read_tokens),0)
   FROM usage_logs WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=$2
-  AND account_id=ANY($3) AND created_at>=NOW()-INTERVAL '24 hours'
+  AND account_id=ANY($3) AND created_at>=NOW()-INTERVAL '24 hours' AND `+schedulingAgentStreamSQL("")+`
   GROUP BY account_id`, groupID, model, pq.Array(accounts))
 	if err != nil {
 		return nil, err

@@ -462,6 +462,9 @@ func setOpsEndpointContext(c *gin.Context, upstreamModel string, requestType int
 		c.Set(opsUpstreamModelKey, upstreamModel)
 	}
 	c.Set(opsRequestTypeKey, requestType)
+	if c.Request != nil && (requestType == int16(service.RequestTypeStream) || requestType == int16(service.RequestTypeWSV2)) {
+		c.Request = c.Request.WithContext(service.WithSchedulingAgentRequestType(c.Request.Context(), service.RequestType(requestType)))
+	}
 }
 
 func setOpsSelectedAccount(c *gin.Context, accountID int64, platform ...string) {

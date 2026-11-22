@@ -95,6 +95,7 @@ func TestSchedulingPoolAgentIsolationAndRecoveryPreserveSessions(t *testing.T) {
 	samples := map[int64]GroupModelAccountQuality{1: {Successes: 20}, 2: {Successes: 20, Failures: 2, RecentFailures: 2}, 3: {Successes: 20}, 4: {Successes: 20}}
 	request := func(model string, cache *poolTestCache, candidates ...*Account) (context.Context, []*Account) {
 		c := WithFastestFailoverRequestState(context.WithValue(ctx, ctxkey.Group, group))
+		c = WithSchedulingAgentRequestType(c, RequestTypeWSV2)
 		c = withModelAutoSession(s.withFixedScheduling(c, &group.ID, model), "stable-session")
 		return c, fastestFailoverCandidateOrder(c, accountSchedulingQualityStub{quality: samples}, cache, &group.ID, model, candidates)
 	}

@@ -25,7 +25,7 @@ type schedulingObservationCache struct {
 
 func observationKey(ctx context.Context, groupID int64, model, effort string) string {
 	public, endpoint, _ := service.SchedulingObservationScope(ctx, model)
-	return fmt.Sprintf("%d:%q:%q:%q:%q", groupID, model, public, endpoint, effort)
+	return fmt.Sprintf("%d:%q:%q:%q:%q:%t", groupID, model, public, endpoint, effort, service.SchedulingAgentStreamingEvidence(ctx))
 }
 
 func accountQualityObservationKey(ctx context.Context, groupID int64, model, effort string) string {
@@ -98,6 +98,16 @@ func (r *usageLogRepository) GetSmartChannelAccountQuality(ctx context.Context, 
 // Only smart-mode readers replace the business-model parameter and exact
 // endpoint predicates; $2 remains the routing/test model elsewhere in the SQL.
 func scopedSchedulingQuery(ctx context.Context, query string, args []any, model string) (string, []any) {
+	if service.SchedulingAgentStreamingEvidence(ctx) {
+		for _, alias := range []string{"u", "usage", "errors", "e", ""} {
+			prefix := alias
+			if prefix != "" {
+				prefix += "."
+			}
+			marker := "/*ingress:" + alias + "*/"
+			query = strings.ReplaceAll(query, marker, "AND "+schedulingAgentStreamSQL(prefix)+" "+marker)
+		}
+	}
 	public, endpoint, smart := service.SchedulingObservationScope(ctx, model)
 	if !smart {
 		return query, args

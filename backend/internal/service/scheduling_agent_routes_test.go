@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -149,7 +150,7 @@ func TestSchedulingAgentPrioritizes502AndSavesLastCallForDecision(t *testing.T) 
 			{Model: "astra", At: now},
 			{Model: "sol", At: now.Add(-10 * time.Second)},
 		},
-		traffic: []SchedulingAgentTraffic{{AccountID: 1, Endpoint: "/v1/chat/completions", Samples: 12}},
+		traffic: []SchedulingAgentTraffic{{AccountID: 1, Endpoint: "/v1/chat/completions", Stream: true, Samples: 12}},
 	}
 	var calls atomic.Int32
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -161,7 +162,7 @@ func TestSchedulingAgentPrioritizes502AndSavesLastCallForDecision(t *testing.T) 
 			Messages []map[string]string `json:"messages"`
 		}
 		if json.NewDecoder(req.Body).Decode(&body) != nil || len(body.Messages) < 3 ||
-			!bytes.Contains([]byte(body.Messages[1]["content"]), []byte(`"stream":false,"effort":"","requests":12`)) ||
+			!bytes.Contains([]byte(body.Messages[1]["content"]), []byte(`"stream":true,"effort":"","requests":12`)) ||
 			!bytes.Contains([]byte(body.Messages[len(body.Messages)-1]["content"]), []byte("0 inspections left")) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -175,7 +176,14 @@ func TestSchedulingAgentPrioritizes502AndSavesLastCallForDecision(t *testing.T) 
 	last := SchedulingAgentRun{At: now.Add(-2 * time.Minute), Day: now.UTC().Format(time.DateOnly), Version: p.Version, ConnectionVersion: cfg.Version,
 		Reviews: map[string]schedulingAgentReview{"sol": {Through: now.Add(-3 * time.Minute)}}}
 	require.NoError(t, r.storeRun(ctx, g.ID, last))
+	activity := o.activity
+	o.activity = nil
+	r.queue = map[schedulingQueueKey]schedulingQueueSample{{g.ID, "sol", 1}: {started: now, at: now, full: 4}}
 	_, err := r.runForActivity(ctx, g, p, cfg, true)
+	require.NoError(t, err)
+	require.Zero(t, calls.Load(), "queue observations alone do not start an analysis")
+	o.activity = activity
+	_, err = r.runForActivity(ctx, g, p, cfg, true)
 	require.NoError(t, err)
 	require.Zero(t, calls.Load(), "ordinary traffic respects the interval")
 
@@ -236,6 +244,9 @@ func TestSchedulingAgentTrialAndPreferenceStayWithExactModel(t *testing.T) {
 
 	request := func(group int64, model, effort, session string, cache GatewayCache, accounts ...*Account) []int64 {
 		c := WithFastestFailoverRequestState(context.WithValue(ctx, ctxkey.Group, g))
+		if session != "sync" {
+			c = WithSchedulingAgentRequestType(c, RequestTypeStream)
+		}
 		c = withModelAutoSession(WithRequestedReasoningEffort(c, effort), session)
 		scope := fixedSchedulingScope{s, group, model, p, p.order(model)}
 		return poolAccountIDs(orderFixedScheduling(c, scope, cache, accounts, o.samples))
@@ -252,6 +263,7 @@ func TestSchedulingAgentTrialAndPreferenceStayWithExactModel(t *testing.T) {
 	require.EqualValues(t, 3, run.Routes["sol"].TrialID)
 	cache := &agentRouteTrialCache{}
 	require.Equal(t, []int64{1, 3}, request(g.ID, "sol", "high", "wrong-effort", cache, first, second))
+	require.Equal(t, []int64{1, 3}, request(g.ID, "sol", "xhigh", "sync", cache, first, second))
 	require.Equal(t, 0, cache.calls)
 	require.Equal(t, []int64{3, 1}, request(g.ID, "sol", "xhigh", "trial", cache, first, second))
 	require.Equal(t, []int64{1, 3}, request(g.ID, "sol", "xhigh", "not-allocated", cache, first, second))
@@ -281,6 +293,67 @@ func TestSchedulingAgentTrialAndPreferenceStayWithExactModel(t *testing.T) {
 	require.Equal(t, []int64{1, 3}, request(g.ID, "sol", "xhigh", "revoked", cache, first, second))
 }
 
+func TestSchedulingAgentTrialsAfterFaultUsingOtherModelMonitor(t *testing.T) {
+	p := testSchedulingPoolPolicy()
+	now := time.Now()
+	d := schedulingAgentDecision{Action: schedulingTrialRoute, Model: "sol", AccountID: 3, Effort: "xhigh", Reason: "same pool monitoring after a user failure"}
+	snapshot := &UpstreamSiteMonitor{Status: "ok", Rows: []UpstreamSiteMonitorRow{
+		{Model: "gpt-6.1-sol", GroupID: "42", CheckedAt: &now, State: "healthy", LatencyKind: "check"},
+	}}
+	link := schedulingAgentMonitorLink{model: "gpt-6.2-sol", group: "42"}
+	monitors := schedulingMonitorRows(link, "backup", snapshot)
+	require.Len(t, monitors, 1)
+	require.Equal(t, "other_model", monitors[0].Scope)
+	evidence := []schedulingAgentEvidence{
+		{Model: "sol", AccountID: 1, Current: true, Eligible: true},
+		{Model: "sol", AccountID: 3, Eligible: true, Monitors: monitors},
+	}
+	failures := []SchedulingAgentFailure{{AccountID: 1, Phase: "upstream", Status: 502, Upstream: 502, LastAt: now}}
+	route, ok := schedulingRouteChange(p, SchedulingAgentRoute{}, d, evidence, now, failures)
+	require.True(t, ok)
+	require.EqualValues(t, 3, route.TrialID)
+	require.True(t, route.TrialFromMonitor)
+	require.Zero(t, route.AccountID)
+
+	check := func(change func([]schedulingAgentEvidence, []SchedulingAgentFailure, *schedulingAgentDecision)) {
+		t.Helper()
+		e := append([]schedulingAgentEvidence(nil), evidence...)
+		e[1].Monitors = append([]schedulingAgentMonitor(nil), monitors...)
+		f, decision := append([]SchedulingAgentFailure(nil), failures...), d
+		change(e, f, &decision)
+		_, allowed := schedulingRouteChange(p, SchedulingAgentRoute{}, decision, e, now, f)
+		require.False(t, allowed)
+	}
+	check(func(_ []schedulingAgentEvidence, f []SchedulingAgentFailure, _ *schedulingAgentDecision) {
+		f[0].Status = 200
+	})
+	check(func(_ []schedulingAgentEvidence, f []SchedulingAgentFailure, _ *schedulingAgentDecision) {
+		f[0].AccountID = 0
+	})
+	check(func(e []schedulingAgentEvidence, _ []SchedulingAgentFailure, _ *schedulingAgentDecision) {
+		e[1].Eligible = false
+	})
+	check(func(e []schedulingAgentEvidence, _ []SchedulingAgentFailure, _ *schedulingAgentDecision) {
+		e[1].Monitors[0].GroupMatch = false
+	})
+	check(func(e []schedulingAgentEvidence, _ []SchedulingAgentFailure, _ *schedulingAgentDecision) {
+		e[1].Monitors[0].Stale = true
+	})
+	check(func(_ []schedulingAgentEvidence, _ []SchedulingAgentFailure, d *schedulingAgentDecision) {
+		d.Action = schedulingPreferRoute
+	})
+
+	ctx := WithRequestedReasoningEffort(context.Background(), "xhigh")
+	cache := &agentRouteTrialCache{}
+	scope := fixedSchedulingScope{groupID: 24, model: "sol"}
+	accounts := []*Account{{ID: 1}, {ID: 3}}
+	samples := map[int64]GroupModelAccountQuality{}
+	ordered := orderSchedulingAgentRoute(ctx, scope, fixedSessionSnapshot{cache: cache, key: "new"}, slices.Clone(accounts), samples, route)
+	require.Equal(t, []int64{3, 1}, poolAccountIDs(ordered), "a candidate without local quality evidence gets one limited fault trial")
+	ordered = orderSchedulingAgentRoute(ctx, scope, fixedSessionSnapshot{cache: cache, key: "newer"}, accounts, samples, route)
+	require.Equal(t, []int64{1, 3}, poolAccountIDs(ordered))
+}
+
 func TestSchedulingAgentRouteRejectsUnmatchedOrWeakEvidence(t *testing.T) {
 	p := testSchedulingPoolPolicy()
 	now := time.Now()
@@ -302,7 +375,7 @@ func TestSchedulingAgentRouteRejectsUnmatchedOrWeakEvidence(t *testing.T) {
 				{Model: "sol", AccountID: 3, Eligible: true, Successes: 20, QualityEffort: "xhigh", QualityVerified: true, Windows: agentRouteWindows(12000, 25000)},
 			}
 			tc.edit(e)
-			_, ok := schedulingRouteChange(p, SchedulingAgentRoute{}, d, e, now)
+			_, ok := schedulingRouteChange(p, SchedulingAgentRoute{}, d, e, now, nil)
 			require.False(t, ok)
 		})
 	}

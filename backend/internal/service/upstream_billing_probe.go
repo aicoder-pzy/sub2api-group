@@ -328,6 +328,9 @@ func ProvideUpstreamBillingProbeService(
 	svc.SetNewAPIAuthorization(newAPIRepo, encryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured)
 	svc.balanceNotificationRepo, svc.balanceNotificationEmail = notificationRepo, emailService
 	svc.schedulingNotifications, _ = gatewayCache.(SchedulingNotificationQueue)
+	if settingService != nil && settingService.schedulingAgent != nil {
+		settingService.schedulingAgent.monitor.Store(svc)
+	}
 	svc.Start()
 	return svc
 }

@@ -129,6 +129,7 @@ func TestSchedulingAgentPolicyAndOutage(t *testing.T) {
 	primary, backup, other := &Account{ID: 1}, &Account{ID: 2}, &Account{ID: 3}
 	c, ordered := request(group, "astra", cache, other, backup, primary)
 	require.Equal(t, []*Account{primary, backup}, ordered)
+	c = WithSchedulingAgentRequestType(c, RequestTypeStream)
 	require.Equal(t, 500*time.Millisecond, schedulingAgentWait(c, 1))
 	// A completed first request binds the session to its successful account.
 	confirmGroupModelSchedulingAccount(c, "astra", 2)
