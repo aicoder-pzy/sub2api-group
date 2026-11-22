@@ -84,7 +84,7 @@ func TestPublishedAccountPoolDisplayFields(t *testing.T) {
 		  "admin":{"usage_updated":"2026-11-21T07:40:00Z","reset_5h":"2026-11-21T12:00:00Z","reset_7d":"2026-11-28T00:00:00Z","recover_at":"2026-11-21T08:00:00Z","priority":17,"intelligence":"private-note"}}
 		]}`), &snapshot))
 	cfg := AccountPoolStatusConfig{PoolID: "public", Name: "Public pool", Plans: []string{"Plus"}}
-	first := cfg.status(snapshot, 1, 1, 2, false, true)
+	first := cfg.status(snapshot, 1, 1, 2, false, false)
 	require.Equal(t, snapshot.CheckedAt, first.CheckedAt)
 	require.Equal(t, 3, first.Total)
 	require.Len(t, first.Rows, 2)
@@ -101,7 +101,7 @@ func TestPublishedAccountPoolDisplayFields(t *testing.T) {
 	require.Equal(t, "2026-11-21T12:00:00Z", quota.Reset5h.Format(time.RFC3339))
 	require.Equal(t, "2026-11-28T00:00:00Z", quota.Reset7d.Format(time.RFC3339))
 	require.Equal(t, "2026-11-21T08:00:00Z", quota.RecoverAt.Format(time.RFC3339))
-	second := cfg.status(snapshot, 1, 2, 2, false, true)
+	second := cfg.status(snapshot, 1, 2, 2, false, false)
 	require.Len(t, second.Rows, 1)
 	require.Equal(t, 3, second.Rows[0].Number)
 	require.Equal(t, "last_used", second.Rows[0].ActivityKind)
@@ -112,9 +112,36 @@ func TestPublishedAccountPoolDisplayFields(t *testing.T) {
 	for _, private := range []string{"private-", `"admin"`, `"source_id"`, `"rates"`, `"account_rate"`, `"priority"`} {
 		require.NotContains(t, string(raw), private)
 	}
-	preview := cfg.status(snapshot, 1, 1, 2, true, true)
+	preview := cfg.status(snapshot, 1, 1, 2, true, false)
 	require.Equal(t, &accountPoolStatusIdentity{Name: "private-email@example.invalid", SourceID: "private-account-id"}, preview.Rows[0].Admin)
 	require.Nil(t, preview.Rows[1].Admin)
 	preview.Rows[0].Admin = nil
 	require.Equal(t, first, preview)
+}
+
+func TestPublishedAccountPoolIncompleteNames(t *testing.T) {
+	var snapshot accountPoolSnapshot
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"updated":"2026-11-22T02:35:35Z", "site_revision":1,
+		"groups":[{"id":"public"}], "rows":[
+			{"number":1,"plan":"Pro","pools":["public"],"admin":{"source_id":"64563","name":"Pro账号 #64563"}},
+			{"number":2,"plan":"Pro","pools":["public"],"admin":{"source_id":"64564"}},
+			{"number":3,"plan":"Free","pools":["public"]}
+		]}`), &snapshot))
+	cfg := AccountPoolStatusConfig{PoolID: "public", Plans: []string{"Pro"}}
+	for _, name := range []string{"", "Pro账号 #64563", "personal@example.invalid"} {
+		snapshot.Rows[1].Admin.Name = name
+		first := cfg.status(snapshot, 1, 1, 1, false, true)
+		require.False(t, first.Available)
+		require.Equal(t, "account_name_incomplete", first.SnapshotError)
+		require.Empty(t, first.Rows)
+	}
+
+	snapshot.Rows[1].Admin.Name = "Pro账号 #64564"
+	second := cfg.status(snapshot, 1, 2, 1, false, true)
+	require.True(t, second.Available)
+	require.Empty(t, second.SnapshotError)
+	require.Equal(t, 2, second.Total)
+	require.Len(t, second.Rows, 1)
+	require.Equal(t, "Pro账号 #64564", second.Rows[0].DisplayName)
 }

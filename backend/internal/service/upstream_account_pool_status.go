@@ -82,6 +82,7 @@ type PublishedAccountPoolStatus struct {
 	CheckedAt       *time.Time             `json:"checked_at,omitempty"`
 	RecentCheckedAt *time.Time             `json:"recent_checked_at,omitempty"`
 	Available       bool                   `json:"snapshot_available"`
+	SnapshotError   string                 `json:"snapshot_error,omitempty"`
 	Total           int                    `json:"total"`
 	Plans           map[string]int         `json:"plans"`
 	Statuses        map[string]int         `json:"statuses"`
@@ -186,17 +187,36 @@ func publishedAccountPoolRow(row accountPoolRow, number int) accountPoolStatusRo
 
 var shenjiPublicAccountName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9 .+_-]{0,31}账号 #[0-9]{1,20}$`)
 
+func shenjiAccountDisplayName(admin *accountPoolAdminRow) string {
+	if admin == nil || admin.SourceID == "" {
+		return ""
+	}
+	name := admin.Name
+	// Older snapshots were collected without the upstream locale header.
+	if plan, ok := strings.CutSuffix(name, " Account #"+admin.SourceID); ok && (plan == "Pro" || plan == "promax") {
+		name = plan + "账号 #" + admin.SourceID
+	}
+	if shenjiPublicAccountName.MatchString(name) && strings.HasSuffix(name, " #"+admin.SourceID) {
+		return name
+	}
+	return ""
+}
+
 func (c AccountPoolStatusConfig) status(snapshot accountPoolSnapshot, revision int64, page, size int, includeIdentity, shenji bool) PublishedAccountPoolStatus {
 	out := PublishedAccountPoolStatus{ID: c.PoolID, Source: c.SourceName, Name: c.Name, Plans: map[string]int{}, Statuses: map[string]int{}, Rows: []accountPoolStatusRow{}, Pages: 1}
 	if !snapshot.hasCurrentPool(revision, c.PoolID) {
 		return out
 	}
-	out.Available, out.Updated, out.CheckedAt = true, snapshot.Updated, snapshot.CheckedAt
+	out.Updated, out.CheckedAt = snapshot.Updated, snapshot.CheckedAt
 	allowed := make(map[string]string, len(c.Plans))
 	for _, plan := range c.Plans {
 		allowed[strings.ToLower(plan)] = plan
 	}
-	var matching []accountPoolRow
+	type matchedAccount struct {
+		row         accountPoolRow
+		displayName string
+	}
+	var matching []matchedAccount
 	for _, row := range snapshot.Rows {
 		if !slices.Contains(row.Groups, c.PoolID) {
 			continue
@@ -211,32 +231,32 @@ func (c AccountPoolStatusConfig) status(snapshot accountPoolSnapshot, revision i
 		if plan == "" {
 			continue
 		}
+		var displayName string
+		if shenji {
+			displayName = shenjiAccountDisplayName(row.Admin)
+			if displayName == "" {
+				out.SnapshotError = "account_name_incomplete"
+			}
+		}
 		row.Plan = plan
-		matching = append(matching, row)
+		matching = append(matching, matchedAccount{row: row, displayName: displayName})
 		out.Plans[plan]++
 		out.Statuses[row.Status]++
 	}
 	out.Total = len(matching)
 	out.Pages = max(1, (out.Total+size-1)/size)
-	if page <= out.Pages {
-		slices.SortFunc(matching, compareAccountPoolRows)
+	out.Available = out.SnapshotError == ""
+	if out.Available && page <= out.Pages {
+		slices.SortFunc(matching, func(a, b matchedAccount) int {
+			return compareAccountPoolRows(a.row, b.row)
+		})
 		start := (page - 1) * size
 		for i := start; i < min(start+size, out.Total); i++ {
-			row := publishedAccountPoolRow(matching[i], i+1)
-			if admin := matching[i].Admin; admin != nil {
-				if shenji {
-					name := admin.Name
-					// Older snapshots were collected without the upstream locale header.
-					if plan, ok := strings.CutSuffix(name, " Account #"+admin.SourceID); ok && (plan == "Pro" || plan == "promax") {
-						name = plan + "账号 #" + admin.SourceID
-					}
-					if shenjiPublicAccountName.MatchString(name) && strings.HasSuffix(name, " #"+admin.SourceID) {
-						row.DisplayName = name
-					}
-				}
-				if includeIdentity && (admin.Name != "" || admin.SourceID != "") {
-					row.Admin = &accountPoolStatusIdentity{Name: admin.Name, SourceID: admin.SourceID}
-				}
+			match := matching[i]
+			row := publishedAccountPoolRow(match.row, i+1)
+			row.DisplayName = match.displayName
+			if admin := match.row.Admin; includeIdentity && admin != nil && (admin.Name != "" || admin.SourceID != "") {
+				row.Admin = &accountPoolStatusIdentity{Name: admin.Name, SourceID: admin.SourceID}
 			}
 			out.Rows = append(out.Rows, row)
 		}
