@@ -145,6 +145,20 @@ func (_c *ChannelMonitorCreate) SetNillableGroupName(v *string) *ChannelMonitorC
 	return _c
 }
 
+// SetIntelligenceGroupID sets the "intelligence_group_id" field.
+func (_c *ChannelMonitorCreate) SetIntelligenceGroupID(v int64) *ChannelMonitorCreate {
+	_c.mutation.SetIntelligenceGroupID(v)
+	return _c
+}
+
+// SetNillableIntelligenceGroupID sets the "intelligence_group_id" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableIntelligenceGroupID(v *int64) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetIntelligenceGroupID(*v)
+	}
+	return _c
+}
+
 // SetEnabled sets the "enabled" field.
 func (_c *ChannelMonitorCreate) SetEnabled(v bool) *ChannelMonitorCreate {
 	_c.mutation.SetEnabled(v)
@@ -545,6 +559,10 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 		_spec.SetField(channelmonitor.FieldGroupName, field.TypeString, value)
 		_node.GroupName = value
 	}
+	if value, ok := _c.mutation.IntelligenceGroupID(); ok {
+		_spec.SetField(channelmonitor.FieldIntelligenceGroupID, field.TypeInt64, value)
+		_node.IntelligenceGroupID = &value
+	}
 	if value, ok := _c.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)
 		_node.Enabled = value
@@ -825,6 +843,30 @@ func (u *ChannelMonitorUpsert) UpdateGroupName() *ChannelMonitorUpsert {
 // ClearGroupName clears the value of the "group_name" field.
 func (u *ChannelMonitorUpsert) ClearGroupName() *ChannelMonitorUpsert {
 	u.SetNull(channelmonitor.FieldGroupName)
+	return u
+}
+
+// SetIntelligenceGroupID sets the "intelligence_group_id" field.
+func (u *ChannelMonitorUpsert) SetIntelligenceGroupID(v int64) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldIntelligenceGroupID, v)
+	return u
+}
+
+// UpdateIntelligenceGroupID sets the "intelligence_group_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateIntelligenceGroupID() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldIntelligenceGroupID)
+	return u
+}
+
+// AddIntelligenceGroupID adds v to the "intelligence_group_id" field.
+func (u *ChannelMonitorUpsert) AddIntelligenceGroupID(v int64) *ChannelMonitorUpsert {
+	u.Add(channelmonitor.FieldIntelligenceGroupID, v)
+	return u
+}
+
+// ClearIntelligenceGroupID clears the value of the "intelligence_group_id" field.
+func (u *ChannelMonitorUpsert) ClearIntelligenceGroupID() *ChannelMonitorUpsert {
+	u.SetNull(channelmonitor.FieldIntelligenceGroupID)
 	return u
 }
 
@@ -1189,6 +1231,34 @@ func (u *ChannelMonitorUpsertOne) UpdateGroupName() *ChannelMonitorUpsertOne {
 func (u *ChannelMonitorUpsertOne) ClearGroupName() *ChannelMonitorUpsertOne {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.ClearGroupName()
+	})
+}
+
+// SetIntelligenceGroupID sets the "intelligence_group_id" field.
+func (u *ChannelMonitorUpsertOne) SetIntelligenceGroupID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetIntelligenceGroupID(v)
+	})
+}
+
+// AddIntelligenceGroupID adds v to the "intelligence_group_id" field.
+func (u *ChannelMonitorUpsertOne) AddIntelligenceGroupID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.AddIntelligenceGroupID(v)
+	})
+}
+
+// UpdateIntelligenceGroupID sets the "intelligence_group_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateIntelligenceGroupID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateIntelligenceGroupID()
+	})
+}
+
+// ClearIntelligenceGroupID clears the value of the "intelligence_group_id" field.
+func (u *ChannelMonitorUpsertOne) ClearIntelligenceGroupID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearIntelligenceGroupID()
 	})
 }
 
@@ -1743,6 +1813,34 @@ func (u *ChannelMonitorUpsertBulk) UpdateGroupName() *ChannelMonitorUpsertBulk {
 func (u *ChannelMonitorUpsertBulk) ClearGroupName() *ChannelMonitorUpsertBulk {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.ClearGroupName()
+	})
+}
+
+// SetIntelligenceGroupID sets the "intelligence_group_id" field.
+func (u *ChannelMonitorUpsertBulk) SetIntelligenceGroupID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetIntelligenceGroupID(v)
+	})
+}
+
+// AddIntelligenceGroupID adds v to the "intelligence_group_id" field.
+func (u *ChannelMonitorUpsertBulk) AddIntelligenceGroupID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.AddIntelligenceGroupID(v)
+	})
+}
+
+// UpdateIntelligenceGroupID sets the "intelligence_group_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateIntelligenceGroupID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateIntelligenceGroupID()
+	})
+}
+
+// ClearIntelligenceGroupID clears the value of the "intelligence_group_id" field.
+func (u *ChannelMonitorUpsertBulk) ClearIntelligenceGroupID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearIntelligenceGroupID()
 	})
 }
 

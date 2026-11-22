@@ -19,6 +19,7 @@ import (
 // 入参/返回的指针类型均使用 service 包的 ChannelMonitor 模型，
 // repository 实现负责与 ent 模型互转，并保持 api_key_encrypted 字段为密文。
 type ChannelMonitorRepository interface {
+	ListMonitorIntelligence(ctx context.Context, ids []int64) (map[int64]*MonitorIntelligence, error)
 	// CRUD
 	Create(ctx context.Context, m *ChannelMonitor) error
 	GetByID(ctx context.Context, id int64) (*ChannelMonitor, error)
@@ -164,24 +165,25 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		return nil, fmt.Errorf("encrypt api key: %w", err)
 	}
 	m := &ChannelMonitor{
-		Name:             strings.TrimSpace(p.Name),
-		Provider:         p.Provider,
-		APIMode:          defaultAPIMode(p.APIMode),
-		Endpoint:         normalizeEndpoint(p.Endpoint),
-		APIKey:           encrypted, // 注意：传入 repository 时该字段为密文
-		PrimaryModel:     normalizeMonitorPrimaryModel(p.Provider, checkMode, p.PrimaryModel),
-		ExtraModels:      normalizeModels(p.ExtraModels),
-		GroupName:        strings.TrimSpace(p.GroupName),
-		Enabled:          p.Enabled,
-		IntervalSeconds:  p.IntervalSeconds,
-		JitterSeconds:    p.JitterSeconds,
-		CreatedBy:        p.CreatedBy,
-		TemplateID:       p.TemplateID,
-		ExtraHeaders:     emptyHeadersIfNil(p.ExtraHeaders),
-		BodyOverrideMode: defaultBodyMode(p.BodyOverrideMode),
-		BodyOverride:     p.BodyOverride,
-		CheckMode:        checkMode,
-		AccountID:        cloneInt64Pointer(p.AccountID),
+		Name:                strings.TrimSpace(p.Name),
+		Provider:            p.Provider,
+		APIMode:             defaultAPIMode(p.APIMode),
+		Endpoint:            normalizeEndpoint(p.Endpoint),
+		APIKey:              encrypted, // 注意：传入 repository 时该字段为密文
+		PrimaryModel:        normalizeMonitorPrimaryModel(p.Provider, checkMode, p.PrimaryModel),
+		ExtraModels:         normalizeModels(p.ExtraModels),
+		GroupName:           strings.TrimSpace(p.GroupName),
+		IntelligenceGroupID: monitorIntelligenceGroup(p.IntelligenceGroupID),
+		Enabled:             p.Enabled,
+		IntervalSeconds:     p.IntervalSeconds,
+		JitterSeconds:       p.JitterSeconds,
+		CreatedBy:           p.CreatedBy,
+		TemplateID:          p.TemplateID,
+		ExtraHeaders:        emptyHeadersIfNil(p.ExtraHeaders),
+		BodyOverrideMode:    defaultBodyMode(p.BodyOverrideMode),
+		BodyOverride:        p.BodyOverride,
+		CheckMode:           checkMode,
+		AccountID:           cloneInt64Pointer(p.AccountID),
 	}
 	if err := s.repo.Create(ctx, m); err != nil {
 		return nil, fmt.Errorf("create channel monitor: %w", err)
@@ -239,6 +241,7 @@ func (s *ChannelMonitorService) Duplicate(
 		PrimaryModel:         source.PrimaryModel,
 		ExtraModels:          append([]string{}, source.ExtraModels...),
 		GroupName:            source.GroupName,
+		IntelligenceGroupID:  source.IntelligenceGroupID,
 		Enabled:              false,
 		IntervalSeconds:      source.IntervalSeconds,
 		JitterSeconds:        source.JitterSeconds,
@@ -939,6 +942,9 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 	}
 	if p.ExtraModels != nil {
 		existing.ExtraModels = normalizeModels(*p.ExtraModels)
+	}
+	if p.IntelligenceGroupID != nil {
+		existing.IntelligenceGroupID = monitorIntelligenceGroup(p.IntelligenceGroupID)
 	}
 	if p.GroupName != nil {
 		existing.GroupName = strings.TrimSpace(*p.GroupName)

@@ -580,6 +580,21 @@ export default {
 
   // Channel Status (user-facing read-only view)
   channelStatus: {
+    intelligence: {
+      title: '测智状态',
+      group: '测智分组',
+      groupHelp: '卡片展示所选分组与主模型相符的鹈鹕测智记录。',
+      unconfigured: '未配置',
+      no_plan: '无测智计划',
+      pending: '等待检测',
+      paused: '已暂停',
+      historical: '仅有历史记录',
+      stale: '检测已过期',
+      normal: '检测通过',
+      degraded: '疑似降智',
+      failed: '检测失败',
+      unknown: '结果未知',
+    },
     title: '渠道状态',
     description: '查看渠道可用性、延迟和近期状态',
     searchPlaceholder: '搜索渠道...',

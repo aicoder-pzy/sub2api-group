@@ -14747,46 +14747,48 @@ func (m *BatchImageJobMutation) ResetEdge(name string) error {
 // ChannelMonitorMutation represents an operation that mutates the ChannelMonitor nodes in the graph.
 type ChannelMonitorMutation struct {
 	config
-	op                      Op
-	typ                     string
-	id                      *int64
-	created_at              *time.Time
-	updated_at              *time.Time
-	name                    *string
-	provider                *channelmonitor.Provider
-	check_mode              *string
-	account_id              *int64
-	addaccount_id           *int64
-	api_mode                *string
-	endpoint                *string
-	api_key_encrypted       *string
-	primary_model           *string
-	extra_models            *[]string
-	appendextra_models      []string
-	group_name              *string
-	enabled                 *bool
-	interval_seconds        *int
-	addinterval_seconds     *int
-	jitter_seconds          *int
-	addjitter_seconds       *int
-	last_checked_at         *time.Time
-	created_by              *int64
-	addcreated_by           *int64
-	extra_headers           *map[string]string
-	body_override_mode      *string
-	body_override           *map[string]interface{}
-	clearedFields           map[string]struct{}
-	history                 map[int64]struct{}
-	removedhistory          map[int64]struct{}
-	clearedhistory          bool
-	daily_rollups           map[int64]struct{}
-	removeddaily_rollups    map[int64]struct{}
-	cleareddaily_rollups    bool
-	request_template        *int64
-	clearedrequest_template bool
-	done                    bool
-	oldValue                func(context.Context) (*ChannelMonitor, error)
-	predicates              []predicate.ChannelMonitor
+	op                       Op
+	typ                      string
+	id                       *int64
+	created_at               *time.Time
+	updated_at               *time.Time
+	name                     *string
+	provider                 *channelmonitor.Provider
+	check_mode               *string
+	account_id               *int64
+	addaccount_id            *int64
+	api_mode                 *string
+	endpoint                 *string
+	api_key_encrypted        *string
+	primary_model            *string
+	extra_models             *[]string
+	appendextra_models       []string
+	group_name               *string
+	intelligence_group_id    *int64
+	addintelligence_group_id *int64
+	enabled                  *bool
+	interval_seconds         *int
+	addinterval_seconds      *int
+	jitter_seconds           *int
+	addjitter_seconds        *int
+	last_checked_at          *time.Time
+	created_by               *int64
+	addcreated_by            *int64
+	extra_headers            *map[string]string
+	body_override_mode       *string
+	body_override            *map[string]interface{}
+	clearedFields            map[string]struct{}
+	history                  map[int64]struct{}
+	removedhistory           map[int64]struct{}
+	clearedhistory           bool
+	daily_rollups            map[int64]struct{}
+	removeddaily_rollups     map[int64]struct{}
+	cleareddaily_rollups     bool
+	request_template         *int64
+	clearedrequest_template  bool
+	done                     bool
+	oldValue                 func(context.Context) (*ChannelMonitor, error)
+	predicates               []predicate.ChannelMonitor
 }
 
 var _ ent.Mutation = (*ChannelMonitorMutation)(nil)
@@ -15379,6 +15381,76 @@ func (m *ChannelMonitorMutation) GroupNameCleared() bool {
 func (m *ChannelMonitorMutation) ResetGroupName() {
 	m.group_name = nil
 	delete(m.clearedFields, channelmonitor.FieldGroupName)
+}
+
+// SetIntelligenceGroupID sets the "intelligence_group_id" field.
+func (m *ChannelMonitorMutation) SetIntelligenceGroupID(i int64) {
+	m.intelligence_group_id = &i
+	m.addintelligence_group_id = nil
+}
+
+// IntelligenceGroupID returns the value of the "intelligence_group_id" field in the mutation.
+func (m *ChannelMonitorMutation) IntelligenceGroupID() (r int64, exists bool) {
+	v := m.intelligence_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIntelligenceGroupID returns the old "intelligence_group_id" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldIntelligenceGroupID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIntelligenceGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIntelligenceGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIntelligenceGroupID: %w", err)
+	}
+	return oldValue.IntelligenceGroupID, nil
+}
+
+// AddIntelligenceGroupID adds i to the "intelligence_group_id" field.
+func (m *ChannelMonitorMutation) AddIntelligenceGroupID(i int64) {
+	if m.addintelligence_group_id != nil {
+		*m.addintelligence_group_id += i
+	} else {
+		m.addintelligence_group_id = &i
+	}
+}
+
+// AddedIntelligenceGroupID returns the value that was added to the "intelligence_group_id" field in this mutation.
+func (m *ChannelMonitorMutation) AddedIntelligenceGroupID() (r int64, exists bool) {
+	v := m.addintelligence_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearIntelligenceGroupID clears the value of the "intelligence_group_id" field.
+func (m *ChannelMonitorMutation) ClearIntelligenceGroupID() {
+	m.intelligence_group_id = nil
+	m.addintelligence_group_id = nil
+	m.clearedFields[channelmonitor.FieldIntelligenceGroupID] = struct{}{}
+}
+
+// IntelligenceGroupIDCleared returns if the "intelligence_group_id" field was cleared in this mutation.
+func (m *ChannelMonitorMutation) IntelligenceGroupIDCleared() bool {
+	_, ok := m.clearedFields[channelmonitor.FieldIntelligenceGroupID]
+	return ok
+}
+
+// ResetIntelligenceGroupID resets all changes to the "intelligence_group_id" field.
+func (m *ChannelMonitorMutation) ResetIntelligenceGroupID() {
+	m.intelligence_group_id = nil
+	m.addintelligence_group_id = nil
+	delete(m.clearedFields, channelmonitor.FieldIntelligenceGroupID)
 }
 
 // SetEnabled sets the "enabled" field.
@@ -15986,7 +16058,7 @@ func (m *ChannelMonitorMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMonitorMutation) Fields() []string {
-	fields := make([]string, 0, 21)
+	fields := make([]string, 0, 22)
 	if m.created_at != nil {
 		fields = append(fields, channelmonitor.FieldCreatedAt)
 	}
@@ -16022,6 +16094,9 @@ func (m *ChannelMonitorMutation) Fields() []string {
 	}
 	if m.group_name != nil {
 		fields = append(fields, channelmonitor.FieldGroupName)
+	}
+	if m.intelligence_group_id != nil {
+		fields = append(fields, channelmonitor.FieldIntelligenceGroupID)
 	}
 	if m.enabled != nil {
 		fields = append(fields, channelmonitor.FieldEnabled)
@@ -16082,6 +16157,8 @@ func (m *ChannelMonitorMutation) Field(name string) (ent.Value, bool) {
 		return m.ExtraModels()
 	case channelmonitor.FieldGroupName:
 		return m.GroupName()
+	case channelmonitor.FieldIntelligenceGroupID:
+		return m.IntelligenceGroupID()
 	case channelmonitor.FieldEnabled:
 		return m.Enabled()
 	case channelmonitor.FieldIntervalSeconds:
@@ -16133,6 +16210,8 @@ func (m *ChannelMonitorMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldExtraModels(ctx)
 	case channelmonitor.FieldGroupName:
 		return m.OldGroupName(ctx)
+	case channelmonitor.FieldIntelligenceGroupID:
+		return m.OldIntelligenceGroupID(ctx)
 	case channelmonitor.FieldEnabled:
 		return m.OldEnabled(ctx)
 	case channelmonitor.FieldIntervalSeconds:
@@ -16244,6 +16323,13 @@ func (m *ChannelMonitorMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetGroupName(v)
 		return nil
+	case channelmonitor.FieldIntelligenceGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIntelligenceGroupID(v)
+		return nil
 	case channelmonitor.FieldEnabled:
 		v, ok := value.(bool)
 		if !ok {
@@ -16318,6 +16404,9 @@ func (m *ChannelMonitorMutation) AddedFields() []string {
 	if m.addaccount_id != nil {
 		fields = append(fields, channelmonitor.FieldAccountID)
 	}
+	if m.addintelligence_group_id != nil {
+		fields = append(fields, channelmonitor.FieldIntelligenceGroupID)
+	}
 	if m.addinterval_seconds != nil {
 		fields = append(fields, channelmonitor.FieldIntervalSeconds)
 	}
@@ -16337,6 +16426,8 @@ func (m *ChannelMonitorMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case channelmonitor.FieldAccountID:
 		return m.AddedAccountID()
+	case channelmonitor.FieldIntelligenceGroupID:
+		return m.AddedIntelligenceGroupID()
 	case channelmonitor.FieldIntervalSeconds:
 		return m.AddedIntervalSeconds()
 	case channelmonitor.FieldJitterSeconds:
@@ -16358,6 +16449,13 @@ func (m *ChannelMonitorMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddAccountID(v)
+		return nil
+	case channelmonitor.FieldIntelligenceGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddIntelligenceGroupID(v)
 		return nil
 	case channelmonitor.FieldIntervalSeconds:
 		v, ok := value.(int)
@@ -16394,6 +16492,9 @@ func (m *ChannelMonitorMutation) ClearedFields() []string {
 	if m.FieldCleared(channelmonitor.FieldGroupName) {
 		fields = append(fields, channelmonitor.FieldGroupName)
 	}
+	if m.FieldCleared(channelmonitor.FieldIntelligenceGroupID) {
+		fields = append(fields, channelmonitor.FieldIntelligenceGroupID)
+	}
 	if m.FieldCleared(channelmonitor.FieldLastCheckedAt) {
 		fields = append(fields, channelmonitor.FieldLastCheckedAt)
 	}
@@ -16422,6 +16523,9 @@ func (m *ChannelMonitorMutation) ClearField(name string) error {
 		return nil
 	case channelmonitor.FieldGroupName:
 		m.ClearGroupName()
+		return nil
+	case channelmonitor.FieldIntelligenceGroupID:
+		m.ClearIntelligenceGroupID()
 		return nil
 	case channelmonitor.FieldLastCheckedAt:
 		m.ClearLastCheckedAt()
@@ -16475,6 +16579,9 @@ func (m *ChannelMonitorMutation) ResetField(name string) error {
 		return nil
 	case channelmonitor.FieldGroupName:
 		m.ResetGroupName()
+		return nil
+	case channelmonitor.FieldIntelligenceGroupID:
+		m.ResetIntelligenceGroupID()
 		return nil
 	case channelmonitor.FieldEnabled:
 		m.ResetEnabled()

@@ -105,6 +105,11 @@ func GroupName(v string) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldGroupName, v))
 }
 
+// IntelligenceGroupID applies equality check predicate on the "intelligence_group_id" field. It's identical to IntelligenceGroupIDEQ.
+func IntelligenceGroupID(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldIntelligenceGroupID, v))
+}
+
 // Enabled applies equality check predicate on the "enabled" field. It's identical to EnabledEQ.
 func Enabled(v bool) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldEnabled, v))
@@ -753,6 +758,56 @@ func GroupNameEqualFold(v string) predicate.ChannelMonitor {
 // GroupNameContainsFold applies the ContainsFold predicate on the "group_name" field.
 func GroupNameContainsFold(v string) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldContainsFold(FieldGroupName, v))
+}
+
+// IntelligenceGroupIDEQ applies the EQ predicate on the "intelligence_group_id" field.
+func IntelligenceGroupIDEQ(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldIntelligenceGroupID, v))
+}
+
+// IntelligenceGroupIDNEQ applies the NEQ predicate on the "intelligence_group_id" field.
+func IntelligenceGroupIDNEQ(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldIntelligenceGroupID, v))
+}
+
+// IntelligenceGroupIDIn applies the In predicate on the "intelligence_group_id" field.
+func IntelligenceGroupIDIn(vs ...int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIn(FieldIntelligenceGroupID, vs...))
+}
+
+// IntelligenceGroupIDNotIn applies the NotIn predicate on the "intelligence_group_id" field.
+func IntelligenceGroupIDNotIn(vs ...int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotIn(FieldIntelligenceGroupID, vs...))
+}
+
+// IntelligenceGroupIDGT applies the GT predicate on the "intelligence_group_id" field.
+func IntelligenceGroupIDGT(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldGT(FieldIntelligenceGroupID, v))
+}
+
+// IntelligenceGroupIDGTE applies the GTE predicate on the "intelligence_group_id" field.
+func IntelligenceGroupIDGTE(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldGTE(FieldIntelligenceGroupID, v))
+}
+
+// IntelligenceGroupIDLT applies the LT predicate on the "intelligence_group_id" field.
+func IntelligenceGroupIDLT(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldLT(FieldIntelligenceGroupID, v))
+}
+
+// IntelligenceGroupIDLTE applies the LTE predicate on the "intelligence_group_id" field.
+func IntelligenceGroupIDLTE(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldLTE(FieldIntelligenceGroupID, v))
+}
+
+// IntelligenceGroupIDIsNil applies the IsNil predicate on the "intelligence_group_id" field.
+func IntelligenceGroupIDIsNil() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIsNull(FieldIntelligenceGroupID))
+}
+
+// IntelligenceGroupIDNotNil applies the NotNil predicate on the "intelligence_group_id" field.
+func IntelligenceGroupIDNotNil() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotNull(FieldIntelligenceGroupID))
 }
 
 // EnabledEQ applies the EQ predicate on the "enabled" field.

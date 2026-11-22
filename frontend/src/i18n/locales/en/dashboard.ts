@@ -575,6 +575,21 @@ export default {
 
   // Channel Status (user-facing read-only view)
   channelStatus: {
+    intelligence: {
+      title: 'Intelligence checks',
+      group: 'Intelligence check group',
+      groupHelp: 'Shows Pelican results matching the chosen group and the primary model.',
+      unconfigured: 'Not configured',
+      no_plan: 'No test plan',
+      pending: 'Awaiting results',
+      paused: 'Paused',
+      historical: 'Historical results only',
+      stale: 'Results expired',
+      normal: 'Passed',
+      degraded: 'Possible degradation',
+      failed: 'Request failed',
+      unknown: 'Unknown result',
+    },
     title: 'Channel Status',
     description: 'Inspect channel availability, latency and recent status',
     searchPlaceholder: 'Search channels...',

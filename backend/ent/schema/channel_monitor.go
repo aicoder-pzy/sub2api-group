@@ -75,6 +75,7 @@ func (ChannelMonitor) Fields() []ent.Field {
 			Optional().
 			Default("").
 			MaxLen(100),
+		field.Int64("intelligence_group_id").Optional().Nillable(),
 		field.Bool("enabled").
 			Default(true),
 		field.Int("interval_seconds").

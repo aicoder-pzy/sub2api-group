@@ -195,6 +195,33 @@ func (_u *ChannelMonitorUpdate) ClearGroupName() *ChannelMonitorUpdate {
 	return _u
 }
 
+// SetIntelligenceGroupID sets the "intelligence_group_id" field.
+func (_u *ChannelMonitorUpdate) SetIntelligenceGroupID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.ResetIntelligenceGroupID()
+	_u.mutation.SetIntelligenceGroupID(v)
+	return _u
+}
+
+// SetNillableIntelligenceGroupID sets the "intelligence_group_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableIntelligenceGroupID(v *int64) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetIntelligenceGroupID(*v)
+	}
+	return _u
+}
+
+// AddIntelligenceGroupID adds value to the "intelligence_group_id" field.
+func (_u *ChannelMonitorUpdate) AddIntelligenceGroupID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.AddIntelligenceGroupID(v)
+	return _u
+}
+
+// ClearIntelligenceGroupID clears the value of the "intelligence_group_id" field.
+func (_u *ChannelMonitorUpdate) ClearIntelligenceGroupID() *ChannelMonitorUpdate {
+	_u.mutation.ClearIntelligenceGroupID()
+	return _u
+}
+
 // SetEnabled sets the "enabled" field.
 func (_u *ChannelMonitorUpdate) SetEnabled(v bool) *ChannelMonitorUpdate {
 	_u.mutation.SetEnabled(v)
@@ -601,6 +628,15 @@ func (_u *ChannelMonitorUpdate) sqlSave(ctx context.Context) (_node int, err err
 	if _u.mutation.GroupNameCleared() {
 		_spec.ClearField(channelmonitor.FieldGroupName, field.TypeString)
 	}
+	if value, ok := _u.mutation.IntelligenceGroupID(); ok {
+		_spec.SetField(channelmonitor.FieldIntelligenceGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedIntelligenceGroupID(); ok {
+		_spec.AddField(channelmonitor.FieldIntelligenceGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.IntelligenceGroupIDCleared() {
+		_spec.ClearField(channelmonitor.FieldIntelligenceGroupID, field.TypeInt64)
+	}
 	if value, ok := _u.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)
 	}
@@ -939,6 +975,33 @@ func (_u *ChannelMonitorUpdateOne) SetNillableGroupName(v *string) *ChannelMonit
 // ClearGroupName clears the value of the "group_name" field.
 func (_u *ChannelMonitorUpdateOne) ClearGroupName() *ChannelMonitorUpdateOne {
 	_u.mutation.ClearGroupName()
+	return _u
+}
+
+// SetIntelligenceGroupID sets the "intelligence_group_id" field.
+func (_u *ChannelMonitorUpdateOne) SetIntelligenceGroupID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.ResetIntelligenceGroupID()
+	_u.mutation.SetIntelligenceGroupID(v)
+	return _u
+}
+
+// SetNillableIntelligenceGroupID sets the "intelligence_group_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableIntelligenceGroupID(v *int64) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetIntelligenceGroupID(*v)
+	}
+	return _u
+}
+
+// AddIntelligenceGroupID adds value to the "intelligence_group_id" field.
+func (_u *ChannelMonitorUpdateOne) AddIntelligenceGroupID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.AddIntelligenceGroupID(v)
+	return _u
+}
+
+// ClearIntelligenceGroupID clears the value of the "intelligence_group_id" field.
+func (_u *ChannelMonitorUpdateOne) ClearIntelligenceGroupID() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearIntelligenceGroupID()
 	return _u
 }
 
@@ -1377,6 +1440,15 @@ func (_u *ChannelMonitorUpdateOne) sqlSave(ctx context.Context) (_node *ChannelM
 	}
 	if _u.mutation.GroupNameCleared() {
 		_spec.ClearField(channelmonitor.FieldGroupName, field.TypeString)
+	}
+	if value, ok := _u.mutation.IntelligenceGroupID(); ok {
+		_spec.SetField(channelmonitor.FieldIntelligenceGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedIntelligenceGroupID(); ok {
+		_spec.AddField(channelmonitor.FieldIntelligenceGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.IntelligenceGroupIDCleared() {
+		_spec.ClearField(channelmonitor.FieldIntelligenceGroupID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)

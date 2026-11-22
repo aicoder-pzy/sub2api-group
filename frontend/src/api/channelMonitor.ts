@@ -21,7 +21,15 @@ export interface MonitorTimelinePoint {
   checked_at: string
 }
 
+export interface MonitorIntelligencePoint {
+  status: 'normal' | 'degraded' | 'failed' | 'unknown'
+  checked_at: string
+  latency_ms: number
+  effort?: string
+}
+
 export interface UserMonitorView {
+  intelligence?: { state: string; history: MonitorIntelligencePoint[] }
   id: number
   name: string
   provider: Provider

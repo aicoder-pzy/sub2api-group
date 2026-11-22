@@ -39,6 +39,8 @@ const (
 	FieldExtraModels = "extra_models"
 	// FieldGroupName holds the string denoting the group_name field in the database.
 	FieldGroupName = "group_name"
+	// FieldIntelligenceGroupID holds the string denoting the intelligence_group_id field in the database.
+	FieldIntelligenceGroupID = "intelligence_group_id"
 	// FieldEnabled holds the string denoting the enabled field in the database.
 	FieldEnabled = "enabled"
 	// FieldIntervalSeconds holds the string denoting the interval_seconds field in the database.
@@ -103,6 +105,7 @@ var Columns = []string{
 	FieldPrimaryModel,
 	FieldExtraModels,
 	FieldGroupName,
+	FieldIntelligenceGroupID,
 	FieldEnabled,
 	FieldIntervalSeconds,
 	FieldJitterSeconds,
@@ -261,6 +264,11 @@ func ByPrimaryModel(opts ...sql.OrderTermOption) OrderOption {
 // ByGroupName orders the results by the group_name field.
 func ByGroupName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupName, opts...).ToFunc()
+}
+
+// ByIntelligenceGroupID orders the results by the intelligence_group_id field.
+func ByIntelligenceGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldIntelligenceGroupID, opts...).ToFunc()
 }
 
 // ByEnabled orders the results by the enabled field.
