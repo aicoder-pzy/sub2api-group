@@ -14,8 +14,11 @@
           <button class="btn btn-secondary inline-flex items-center gap-2" :disabled="loading" @click="load">
             <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />{{ t('pelicanTests.refresh') }}
           </button>
-          <button class="btn btn-primary inline-flex items-center gap-2" data-testid="pelican-tests-create" @click="openEditor()">
-            <Icon name="plus" size="sm" />{{ t('pelicanTests.create') }}
+          <button class="btn btn-primary inline-flex items-center gap-2" data-testid="pelican-tests-create" @click="openEditor('pelican')">
+            <Icon name="plus" size="sm" />{{ t('pelicanTests.create', { kind: questionLabel('pelican') }) }}
+          </button>
+          <button class="btn btn-secondary inline-flex items-center gap-2" data-testid="pelican-tests-create-candy" @click="openEditor('candy')">
+            <Icon name="plus" size="sm" />{{ t('pelicanTests.create', { kind: questionLabel('candy') }) }}
           </button>
         </div>
       </header>
@@ -86,7 +89,6 @@
           <div v-else-if="!plans.length" class="empty-state">
             <Icon name="beaker" size="xl" />
             <p>{{ t('pelicanTests.plans.empty') }}</p>
-            <button class="btn btn-secondary" @click="openEditor()">{{ t('pelicanTests.create') }}</button>
           </div>
           <ul v-else class="plan-list">
             <li v-for="plan in plans" :key="plan.id" class="plan-row" :data-testid="`pelican-plan-${plan.id}`">
@@ -107,7 +109,7 @@
                   </p>
                   <p class="plan-meta">
                     <template v-if="plan.pelican_config?.prompt_mode === 'random_creative'"><span class="text-primary-600 dark:text-primary-400">{{ t('pelicanTests.creative.mode') }}</span><span v-if="!plan.pelican_config.creative_judge_group_id || !plan.pelican_config.creative_judge_model_id" class="text-amber-600">{{ t('pelicanTests.creative.awaitingJudge') }}</span><span>·</span></template>
-                    <template v-if="plan.pelican_config?.question_kind === 'candy'"><span>{{ t('admin.accounts.pelicanTest.candyQuestion') }}</span><span>·</span></template>
+                    <span>{{ questionLabel(plan.pelican_config?.question_kind) }}</span><span>·</span>
                     <code v-if="plan.model_id">{{ plan.model_id }}</code>
                     <span v-else class="text-amber-600 dark:text-amber-400">{{ t('pelicanTests.plans.modelMissing') }}</span>
                     <span>·</span><span>{{ effortLabel(plan.pelican_config?.reasoning_effort) }}</span>
@@ -184,7 +186,7 @@
                 <td><strong :title="result.group_name">{{ result.group_name }}</strong></td>
                 <td>
                   <code>{{ result.pelican_config?.model_id || '—' }}</code>
-                  <small v-if="result.pelican_config?.question_kind === 'candy'">{{ t('admin.accounts.pelicanTest.candyQuestion') }}</small>
+                  <small>{{ questionLabel(result.pelican_config?.question_kind) }}</small>
                 </td>
                 <td>
                   <strong v-if="result.account_id" :title="accountName(result)">{{ accountName(result) }}</strong>
@@ -228,7 +230,7 @@
 
     <BaseDialog
       :show="editor !== null"
-      :title="t(editor?.id ? 'pelicanTests.editor.editTitle' : 'pelicanTests.editor.createTitle')"
+      :title="t(editor?.id ? 'pelicanTests.editor.editTitle' : 'pelicanTests.create', { kind: questionLabel(editor?.form.question_kind) })"
       width="normal"
       @close="editor = null"
     >
@@ -251,12 +253,11 @@
           <input id="pelican-test-model" v-model.trim="editor.form.model_id" maxlength="100" class="input w-full" :placeholder="t('pelicanTests.editor.modelPlaceholder')" data-testid="pelican-test-model" />
           <p class="field-hint">{{ t('pelicanTests.editor.modelHint') }}</p>
         </div>
-        <div>
+        <div v-if="editor.form.question_kind !== 'candy'">
           <label class="field-label mt-0" for="pelican-test-mode">{{ t('pelicanTests.creative.questionMode') }}</label>
-          <select id="pelican-test-mode" :value="editor.form.question_kind === 'candy' ? 'candy' : editor.form.prompt_mode" class="input w-full" data-testid="pelican-test-mode" @change="setQuestionMode(($event.target as HTMLSelectElement).value)">
+          <select id="pelican-test-mode" v-model="editor.form.prompt_mode" class="input w-full" data-testid="pelican-test-mode">
             <option value="fixed">{{ t('pelicanTests.creative.fixed') }}</option>
             <option value="random_creative">{{ t('pelicanTests.creative.mode') }}</option>
-            <option value="candy">{{ t('admin.accounts.pelicanTest.candyQuestion') }}</option>
           </select>
         </div>
         <div v-if="editor.form.prompt_mode === 'random_creative'" class="space-y-3" data-testid="creative-editor">
@@ -438,7 +439,7 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTimeToMinute } from '@/utils/format'
-import { CANDY_PROMPT, PELICAN_PROMPT, validPelicanOutputTokenLimit } from '@/utils/intelligenceTest'
+import { CANDY_PROMPT, PELICAN_PROMPT, questionPrompt, validPelicanOutputTokenLimit, type IntelligenceQuestion } from '@/utils/intelligenceTest'
 import PelicanOutputTokenField from '@/components/admin/account/PelicanOutputTokenField.vue'
 import type { PelicanCreativeMaterials } from '@/api/pelicanCreative'
 import { extractPelicanHtml } from '@/utils/pelicanHtml'
@@ -697,6 +698,10 @@ async function loadGroups() {
   }
 }
 
+function questionLabel(kind?: string) {
+  return t(kind === 'candy' ? 'admin.accounts.pelicanTest.candyQuestion' : 'pelicanTests.pelicanQuestion')
+}
+
 function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
   return {
     group_id: plan.group_id,
@@ -716,21 +721,16 @@ function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
   }
 }
 
-function openEditor(plan?: PelicanGroupTestPlan) {
-  const form: PelicanGroupTestPlanInput = plan
-    ? inputFrom(plan)
-    : { group_id: 0, prompt_mode: 'fixed', model_id: '', cron_expression: SCHEDULES[1].cron, enabled: true, prompt: PELICAN_PROMPT, reasoning_effort: 'medium', parallel_count: 1 }
+function openEditor(target: PelicanGroupTestPlan | IntelligenceQuestion) {
+  const form: PelicanGroupTestPlanInput = typeof target === 'string' ? {
+    group_id: 0, question_kind: target, prompt_mode: 'fixed', model_id: '',
+    cron_expression: SCHEDULES[1].cron, enabled: true, prompt: questionPrompt(target),
+    reasoning_effort: 'medium', parallel_count: 1,
+  } : inputFrom(target)
   const schedule = SCHEDULES.some((preset) => preset.cron === form.cron_expression) ? form.cron_expression : 'custom'
+  const plan = typeof target === 'string' ? null : target
   editor.value = { id: plan?.id ?? null, groupName: plan?.group_name ?? '', form, schedule }
   void loadGroups()
-}
-
-function setQuestionMode(value: string) {
-  const form = editor.value?.form
-  if (!form) return
-  form.question_kind = value === 'candy' ? 'candy' : undefined
-  form.prompt_mode = value === 'random_creative' ? 'random_creative' : 'fixed'
-  if (value !== 'candy' && form.prompt === CANDY_PROMPT) form.prompt = PELICAN_PROMPT
 }
 
 async function savePlan() {

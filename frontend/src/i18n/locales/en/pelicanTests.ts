@@ -66,7 +66,8 @@ export default {
   description: 'Ask each group the Pelican question on a schedule. The sub2api scheduler picks the answering account just as for a user request, and successful drawings appear on the user Pelican Showcase page.',
   viewShowcase: 'Open showcase',
   refresh: 'Refresh',
-  create: 'New group test',
+  create: 'New {kind}',
+  pelicanQuestion: 'Pelican test',
   loadError: 'Failed to load the Pelican Showcase',
   intelligence: {
     reset: 'Reset statistics',
@@ -103,7 +104,7 @@ export default {
   plans: {
     title: 'Group tests',
     hint: 'For every question the scheduler picks the account by the same rules as a user request. When that account fails before producing output, another one is tried, as a user request would, up to 3 accounts.',
-    empty: 'No group tests yet. Once you add one, its group appears on the user showcase.',
+    empty: 'No group tests yet.',
     modelMissing: 'No model set',
     parallel: '{count} per run',
     nextRun: 'Next run',
@@ -132,8 +133,7 @@ export default {
   editor: {
     verificationTasks: 'Add reasoning and code evaluation checks',
     verificationTasksHint: 'Add two randomized questions with verifiable answers to the same artwork request. No extra generation is sent. Incorrect answers are degraded; missing answers are unknown. Output and reasoning may increase cost. Group tests follow the current healthy, eligible primary for the model, including parallel samples.',
-    createTitle: 'New group test',
-    editTitle: 'Edit group test',
+    editTitle: 'Edit {kind}',
     group: 'Group',
     groupPlaceholder: 'Select a group',
     groupLocked: 'A test keeps its group. To test another group, add a new test.',

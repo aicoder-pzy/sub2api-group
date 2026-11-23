@@ -1,7 +1,6 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import PelicanTestModal from '../PelicanTestModal.vue'
-import Select from '@/components/common/Select.vue'
 import { CANDY_PROMPT } from '@/utils/intelligenceTest'
 
 vi.mock('vue-i18n', async () => ({ ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'), useI18n: () => ({ t: (key: string) => key }) }))
@@ -61,8 +60,10 @@ describe('PelicanTestModal',()=>{
    global:{stubs:{BaseDialog:{template:'<div><slot/><slot name="footer"/></div>'},Icon:true}}
   })
   await flushPromises()
-  const question = wrapper.findAllComponents(Select).find(select => select.props('ariaLabel') === 'admin.accounts.pelicanTest.question')!
-  question.vm.$emit('update:modelValue', 'candy')
+  const drawing = wrapper.get('[data-testid="intelligence-question-pelican"]')
+  const candy = wrapper.get('[data-testid="intelligence-question-candy"]')
+  expect(drawing.attributes('aria-pressed')).toBe('true')
+  await candy.trigger('click')
   await wrapper.get('[data-testid="pelican-max-output-tokens"]').setValue('512')
   await wrapper.findAll('button').find(b=>b.classes().includes('btn-primary'))!.trigger('click')
   await flushPromises()
@@ -74,6 +75,11 @@ describe('PelicanTestModal',()=>{
   expect(payload.prompt).toContain(CANDY_PROMPT)
   expect(payload.prompt).toContain('只输出最终整数')
   expect(payload.prompt).not.toContain('只输出 HTML')
+  await drawing.trigger('click')
+  expect((wrapper.get('[data-testid="pelican-max-output-tokens"]').element as HTMLInputElement).value).toBe('')
+  await candy.trigger('click')
+  expect((wrapper.get('[data-testid="pelican-max-output-tokens"]').element as HTMLInputElement).value).toBe('512')
+  expect(wrapper.get('pre').text()).toBe('21')
   wrapper.unmount()
  })
 })

@@ -40,7 +40,8 @@ export default {
   description: '按分组定时出题，由 sub2api 的调度器像真实请求一样挑选账号作答；成功生成的作品展示在用户的「鹈鹕测智」页面。',
   viewShowcase: '查看展示页',
   refresh: '刷新',
-  create: '新建分组测试',
+  create: '新建{kind}',
+  pelicanQuestion: '鹈鹕测试',
   loadError: '加载鹈鹕测智失败',
   intelligence: {
     reset: '清零重计',
@@ -109,7 +110,7 @@ export default {
   plans: {
     title: '分组测试',
     hint: '每次出题都由调度器按真实请求的规则挑选账号；账号在出内容前就报错时，像真实请求一样换一个账号，最多 3 个。',
-    empty: '还没有分组测试。建一个后，这个分组就会出现在用户展示页。',
+    empty: '还没有分组测试。',
     modelMissing: '未设置模型',
     parallel: '每次 {count} 份',
     nextRun: '下次运行',
@@ -138,8 +139,7 @@ export default {
   editor: {
     verificationTasks: '附加推理与代码求值核验',
     verificationTasksHint: '在同一次作品请求中加入两道随机、可核验答案的小题，不增加生成次数。答错计为疑似降智，缺少有效答案计为未知；测试费用可能因输出及思考增加。分组测智跟随该模型当前正常可用的主账号，并行多份也使用主账号。',
-    createTitle: '新建分组测试',
-    editTitle: '编辑分组测试',
+    editTitle: '编辑{kind}',
     group: '分组',
     groupPlaceholder: '选择分组',
     groupLocked: '建好的测试不能换分组；要测别的分组请新建一个。',

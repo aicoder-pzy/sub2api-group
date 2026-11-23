@@ -19,12 +19,24 @@
 
       <div v-if="activeTab !== 'modeltrace'" class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div class="space-y-3">
-          <div>
-            <label class="input-label mb-1.5 block">{{ t('admin.accounts.pelicanTest.question') }}</label>
-            <Select :model-value="questionKind" :options="questionOptions" :aria-label="t('admin.accounts.pelicanTest.question')" :disabled="running" @update:model-value="selectQuestion" />
+          <div role="group" :aria-label="t('admin.accounts.pelicanTest.question')" class="flex flex-wrap gap-2">
+            <button
+              v-for="kind in questionKinds"
+              :key="kind"
+              type="button"
+              class="btn btn-secondary"
+              :class="{ 'ring-2 ring-primary-500': questionKind === kind }"
+              :aria-pressed="questionKind === kind"
+              :disabled="running"
+              :data-testid="`intelligence-question-${kind}`"
+              @click="selectQuestion(kind)"
+            >
+              {{ t(`admin.accounts.pelicanTest.${kind}Question`) }}
+            </button>
           </div>
           <TextArea
-            v-model="prompt"
+            :model-value="prompt"
+            @update:model-value="restoreQuestion($event)"
             :label="t('admin.accounts.pelicanTest.promptLabel')"
             :disabled="running"
             :readonly="questionKind === 'candy'"
@@ -182,7 +194,7 @@ import { extractPelicanHtml as extractHtml } from '@/utils/pelicanHtml'
 import PelicanAssessment from './PelicanAssessment.vue'
 import ModelTracePanel from './ModelTracePanel.vue'
 import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
-import { CANDY_PROMPT, PELICAN_PROMPT, questionContract, questionPrompt, validPelicanOutputTokenLimit } from '@/utils/intelligenceTest'
+import { CANDY_PROMPT, PELICAN_PROMPT, questionContract, validPelicanOutputTokenLimit, type IntelligenceQuestion } from '@/utils/intelligenceTest'
 import PelicanOutputTokenField from './PelicanOutputTokenField.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Input from '@/components/common/Input.vue'
@@ -228,7 +240,10 @@ interface TestRecord {
 const props = defineProps<{ show: boolean; account: Account | null; accounts?: AccountListItem[] }>()
 const emit = defineEmits<{ (event: 'close'): void }>()
 
-const prompt = ref(PELICAN_PROMPT)
+const questionKinds = ['pelican', 'candy'] as const
+const questionKind = ref<IntelligenceQuestion>('pelican')
+const drawingPrompt = ref(PELICAN_PROMPT)
+const prompt = computed(() => questionKind.value === 'candy' ? CANDY_PROMPT : drawingPrompt.value)
 const modelId = ref(props.account?.platform === 'anthropic' ? 'claude-opus-5-5' : 'gpt-6-astra')
 const availableModels = ref<Array<{id:string;display_name?:string}>>([])
 async function loadModels() {
@@ -244,7 +259,11 @@ async function loadModels() {
 }
 const reasoningEffort = ref('medium')
 const parallelCount = ref<string | number>(1)
-const maxOutputTokens = ref<number>()
+const outputLimits = ref<Partial<Record<IntelligenceQuestion, number>>>({})
+const maxOutputTokens = computed({
+  get: () => outputLimits.value[questionKind.value],
+  set: (limit) => { outputLimits.value[questionKind.value] = limit }
+})
 const activeTab = ref<'results' | 'history' | 'schedule' | 'modeltrace'>('results')
 const running = ref(false)
 const viewingScheduled = ref(false)
@@ -254,12 +273,21 @@ const records = ref<TestRecord[]>([])
 const scheduledRecords = ref<ScheduledTestResult[]>([])
 const controllers = new Map<string, AbortController>()
 
-const questionKind = computed(() => prompt.value.trim() === CANDY_PROMPT ? 'candy' : 'pelican')
-const questionOptions = computed(() => ['pelican', 'candy'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.${value}Question`) })))
 const deliveryContract = computed(() => questionContract(questionKind.value))
 
-function selectQuestion(value: string | number | boolean | null) {
-  if (value === 'pelican' || value === 'candy') prompt.value = questionPrompt(value)
+function selectQuestion(kind: IntelligenceQuestion) {
+  if (running.value || questionKind.value === kind) return
+  questionKind.value = kind
+  if (activeTab.value === 'results') {
+    viewingScheduled.value = false
+    const previous = records.value.find((record) => (record.prompt.trim() === CANDY_PROMPT) === (kind === 'candy'))
+    runs.value = previous?.runs ?? []
+  }
+}
+
+function restoreQuestion(savedPrompt: string, kind?: string) {
+  questionKind.value = kind === 'candy' || savedPrompt.trim() === CANDY_PROMPT ? 'candy' : 'pelican'
+  if (questionKind.value === 'pelican') drawingPrompt.value = savedPrompt
 }
 const reasoningOptions = computed(() => [
  {value:'none',label:'none'}, {value:'minimal',label:'minimal'}, {value:'xhigh',label:'xhigh'}, {value:'max',label:'max'}, {value:'ultra',label:'ultra'},
@@ -302,7 +330,7 @@ function formatDate(value: string) {
 
 function editSchedule(config: PelicanTestConfig, model: string) {
   if (running.value) return
-  prompt.value = config.prompt
+  restoreQuestion(config.prompt, config.question_kind)
   modelId.value = model
   reasoningEffort.value = config.reasoning_effort
   parallelCount.value = config.parallel_count
@@ -332,7 +360,7 @@ function previewScheduled(result: ScheduledTestResult) {
 
 function loadRecord(record: TestRecord) {
   if (running.value) return
-  prompt.value = record.prompt
+  restoreQuestion(record.prompt)
   modelId.value = record.modelId
   reasoningEffort.value = record.reasoningEffort || 'medium'
   maxOutputTokens.value = record.maxOutputTokens
@@ -492,12 +520,13 @@ watch(() => [props.show, props.account?.id] as const, ([show]) => {
     activeTab.value = 'results'
     viewingScheduled.value = false
     scheduledRecords.value = []
-    prompt.value = PELICAN_PROMPT
+    questionKind.value = 'pelican'
+    drawingPrompt.value = PELICAN_PROMPT
     modelId.value = props.account?.platform === 'anthropic' ? 'claude-opus-5-5' : 'gpt-6-astra'
     void loadModels()
     reasoningEffort.value = 'medium'
     parallelCount.value = 1
-    maxOutputTokens.value = undefined
+    outputLimits.value = {}
     runs.value = []
   } else {
     for (const controller of controllers.values()) controller.abort()

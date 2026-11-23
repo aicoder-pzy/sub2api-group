@@ -102,27 +102,35 @@ afterEach(() => {
 })
 
 describe('PelicanTestsView', () => {
-  it('saves a candy plan with a token limit and opens the original text of a failed answer', async () => {
-    const candyConfig = { ...plan().pelican_config, question_kind: 'candy', prompt: CANDY_PROMPT, max_output_tokens: 1536 }
-    const candyResult = result({ status: 'failed', error_message: 'answer_mismatch: expected 21', pelican_config: candyConfig })
+  it('adds a candy plan alongside a drawing plan for the same group', async () => {
+    const drawing = plan()
+    const candyConfig = { ...drawing.pelican_config, question_kind: 'candy', prompt: CANDY_PROMPT, max_output_tokens: 1536 }
+    const candyResult = result({ plan_id: 9, status: 'failed', error_message: 'answer_mismatch: expected 21', pelican_config: candyConfig })
     api.listResults.mockResolvedValue({ items: [candyResult], total: 1 })
     api.getResult.mockResolvedValue({ ...candyResult, response_text: '22' })
-    api.updatePlan.mockImplementation(async () => {
-      const saved = plan({ pelican_config: candyConfig })
-      api.listPlans.mockResolvedValue([saved])
+    api.createPlan.mockImplementation(async () => {
+      const saved = plan({ id: 9, pelican_config: candyConfig })
+      api.listPlans.mockResolvedValue([drawing, saved])
       return saved
     })
     wrapper = mountView()
     await flushPromises()
-    await wrapper.get('[data-testid="pelican-plan-edit-7"]').trigger('click')
+    await wrapper.get('[data-testid="pelican-tests-create-candy"]').trigger('click')
+    await flushPromises()
     const editor = wrapper.get('[data-testid="pelican-test-editor"]')
-    await editor.get('[data-testid="pelican-test-mode"]').setValue('candy')
+    await editor.get('select').setValue('4')
+    await editor.get('[data-testid="pelican-test-model"]').setValue(drawing.model_id)
     await editor.get('[data-testid="pelican-max-output-tokens"]').setValue('1536')
     await editor.trigger('submit')
     await flushPromises()
-    expect(api.updatePlan).toHaveBeenCalledWith(7, expect.objectContaining({ question_kind: 'candy', max_output_tokens: 1536, prompt: CANDY_PROMPT }))
-    await wrapper.get('[data-testid="pelican-plan-edit-7"]').trigger('click')
-    expect((wrapper.get('[data-testid="pelican-test-mode"]').element as HTMLSelectElement).value).toBe('candy')
+    expect(api.createPlan).toHaveBeenCalledWith(expect.objectContaining({ group_id: 4, question_kind: 'candy', max_output_tokens: 1536, prompt: CANDY_PROMPT }))
+    expect(api.updatePlan).not.toHaveBeenCalled()
+    const drawingRow = wrapper.get('[data-testid="pelican-plan-7"]')
+    const candyRow = wrapper.get('[data-testid="pelican-plan-9"]')
+    expect(drawingRow.text()).toContain('pelicanTests.pelicanQuestion')
+    expect(candyRow.text()).toContain('admin.accounts.pelicanTest.candyQuestion')
+    await wrapper.get('[data-testid="pelican-plan-edit-9"]').trigger('click')
+    expect(wrapper.find('[data-testid="pelican-test-mode"]').exists()).toBe(false)
     expect((wrapper.get('[data-testid="pelican-max-output-tokens"]').element as HTMLInputElement).value).toBe('1536')
     await wrapper.get('[data-testid="pelican-result-view-90"]').trigger('click')
     await flushPromises()
