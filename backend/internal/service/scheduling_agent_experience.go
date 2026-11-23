@@ -57,14 +57,25 @@ func cacheEvidenceSupportsTrial(incident *SchedulingAgentCacheIncident, candidat
 }
 
 type SchedulingAgentTrialCohort struct {
-	Effort          string  `json:"effort"`
-	Endpoint        string  `json:"endpoint"`
-	Protocol        int     `json:"protocol"`
-	Bucket          int     `json:"context_bucket"`
+	Effort          string                      `json:"effort"`
+	Endpoint        string                      `json:"endpoint"`
+	Protocol        int                         `json:"protocol"`
+	Bucket          int                         `json:"context_bucket"`
+	TrialSessions   int                         `json:"trial_sessions"`
+	ControlSessions int                         `json:"control_sessions"`
+	TrialRequests   int                         `json:"trial_warm_requests"`
+	ControlRequests int                         `json:"control_warm_requests"`
+	TrialCache      float64                     `json:"trial_cache"`
+	ControlCache    float64                     `json:"control_cache"`
+	TrialP95        float64                     `json:"trial_first_event_p95_ms"`
+	ControlP95      float64                     `json:"control_first_event_p95_ms"`
+	Stages          []SchedulingAgentTrialStage `json:"matched_turn_stages,omitempty"`
+}
+
+type SchedulingAgentTrialStage struct {
+	Stage           string  `json:"stage"`
 	TrialSessions   int     `json:"trial_sessions"`
 	ControlSessions int     `json:"control_sessions"`
-	TrialRequests   int     `json:"trial_warm_requests"`
-	ControlRequests int     `json:"control_warm_requests"`
 	TrialCache      float64 `json:"trial_cache"`
 	ControlCache    float64 `json:"control_cache"`
 	TrialP95        float64 `json:"trial_first_event_p95_ms"`
@@ -72,10 +83,14 @@ type SchedulingAgentTrialCohort struct {
 }
 
 type SchedulingAgentTrialResult struct {
-	AccountID int64                        `json:"account_id"`
-	ControlID int64                        `json:"control_id"`
-	StartedAt time.Time                    `json:"started_at"`
-	Cohorts   []SchedulingAgentTrialCohort `json:"matched_cohorts"`
+	AccountID        int64                        `json:"account_id"`
+	ControlID        int64                        `json:"control_id"`
+	StartedAt        time.Time                    `json:"started_at"`
+	Cohorts          []SchedulingAgentTrialCohort `json:"matched_cohorts"`
+	TrialAssigned    int                          `json:"trial_assigned_sessions"`
+	ControlAssigned  int                          `json:"control_assigned_sessions"`
+	TrialCompleted   int                          `json:"trial_sessions_with_completion_on_assigned_account"`
+	ControlCompleted int                          `json:"control_sessions_with_completion_on_assigned_account"`
 }
 
 func (t *SchedulingAgentTrialResult) samples() int {
@@ -89,9 +104,21 @@ func (t *SchedulingAgentTrialResult) samples() int {
 }
 
 func (t *SchedulingAgentTrialResult) improves(effort string, requireCache bool) bool {
+	if t.TrialAssigned >= 3 && t.ControlAssigned >= 3 &&
+		float64(t.TrialCompleted)/float64(t.TrialAssigned)+0.15 < float64(t.ControlCompleted)/float64(t.ControlAssigned) {
+		return false
+	}
 	better := false
 	for _, c := range t.Cohorts {
-		if c.Effort != effort || c.TrialSessions < 2 || c.ControlSessions < 2 || min(c.TrialRequests, c.ControlRequests) < 3 {
+		if c.Effort != effort {
+			continue
+		}
+		for _, stage := range c.Stages {
+			if stage.Stage == "first" && stage.TrialSessions >= 3 && stage.ControlSessions >= 3 && stage.TrialP95 > stage.ControlP95*1.5+1000 {
+				return false
+			}
+		}
+		if c.TrialSessions < 2 || c.ControlSessions < 2 || min(c.TrialRequests, c.ControlRequests) < 3 {
 			continue
 		}
 		if c.TrialCache+0.05 < c.ControlCache || c.TrialP95 > c.ControlP95*1.15+500 {
@@ -106,7 +133,7 @@ func (t *SchedulingAgentTrialResult) improves(effort string, requireCache bool) 
 
 type schedulingAgentExperienceReader interface {
 	GetSchedulingAgentCacheIncidents(context.Context, int64, []string) ([]SchedulingAgentCacheIncident, error)
-	GetSchedulingAgentTrialCohorts(context.Context, int64, string, SchedulingAgentRoute, map[string]int64) ([]SchedulingAgentTrialCohort, error)
+	GetSchedulingAgentTrialCohorts(context.Context, int64, string, SchedulingAgentRoute, map[string]int64) (SchedulingAgentTrialResult, error)
 }
 
 type schedulingAgentTrialReader interface {
@@ -150,10 +177,11 @@ func (r *schedulingAgentRuntime) nextExperienceActivity(ctx context.Context, gro
 			assignments, err := r.trials.GetSchedulingAgentTrialAssignments(read, group, model, route.TrialStartedAt)
 			result := SchedulingAgentTrialResult{AccountID: route.TrialID, ControlID: route.TrialControlID, StartedAt: route.TrialStartedAt}
 			if err == nil && len(assignments) >= 4 {
-				result.Cohorts, err = reader.GetSchedulingAgentTrialCohorts(read, group, model, route, assignments)
+				result, err = reader.GetSchedulingAgentTrialCohorts(read, group, model, route, assignments)
 			}
 			cancel()
-			if err == nil && result.samples() >= route.TrialReviewedSamples+3 {
+			if err == nil && (result.samples() >= route.TrialReviewedSamples+3 ||
+				min(result.TrialAssigned, result.ControlAssigned) >= route.TrialReviewedAssignments+3) {
 				return SchedulingAgentActivity{Model: model, At: now, Trial: &result}, nil
 			}
 		}

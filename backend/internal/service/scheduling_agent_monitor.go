@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -39,7 +40,97 @@ func schedulingAgentAccountMonitorLink(account *Account, model string) schedulin
 	return schedulingAgentMonitorLink{}
 }
 
-func (r *schedulingAgentRuntime) readSchedulingAgentMonitors(ctx context.Context, evidence []schedulingAgentEvidence) {
+type schedulingAgentPool struct {
+	Group        string         `json:"upstream_group"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	Stale        bool           `json:"stale"`
+	StatusCounts map[string]int `json:"reported_account_status_counts"`
+}
+
+func schedulingPoolEvidence(snapshot accountPoolSnapshot, siteRevision int64, group string, now time.Time) *schedulingAgentPool {
+	if group == "" || snapshot.Updated == nil || snapshot.Updated.IsZero() || (snapshot.SiteRevision != siteRevision && (snapshot.SiteRevision != 0 || siteRevision != 1)) {
+		return nil
+	}
+	index := slices.IndexFunc(snapshot.Groups, func(pool accountPoolSourceGroup) bool { return pool.SourceID == group && pool.Count > 0 })
+	if index < 0 {
+		return nil
+	}
+	pool := snapshot.Groups[index].ID
+	out := &schedulingAgentPool{Group: group, UpdatedAt: *snapshot.Updated,
+		Stale: snapshot.Updated.Before(now.Add(-15*time.Minute)) || snapshot.Updated.After(now.Add(time.Minute)), StatusCounts: map[string]int{}}
+	for _, row := range snapshot.Rows {
+		if slices.Contains(row.Groups, pool) {
+			out.StatusCounts[row.Status]++
+		}
+	}
+	return out
+}
+
+type schedulingAgentQuota struct {
+	Source     string     `json:"source"`
+	Scope      string     `json:"scope"`
+	Group      string     `json:"upstream_group,omitempty"`
+	State      string     `json:"state"`
+	ReceivedAt time.Time  `json:"received_at"`
+	ValidUntil time.Time  `json:"valid_until"`
+	ResetAt    *time.Time `json:"reset_at,omitempty"`
+}
+
+func schedulingQuotaReading(source, group string, amount UpstreamBalanceAmount, at, expires, now time.Time) schedulingAgentQuota {
+	reading := schedulingAgentQuota{Source: source, Scope: amount.Scope, Group: group,
+		State: "unknown", ReceivedAt: at, ValidUntil: expires, ResetAt: amount.ResetAt}
+	if amount.ResetAt != nil {
+		if amount.ResetAt.Before(expires) {
+			reading.ValidUntil = *amount.ResetAt
+		}
+		if !amount.ResetAt.After(at) || !now.Before(*amount.ResetAt) {
+			reading.State = "past_reset"
+			return reading
+		}
+	}
+	if at.After(now.Add(time.Minute)) || !expires.After(at) || !now.Before(expires) {
+		reading.State = "stale"
+		return reading
+	}
+	if amount.Unlimited {
+		reading.State = "unlimited"
+	} else if amount.Remaining != nil && !math.IsNaN(*amount.Remaining) && !math.IsInf(*amount.Remaining, 0) {
+		reading.State = "available"
+		if *amount.Remaining <= 0 {
+			reading.State = "exhausted"
+		}
+	}
+	return reading
+}
+
+func schedulingAccountQuota(account *Account, now time.Time) []schedulingAgentQuota {
+	if account.Type != AccountTypeAPIKey || account.Extra[UpstreamBalanceProbeExtraKey] == nil {
+		return nil
+	}
+	state := DecodeUpstreamBalanceState(account.Extra)
+	snapshot := state.Snapshot
+	if !state.Enabled || snapshot == nil || snapshot.Status != UpstreamBillingProbeStatusOK || snapshot.ReceivedAt == nil || snapshot.FreshUntil == nil {
+		return nil
+	}
+	fingerprint := NewAPIAccountFingerprint(account)
+	if snapshot.SourceIdentity != fingerprint && !(snapshot.Provider == "newapi" && strings.HasPrefix(snapshot.SourceIdentity, fingerprint+":")) {
+		return nil
+	}
+	result := make([]schedulingAgentQuota, 0, len(snapshot.Amounts))
+	for _, amount := range snapshot.Amounts {
+		result = append(result, schedulingQuotaReading("account_balance", "", amount, *snapshot.ReceivedAt, *snapshot.FreshUntil, now))
+	}
+	return result
+}
+
+func (e schedulingAgentEvidence) quotaExhausted(now time.Time) bool {
+	return slices.ContainsFunc(e.Quota, func(q schedulingAgentQuota) bool {
+		return q.State == "exhausted" && now.Before(q.ValidUntil)
+	})
+}
+
+// accountID is zero only when the model has a single call left and cannot request an inspection.
+func (r *schedulingAgentRuntime) readSchedulingAgentMonitors(ctx context.Context, evidence []schedulingAgentEvidence, accountID int64) {
 	reader := r.monitor.Load()
 	if reader == nil {
 		return
@@ -54,7 +145,7 @@ func (r *schedulingAgentRuntime) readSchedulingAgentMonitors(ctx context.Context
 	for i := range evidence {
 		item := &evidence[i]
 		link := item.monitorLink
-		if link.site == "" || read.Err() != nil {
+		if (accountID != 0 && item.AccountID != accountID) || link.site == "" || read.Err() != nil {
 			continue
 		}
 		snapshot, seen := snapshots[link.site]
@@ -72,16 +163,30 @@ func (r *schedulingAgentRuntime) readSchedulingAgentMonitors(ctx context.Context
 			stop()
 			snapshots[link.site] = snapshot
 		}
-		if snapshot.monitor == nil {
+		if snapshot.site == nil {
 			continue
 		}
-		// Saved inventory also resolves manually linked keys. Do not fetch keys here.
-		if inventory := snapshot.site.Inventory; inventory != nil && inventory.Revision == snapshot.site.Revision && link.key != "" {
+		// Read the saved inventory for the linked key, never the whole site's balance.
+		if inventory := snapshot.site.Inventory; inventory != nil && inventory.Revision == snapshot.site.Revision && inventory.Errors["keys"] == "" && link.key != "" {
 			if index := slices.IndexFunc(inventory.Keys, func(key UpstreamSiteKey) bool { return key.ID == link.key }); index >= 0 {
-				link.group = inventory.Keys[index].GroupID
+				key := inventory.Keys[index]
+				if link.group == "" || link.group == key.GroupID {
+					link.group = key.GroupID
+					if key.Quota != nil && inventory.ReceivedAt != nil {
+						at := *inventory.ReceivedAt
+						item.Quota = append(item.Quota, schedulingQuotaReading("linked_key", link.group, *key.Quota, at, at.Add(15*time.Minute), time.Now()))
+					}
+				}
 			}
 		}
-		item.Monitors = schedulingMonitorRows(link, snapshot.site.Name, snapshot.monitor)
+		if accountID != 0 && link.group != "" {
+			if pool, _, err := reader.readAccountPool(read, snapshot.site.ID, true); err == nil {
+				item.ReportedPool = schedulingPoolEvidence(pool, snapshot.site.Revision, link.group, time.Now())
+			}
+		}
+		if snapshot.monitor != nil {
+			item.Monitors = schedulingMonitorRows(link, snapshot.site.Name, snapshot.monitor)
+		}
 	}
 }
 

@@ -26,18 +26,19 @@ type schedulingAgentSpeedReader interface {
 }
 
 type SchedulingAgentRoute struct {
-	AccountID            int64     `json:"account_id,omitempty"`
-	SelectedAt           time.Time `json:"selected_at"`
-	Reason               string    `json:"reason,omitempty"`
-	TrialID              int64     `json:"trial_id,omitempty"`
-	TrialUntil           time.Time `json:"trial_until"`
-	TrialReason          string    `json:"trial_reason,omitempty"`
-	TrialEffort          string    `json:"trial_effort,omitempty"`
-	TrialFromMonitor     bool      `json:"trial_from_monitor,omitempty"`
-	TrialStartedAt       time.Time `json:"trial_started_at,omitzero"`
-	TrialControlID       int64     `json:"trial_control_id,omitempty"`
-	TrialReviewedSamples int       `json:"trial_reviewed_samples,omitempty"`
-	TrialForCache        bool      `json:"trial_for_cache,omitempty"`
+	AccountID                int64     `json:"account_id,omitempty"`
+	SelectedAt               time.Time `json:"selected_at"`
+	Reason                   string    `json:"reason,omitempty"`
+	TrialID                  int64     `json:"trial_id,omitempty"`
+	TrialUntil               time.Time `json:"trial_until"`
+	TrialReason              string    `json:"trial_reason,omitempty"`
+	TrialEffort              string    `json:"trial_effort,omitempty"`
+	TrialFromMonitor         bool      `json:"trial_from_monitor,omitempty"`
+	TrialStartedAt           time.Time `json:"trial_started_at,omitzero"`
+	TrialControlID           int64     `json:"trial_control_id,omitempty"`
+	TrialReviewedSamples     int       `json:"trial_reviewed_samples,omitempty"`
+	TrialReviewedAssignments int       `json:"trial_reviewed_assignments,omitempty"`
+	TrialForCache            bool      `json:"trial_for_cache,omitempty"`
 }
 
 func schedulingWindowUsable(w SchedulingAgentSpeedWindow) bool {
@@ -114,7 +115,7 @@ func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decisi
 			candidate = item
 		}
 	}
-	if current.AccountID == 0 || current.AccountID == decision.AccountID || candidate.QualityBlocked || !candidate.Eligible {
+	if current.AccountID == 0 || current.AccountID == decision.AccountID || candidate.QualityBlocked || !candidate.Eligible || candidate.quotaExhausted(now) {
 		return last, false
 	}
 	if last.AccountID != 0 && current.AccountID == last.AccountID && now.Sub(last.SelectedAt) < schedulingRouteHold {
@@ -170,7 +171,7 @@ func schedulingRouteChange(p SchedulingPolicy, last SchedulingAgentRoute, decisi
 		}
 		last.TrialID, last.TrialUntil, last.TrialReason, last.TrialEffort = decision.AccountID, now.Add(schedulingTrialPeriod), decision.Reason, effort
 		last.TrialStartedAt, last.TrialControlID = now, current.AccountID
-		last.TrialReviewedSamples, last.TrialForCache = 0, cacheTrial
+		last.TrialReviewedSamples, last.TrialReviewedAssignments, last.TrialForCache = 0, 0, cacheTrial
 	case schedulingPreferRoute:
 		if signal.Cache != nil {
 			return last, false

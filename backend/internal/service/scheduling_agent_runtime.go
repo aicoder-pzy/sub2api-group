@@ -88,6 +88,9 @@ type schedulingAgentCacheReader interface {
 type schedulingAgentEvidence struct {
 	Monitors        []schedulingAgentMonitor `json:"upstream_monitors,omitempty"`
 	monitorLink     schedulingAgentMonitorLink
+	ReportedPool    *schedulingAgentPool         `json:"reported_upstream_pool,omitempty"`
+	MonitorLinked   bool                         `json:"upstream_monitor_linked,omitempty"`
+	Quota           []schedulingAgentQuota       `json:"upstream_quota,omitempty"`
 	PoolID          string                       `json:"pool_id,omitempty"`
 	PoolName        string                       `json:"pool_name,omitempty"`
 	ConfiguredOrder int                          `json:"configured_order"`
@@ -456,7 +459,9 @@ func (r *schedulingAgentRuntime) evidence(ctx context.Context, g *Group, policy 
 				account := accounts[id]
 				item.Eligible = account != nil && account.IsSchedulableForModelWithContext(base, model) && r.settings.IsModelAccountAllowed(base, &g.ID, model, id, account)
 				item.monitorLink = schedulingAgentAccountMonitorLink(account, model)
+				item.MonitorLinked = item.monitorLink.site != ""
 				if account != nil {
+					item.Quota = schedulingAccountQuota(account, now)
 					item.AccountPaused = account.Status != StatusActive || !account.Schedulable
 					if until := account.RateLimitResetAt; until != nil && until.After(now) {
 						item.LimitReset = until
@@ -688,6 +693,7 @@ func (r *schedulingAgentRuntime) runForActivity(ctx context.Context, g *Group, p
 		case signal.Trial != nil:
 			route := run.Routes[signal.Model]
 			route.TrialReviewedSamples = signal.Trial.samples()
+			route.TrialReviewedAssignments = min(signal.Trial.TrialAssigned, signal.Trial.ControlAssigned)
 			run.Routes[signal.Model] = route
 		default:
 			review.Through = signal.At
@@ -800,7 +806,7 @@ func allowedSchedulingDecision(policy SchedulingPolicy, decision schedulingAgent
 }
 
 func schedulingEvidenceHealthy(e schedulingAgentEvidence) bool {
-	return e.Eligible && e.Successes >= 5 && e.RecentFailures == 0 && e.FullSlots == 0 && e.Failures <= e.Successes/10 && e.QualityTier != "degraded"
+	return e.Eligible && !e.quotaExhausted(time.Now()) && e.Successes >= 5 && e.RecentFailures == 0 && e.FullSlots == 0 && e.Failures <= e.Successes/10 && e.QualityTier != "degraded"
 }
 
 func (r *schedulingAgentRuntime) call(ctx context.Context, c SchedulingAgentConnection, evidence []schedulingAgentEvidence, minWait int) (schedulingAgentDecision, int, int, error) {
@@ -875,7 +881,7 @@ func (r *schedulingAgentRuntime) exchange(ctx context.Context, c SchedulingAgent
 		return schedulingAgentDecision{}, payload.Usage.Input, payload.Usage.Output, errors.New("invalid_model_decision")
 	}
 	switch decision.Action {
-	case "hold", "shorten_capacity_wait", "defer_member", "inspect", "inspect_failures", "stop_trial", schedulingTrialRoute, schedulingPreferRoute:
+	case "hold", "shorten_capacity_wait", "defer_member", "inspect", "inspect_failures", "inspect_upstream", "stop_trial", schedulingTrialRoute, schedulingPreferRoute:
 		return decision, payload.Usage.Input, payload.Usage.Output, nil
 	default:
 		return schedulingAgentDecision{}, payload.Usage.Input, payload.Usage.Output, errors.New("invalid_model_decision")

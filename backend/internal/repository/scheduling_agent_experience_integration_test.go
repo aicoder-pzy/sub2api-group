@@ -51,13 +51,23 @@ func TestSchedulingAgentSessionCacheAndAssignedWarmTrial(t *testing.T) {
 	require.InDelta(t, .725, incidents[0].Low[0].Latest, .001)
 	require.NotContains(t, incidents[0].Low[0].Session, "session-1")
 	assignments := make(map[string]int64)
-	for session, account := range map[string]int64{"trial-a": 3, "trial-b": 3, "control-a": 1, "control-b": 1} {
+	for session, account := range map[string]int64{"trial-a": 3, "trial-b": 3, "control-a": 1, "control-b": 1, "missing-trial": 3} {
 		assignments[fmt.Sprintf("%x/0", sha256.Sum256([]byte("7:"+session)))] = account
 	}
 	now := time.Now()
-	cohorts, err := repo.GetSchedulingAgentTrialCohorts(ctx, 24, "sol", service.SchedulingAgentRoute{TrialID: 3, TrialControlID: 1, TrialStartedAt: now.Add(-10 * time.Minute), TrialUntil: now.Add(time.Hour)}, assignments)
+	result, err := repo.GetSchedulingAgentTrialCohorts(ctx, 24, "sol", service.SchedulingAgentRoute{TrialID: 3, TrialControlID: 1, TrialStartedAt: now.Add(-10 * time.Minute), TrialUntil: now.Add(time.Hour)}, assignments)
 	require.NoError(t, err)
+	require.Equal(t, 3, result.TrialAssigned)
+	require.Equal(t, 2, result.TrialCompleted)
+	require.Equal(t, 2, result.ControlCompleted)
+	cohorts := result.Cohorts
 	require.Len(t, cohorts, 1)
+	require.Len(t, cohorts[0].Stages, 3)
+	require.Equal(t, "first", cohorts[0].Stages[0].Stage)
+	require.Equal(t, float64(100000), cohorts[0].Stages[0].TrialP95)
+	require.Zero(t, cohorts[0].Stages[0].TrialCache)
+	require.Equal(t, "second", cohorts[0].Stages[1].Stage)
+	require.InDelta(t, .92, cohorts[0].Stages[1].TrialCache, .001)
 	require.Equal(t, 4, cohorts[0].TrialRequests)
 	require.Equal(t, 4, cohorts[0].ControlRequests)
 	require.InDelta(t, .92, cohorts[0].TrialCache, .001)

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
@@ -478,6 +479,94 @@ func (o *agentCacheFixture) GetSchedulingAgentCacheRatios(context.Context, int64
 func (o *agentCacheFixture) GetSchedulingAgentTrialAssignments(context.Context, int64, string, time.Time) (map[string]int64, error) {
 	return map[string]int64{"test1": 3, "test2": 3, "control1": 1, "control2": 1}, nil
 }
-func (o *agentCacheFixture) GetSchedulingAgentTrialCohorts(context.Context, int64, string, SchedulingAgentRoute, map[string]int64) ([]SchedulingAgentTrialCohort, error) {
-	return o.cohorts, nil
+func (o *agentCacheFixture) GetSchedulingAgentTrialCohorts(_ context.Context, _ int64, _ string, route SchedulingAgentRoute, _ map[string]int64) (SchedulingAgentTrialResult, error) {
+	return SchedulingAgentTrialResult{AccountID: route.TrialID, ControlID: route.TrialControlID, StartedAt: route.TrialStartedAt, Cohorts: o.cohorts}, nil
+}
+
+func TestSchedulingAgentInspectsConfiguredUpstreamAndRejectsExhaustedBackup(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	const site = "36517286-e47c-4f0e-aa7a-d03510ca65f5"
+	const group = "exact-group"
+	reset := now.Add(time.Minute)
+	observed := now.Add(-time.Minute)
+	zero := float64(0)
+	inventory, err := json.Marshal(UpstreamSiteInventory{Revision: 1, ReceivedAt: &observed, Keys: []UpstreamSiteKey{
+		{ID: "other-key", GroupID: "different-group"},
+		{ID: "selected-key", GroupID: group, Quota: &UpstreamBalanceAmount{Scope: "key", Remaining: &zero, ResetAt: &reset}},
+	}})
+	require.NoError(t, err)
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	mock.ExpectQuery("SELECT id,name,kind").WithArgs(site).WillReturnRows(sqlmock.NewRows(
+		[]string{"id", "name", "kind", "base_url", "user_id", "proxy_id", "revision", "token_cipher", "inference_url", "purchase_note", "inventory", "model_catalogs", "refresh_token_cipher", "purpose"}).
+		AddRow(site, "mock upstream", "sub2api", accountPoolBaseURL, 1, nil, 1, "", "", "", inventory, []byte("{}"), "", "public"))
+	pool, err := json.Marshal(accountPoolSnapshot{SiteRevision: 1, Updated: &observed,
+		Groups: []accountPoolSourceGroup{{SourceID: group, ID: "pool-1", Count: 1}},
+		Rows:   []accountPoolRow{{Groups: []string{"pool-1"}, Status: "active"}, {Groups: []string{"foreign-pool"}, Status: "error"}},
+	})
+	require.NoError(t, err)
+	mock.ExpectQuery("SELECT COALESCE").WithArgs(site, accountPoolBaseURL, true, vulcanPoolBaseURL).
+		WillReturnRows(sqlmock.NewRows([]string{"snapshot", "aliases"}).AddRow(pool, []byte("{}")))
+	upstream := &UpstreamBillingProbeService{db: db, now: time.Now}
+	upstream.siteMonitors.Store(site, upstreamSiteMonitorCache{Revision: 1, RetryAt: now.Add(time.Minute), Snapshot: &UpstreamSiteMonitor{Status: "ok", Rows: []UpstreamSiteMonitorRow{
+		{GroupID: group, Model: "related-sol", State: "healthy", CheckedAt: &observed},
+	}}})
+	var calls atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, _ := io.ReadAll(req.Body)
+		d := schedulingAgentDecision{Model: "sol", Effort: "xhigh", AccountID: 3, Reason: "fixture", Action: "inspect_upstream"}
+		if calls.Add(1) > 1 {
+			if !bytes.Contains(body, []byte("related-sol")) || !bytes.Contains(body, []byte("exhausted")) || !bytes.Contains(body, []byte("reported_account_status_counts")) {
+				w.WriteHeader(400)
+				return
+			}
+			d.Action = schedulingTrialRoute
+		}
+		data, _ := json.Marshal(d)
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(data)}}}})
+	}))
+	defer model.Close()
+	settings := &SettingService{settingRepo: &agentTestSettings{values: map[string]string{}}}
+	runtime := &schedulingAgentRuntime{settings: settings, observations: &agentInvestigationFixture{}, client: model.Client(), secrets: agentTestEncryptor{}}
+	runtime.monitor.Store(upstream)
+	cfg := SchedulingAgentConnection{APIKey: "encrypted:model-key", URL: model.URL, Model: "judge", DailyCalls: 10}
+	policy := testSchedulingPoolPolicy()
+	signal := SchedulingAgentActivity{Model: "sol", At: now}
+	run := SchedulingAgentRun{Evidence: []schedulingAgentEvidence{
+		{Model: "sol", AccountID: 1, Eligible: true, Current: true},
+		{Model: "sol", AccountID: 3, Eligible: true, MonitorLinked: true, monitorLink: schedulingAgentMonitorLink{site: site, key: "selected-key", group: group, model: "sol"}},
+	}}
+	decision, err := runtime.investigate(ctx, &Group{ID: 24}, policy, cfg, &run, signal, 2)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Equal(t, map[string]int{"active": 1}, run.Evidence[1].ReportedPool.StatusCounts)
+	require.Equal(t, "other_model", run.Evidence[1].Monitors[0].Scope)
+	failures := []SchedulingAgentFailure{{AccountID: 1, Status: 502, Phase: "upstream", LastAt: now}}
+	_, changed := schedulingRouteChange(policy, SchedulingAgentRoute{}, decision, run.Evidence, now, failures, signal)
+	require.False(t, changed)
+	require.True(t, run.Evidence[1].quotaExhausted(now))
+	require.False(t, run.Evidence[1].quotaExhausted(reset))
+	past := schedulingQuotaReading("linked_key", group, UpstreamBalanceAmount{Remaining: &zero, ResetAt: &reset}, observed, reset.Add(time.Hour), reset)
+	require.Equal(t, "past_reset", past.State)
+}
+
+func TestSchedulingAgentTrialPromotionConsidersColdCostAndCompletions(t *testing.T) {
+	trial := SchedulingAgentTrialResult{
+		TrialAssigned: 6, ControlAssigned: 6, TrialCompleted: 6, ControlCompleted: 6,
+		Cohorts: []SchedulingAgentTrialCohort{
+			{Effort: "xhigh", TrialSessions: 4, ControlSessions: 4, TrialRequests: 8, ControlRequests: 8,
+				TrialCache: .94, ControlCache: .74, TrialP95: 1500, ControlP95: 2000},
+			{Effort: "xhigh", Stages: []SchedulingAgentTrialStage{
+				{Stage: "first", TrialSessions: 4, ControlSessions: 4, TrialP95: 2000, ControlP95: 1800},
+			}},
+		},
+	}
+	require.True(t, trial.improves("xhigh", true))
+	trial.Cohorts[1].Stages[0].TrialP95 = 9000
+	require.False(t, trial.improves("xhigh", true), "a slower first turn in a separate context bucket can offset a warm benefit")
+	trial.Cohorts[1].Stages[0].TrialP95 = 2000
+	trial.TrialCompleted = 4
+	require.False(t, trial.improves("xhigh", true), "a warm benefit among completed sessions cannot offset missing completions")
 }
