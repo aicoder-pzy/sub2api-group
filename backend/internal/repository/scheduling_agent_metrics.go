@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -106,6 +107,55 @@ func (r *usageLogRepository) GetSchedulingAgentFailures(ctx context.Context, gro
 			return nil, err
 		}
 		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+// Read a few recent exceptional requests on demand, using existing group/time
+// and usage request/key indexes. Only whitelisted attempt fields leave this reader.
+var schedulingAgentRequestTracesSQL = `WITH recent AS (
+ SELECT api_key_id, request_id, client_request_id, created_at, status_code, error_phase,
+        account_id, upstream_status_code, upstream_errors
+ FROM ops_error_logs WHERE group_id=$1 AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=$2
+ AND created_at>=NOW()-INTERVAL '30 minutes' AND api_key_id IS NOT NULL AND COALESCE(is_count_tokens,false)=false
+ AND ` + schedulingAgentStreamSQL("") + ` AND (` + schedulingAgentFinalFailure + `
+ OR (status_code BETWEEN 200 AND 299 AND error_phase IN ('upstream','account_auth')))
+ ORDER BY created_at DESC, id DESC LIMIT 8
+)
+SELECT e.created_at, e.status_code, COALESCE(e.error_phase,''), COALESCE(e.account_id,0),
+       COALESCE(e.upstream_status_code,0), u.account_id, u.first_token_ms,
+       COALESCE(e.upstream_errors,'[]'::jsonb)
+FROM recent e LEFT JOIN LATERAL (
+ SELECT account_id, first_token_ms FROM usage_logs u
+ WHERE e.status_code BETWEEN 200 AND 299 AND u.api_key_id=e.api_key_id AND u.group_id=$1
+ AND COALESCE(NULLIF(BTRIM(u.requested_model),''),u.model)=$2 AND ` + schedulingAgentStreamSQL("u.") + `
+ AND u.request_id IN ('client:'||NULLIF(e.client_request_id,''),'local:'||NULLIF(e.request_id,''),NULLIF(e.request_id,''))
+ AND u.created_at BETWEEN e.created_at-INTERVAL '2 minutes' AND e.created_at+INTERVAL '2 minutes'
+ ORDER BY (u.request_id = 'client:'||NULLIF(e.client_request_id,'')) DESC NULLS LAST,
+          (u.request_id = 'local:'||NULLIF(e.request_id,'')) DESC NULLS LAST LIMIT 1
+) u ON true ORDER BY e.created_at DESC`
+
+func (r *usageLogRepository) GetSchedulingAgentRequestTraces(ctx context.Context, groupID int64, model string) ([]service.SchedulingAgentRequestTrace, error) {
+	rows, err := r.sql.QueryContext(ctx, schedulingAgentRequestTracesSQL, groupID, model)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []service.SchedulingAgentRequestTrace{}
+	for rows.Next() {
+		var trace service.SchedulingAgentRequestTrace
+		var raw []byte
+		if err := rows.Scan(&trace.At, &trace.ClientStatus, &trace.Phase, &trace.LastFailedAccount, &trace.UpstreamStatus,
+			&trace.ServedAccount, &trace.ServingFirstMs, &raw); err != nil {
+			return nil, err
+		}
+		var attempts []service.SchedulingAgentAttempt
+		if err := json.Unmarshal(raw, &attempts); err == nil {
+			const maxAttempts = 6
+			trace.Truncated = len(attempts) > maxAttempts || (len(attempts) > 0 && attempts[0].Omitted > 0)
+			trace.Attempts = attempts[max(0, len(attempts)-maxAttempts):]
+		}
+		result = append(result, trace)
 	}
 	return result, rows.Err()
 }

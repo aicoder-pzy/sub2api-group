@@ -60,8 +60,32 @@ func SchedulingAgentStreamingEvidence(ctx context.Context) bool {
 	return ctx.Value(schedulingAgentStreamingEvidenceKey{}) != nil
 }
 
+type SchedulingAgentAttempt struct {
+	AtUnixMS  int64  `json:"at_unix_ms,omitempty"`
+	AccountID int64  `json:"account_id,omitempty"`
+	ProxyID   *int64 `json:"proxy_id,omitempty"`
+	Upstream  int    `json:"upstream_status_code,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Stage     string `json:"stage,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+	Omitted   int    `json:"dropped_earlier_attempts,omitempty"`
+}
+
+type SchedulingAgentRequestTrace struct {
+	At                time.Time                `json:"at"`
+	ClientStatus      int                      `json:"client_status"`
+	Phase             string                   `json:"phase"`
+	LastFailedAccount int64                    `json:"last_failed_account_id,omitempty"`
+	UpstreamStatus    int                      `json:"last_upstream_status,omitempty"`
+	ServedAccount     *int64                   `json:"matched_usage_account_id,omitempty"`
+	ServingFirstMs    *int64                   `json:"serving_attempt_first_token_ms,omitempty"`
+	Attempts          []SchedulingAgentAttempt `json:"recorded_failed_attempts,omitempty"`
+	Truncated         bool                     `json:"attempts_truncated,omitempty"`
+}
+
 type schedulingAgentFailureReader interface {
 	GetSchedulingAgentFailures(context.Context, int64, string) ([]SchedulingAgentFailure, error)
+	GetSchedulingAgentRequestTraces(context.Context, int64, string) ([]SchedulingAgentRequestTrace, error)
 }
 
 type schedulingAgentReview struct {
@@ -113,7 +137,7 @@ func schedulingAgentInstructions(minWait int, investigate bool) string {
 Return one JSON object with action, model, account_id, effort, wait_ms, reason. Use a short Chinese reason citing evidence. For hold, state whether the route is healthy or what concrete evidence should trigger another review. Use trial_route for a small number of natural new sessions. A quality-verified backup and recent comparable evidence of a slow current route can justify a trial without two windows. After a user-visible streaming failure on the current account, a fresh relevant healthy upstream monitor may justify a small trial even without local successes for that model. Investigate whether the reports share a gateway, pool or capacity. A different model can inform this judgment, but does not prove model support, answer quality or better speed. The backup must be eligible for the exact requested model. Keep the requested reasoning effort unchanged. Missing local quality measurements are uncertainty and can be evaluated in a limited fault trial. Never trial a backup with known quality degradation or pending degradation verification. Weigh the failure pattern and impact on warm sessions. For an isolated fault that has recovered, or for gateway-only faults without attributable account failures, holding can be best. Set effort to the observed user cohort you want to test. Use an empty string for requests without an explicit effort. No synthetic probes or duplicate requests. Use stop_trial when a current trial hurts or no longer answers the question. For prefer_route, require meaningful user benefit and a stable, quality-verified backup with better comparable evidence in both recent windows; consider cache churn before committing. recent_windows ages 0 and 1 are the latest and previous 30 minutes. Do not retry a proven worse route.
 For shorten_capacity_wait, require three capacity misses and a later eligible healthy backup, with wait_ms %d to 1999. For defer_member, require two recent failures and a healthy later backup; this affects only new sessions temporarily.`, minWait)
 	if investigate {
-		prompt += ` stream_failures_and_recovered_attempts uses client status below 400 for recovered attempts. Upstream monitoring is read-only and self-reported. Consider its timestamp, group match and latency definition. Missing monitoring is unknown. traffic_last_hour separates actual requests by account, endpoint, streaming and reported effort; blank effort means unreported, not medium. Duration P95 is end-to-end; the profile mixes context lengths and cannot authorize a switch. quality_effort describes a separate quality test, not recent traffic. When inspections remain, return {"action":"inspect","model":the exact model,"effort":the reasoning effort or "" for the dominant cohort,"hours":1,6,or 24,"reason":what you are testing}. This tool compares complete streaming responses with first-event timing within context buckets. Use 1 hour for two recent windows, or 6/24 hours to compare the last hour with earlier samples. If recent comparable streaming traffic is absent, check upstream monitoring and error attribution, consider a relevant historical comparison, or state what evidence is still needed. Do not repeat an identical inspection.`
+		prompt += ` Use recent_stream_request_traces to distinguish failed upstream attempts from the result sent to the caller. Attempts are ordered, can be incomplete and are not the planned candidate order. A 2xx without matched usage does not identify a successful substitute; if a stream has an error, do not assume HTTP 200 means it completed. Serving-attempt first-token time excludes earlier attempts. Compare failures across accounts, pool_id and proxy_id before attributing them to one credential. A configured pool does not prove shared quota. Account and model limit reset timestamps are scheduler evidence, not a guarantee of recovery. Never confuse temporary overload with confirmed quota exhaustion or ask to retry a route still in cooldown. Upstream monitoring is read-only and self-reported. Consider its timestamp, group match and latency definition. Missing monitoring is unknown. traffic_last_hour separates actual requests by account, endpoint, streaming and reported effort; blank effort means unreported, not medium. Duration P95 comes from recorded usage and can omit earlier failed attempts. It mixes context lengths and cannot authorize a switch. quality_effort describes a separate quality test, not recent traffic. When inspections remain, return {"action":"inspect","model":the exact model,"effort":the reasoning effort or "" for the dominant cohort,"hours":1,6,or 24,"reason":what you are testing}. This tool compares complete streaming responses with first-event timing within context buckets. Use 1 hour for two recent windows, or 6/24 hours to compare the last hour with earlier samples. If recent comparable streaming traffic is absent, check upstream monitoring and error attribution, consider a relevant historical comparison, or state what evidence is still needed. Do not repeat an identical inspection.`
 	} else {
 		prompt += ` Return a final action now; inspect is not available.`
 	}
@@ -137,19 +161,23 @@ func (r *schedulingAgentRuntime) investigate(ctx context.Context, g *Group, p Sc
 			read, cancel := context.WithTimeout(ctx, 2*time.Second)
 			run.FailureEvidence, _ = failures.GetSchedulingAgentFailures(read, g.ID, signal.Model)
 			cancel()
+			read, cancel = context.WithTimeout(ctx, 2*time.Second)
+			run.RequestTraces, _ = failures.GetSchedulingAgentRequestTraces(read, g.ID, signal.Model)
+			cancel()
 		}
 		r.readSchedulingAgentMonitors(ctx, run.Evidence)
 	}
 	payload, _ := json.Marshal(struct {
-		Signal   SchedulingAgentActivity   `json:"signal"`
-		Previous schedulingAgentDecision   `json:"previous_review"`
-		Routes   []schedulingAgentEvidence `json:"routes"`
-		Traffic  []SchedulingAgentTraffic  `json:"traffic_last_hour"`
-		Failures []SchedulingAgentFailure  `json:"stream_failures_and_recovered_attempts"`
-	}{signal, prior.Decision, run.Evidence, run.Traffic, run.FailureEvidence})
+		Signal   SchedulingAgentActivity       `json:"signal"`
+		Previous schedulingAgentDecision       `json:"previous_review"`
+		Routes   []schedulingAgentEvidence     `json:"routes"`
+		Traffic  []SchedulingAgentTraffic      `json:"traffic_last_hour"`
+		Failures []SchedulingAgentFailure      `json:"stream_failures_and_recovered_attempts"`
+		Traces   []SchedulingAgentRequestTrace `json:"recent_stream_request_traces"`
+	}{signal, prior.Decision, run.Evidence, run.Traffic, run.FailureEvidence, run.RequestTraces})
 	messages := []map[string]string{{"role": "system", "content": schedulingAgentInstructions(p.MinWaitMS, canInspect)}, {"role": "user", "content": string(payload)}}
 	if signal.Cache != nil {
-		messages[0]["content"] += ` This investigation was triggered by two completed 10-minute streaming windows below the same warm session's baseline. Check whether compaction, a change of account, or shared channel trouble explains it. Isolated session changes are not evidence for a group route change. With multiple affected sessions, investigate other eligible accounts and decide whether a small natural trial is worthwhile. Reuse inspect for comparable cache and latency evidence. Consider cache hit rate together with success, first event latency and quality. Do not treat provider metrics for a related model as measurements of this model.`
+		messages[0]["content"] += ` This investigation was triggered by two completed 10-minute streaming windows below the same warm session's baseline. Check whether compaction, a change of account, or shared channel trouble explains it. Isolated session changes are not evidence for a group route change. With multiple affected sessions, investigate other eligible accounts and decide whether a small natural trial is worthwhile. Reuse inspect for comparable cache and latency evidence. Compare the likely cost of losing warmed cache with the observed user impact. Leave healthy warm sessions in place and compare subsequent turns of natural trial and control sessions before preferring a route. Consider cache hit rate together with success, first event latency and quality. Do not treat provider metrics for a related model as measurements of this model.`
 	}
 	if signal.Trial != nil {
 		messages[0]["content"] += ` This is a follow-up on an existing trial. Matched cohorts compare actual assigned new trial and control sessions, after the first turn. Consider Sub2 failures, confidence, warm cache, first event latency and quality. Return stop_trial if the trial harms users, prefer_route if there is convincing sustained benefit, or hold and explain what further evidence would settle the question. The current route keeps admitting a limited number of new trial sessions until it expires, is stopped or is promoted. Do not request another trial in this review.`

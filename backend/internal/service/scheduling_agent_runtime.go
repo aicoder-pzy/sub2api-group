@@ -73,6 +73,7 @@ type SchedulingAgentRun struct {
 	Signal            *SchedulingAgentActivity         `json:"signal,omitempty"`
 	Traffic           []SchedulingAgentTraffic         `json:"traffic_last_hour,omitempty"`
 	FailureEvidence   []SchedulingAgentFailure         `json:"stream_failures,omitempty"`
+	RequestTraces     []SchedulingAgentRequestTrace    `json:"stream_request_traces,omitempty"`
 	Feedback          []schedulingAgentEvidence        `json:"feedback,omitempty"`
 	Routes            map[string]SchedulingAgentRoute  `json:"routes,omitempty"`
 	NextModel         int                              `json:"next_model,omitempty"`
@@ -89,6 +90,12 @@ type schedulingAgentEvidence struct {
 	monitorLink     schedulingAgentMonitorLink
 	PoolID          string                       `json:"pool_id,omitempty"`
 	PoolName        string                       `json:"pool_name,omitempty"`
+	ConfiguredOrder int                          `json:"configured_order"`
+	AccountPaused   bool                         `json:"account_paused,omitempty"`
+	LimitReset      *time.Time                   `json:"account_rate_limit_reset_at,omitempty"`
+	ModelReset      *time.Time                   `json:"model_rate_limit_reset_at,omitempty"`
+	OverloadUntil   *time.Time                   `json:"overload_until,omitempty"`
+	TemporaryUntil  *time.Time                   `json:"temporarily_unavailable_until,omitempty"`
 	Eligible        bool                         `json:"eligible"`
 	Model           string                       `json:"model"`
 	AccountID       int64                        `json:"account_id"`
@@ -430,7 +437,8 @@ func (r *schedulingAgentRuntime) evidence(ctx context.Context, g *Group, policy 
 			cancel()
 		}
 		var entries []schedulingAgentEvidence
-		for _, id := range order {
+		now := time.Now()
+		for index, id := range order {
 			sample, found := samples[id]
 			r.mu.Lock()
 			q := r.queue[schedulingQueueKey{g.ID, model, id}]
@@ -443,10 +451,27 @@ func (r *schedulingAgentRuntime) evidence(ctx context.Context, g *Group, policy 
 			}
 			item := schedulingAgentEvidence{Model: model, AccountID: id, Successes: sample.Successes, Failures: sample.Failures, RecentFailures: sample.RecentFailures, FirstOutputMS: sample.LatencyMS, FullSlots: q.full, WaitedMS: q.waited, CacheRatio: cacheRatios[id]}
 			item.Eligible = true
+			item.ConfiguredOrder = index + 1
 			if accounts != nil {
 				account := accounts[id]
 				item.Eligible = account != nil && account.IsSchedulableForModelWithContext(base, model) && r.settings.IsModelAccountAllowed(base, &g.ID, model, id, account)
 				item.monitorLink = schedulingAgentAccountMonitorLink(account, model)
+				if account != nil {
+					item.AccountPaused = account.Status != StatusActive || !account.Schedulable
+					if until := account.RateLimitResetAt; until != nil && until.After(now) {
+						item.LimitReset = until
+					}
+					if remaining := account.GetModelRateLimitRemainingTimeWithContext(base, model); remaining > 0 {
+						until := now.Add(remaining).Truncate(time.Second)
+						item.ModelReset = &until
+					}
+					if until := account.OverloadUntil; until != nil && until.After(now) {
+						item.OverloadUntil = until
+					}
+					if until := account.TempUnschedulableUntil; until != nil && until.After(now) {
+						item.TemporaryUntil = until
+					}
+				}
 			}
 			if pool := policy.pool(id); pool != nil {
 				item.PoolID, item.PoolName = pool.ID, pool.Name
