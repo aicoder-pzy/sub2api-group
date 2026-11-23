@@ -487,7 +487,7 @@ import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime } from '@/utils/format'
 import PelicanTestFields from './PelicanTestFields.vue'
-import { STATE_PROBE_QUESTION, stateProbeVerdict, type StateProbeVerdict } from '@/utils/intelligenceTest'
+import { STATE_PROBE_QUESTION, stateProbeVerdict, validPelicanOutputTokenLimit, type StateProbeVerdict } from '@/utils/intelligenceTest'
 import type { PelicanTestConfig, ScheduledTestPlan, ScheduledTestResult } from '@/types'
 
 const { t } = useI18n()
@@ -597,7 +597,7 @@ const loadPlans = async () => {
 
 const handleCreate = async () => {
   if (!props.accountId || !newPlan.model_id || !newPlan.cron_expression) return
-  if (props.disabled || creating.value) return
+  if (props.disabled || creating.value || (props.pelicanConfig && !validPelicanOutputTokenLimit(newPelican.value.max_output_tokens))) return
   revision++
   creating.value = true
   try {
@@ -653,7 +653,7 @@ const cancelEdit = () => {
 
 const handleEdit = async () => {
   if (!editingPlanId.value || !editForm.model_id || !editForm.cron_expression) return
-  if (props.disabled || updating.value) return
+  if (props.disabled || updating.value || (props.pelicanConfig && !validPelicanOutputTokenLimit(editPelican.value.max_output_tokens))) return
   revision++
   updating.value = true
   try {

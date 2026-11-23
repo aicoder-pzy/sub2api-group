@@ -34,6 +34,7 @@ LEFT JOIN LATERAL (
   FROM (
     SELECT r.id, r.finished_at, r.latency_ms, r.pelican_config->>'reasoning_effort' AS effort,
       CASE WHEN r.status <> 'success' THEN 'failed'
+        WHEN r.pelican_config->>'question_kind'='candy' THEN 'normal'
         WHEN r.quality_verdict IN ('normal','degraded') THEN r.quality_verdict
         ELSE 'unknown' END AS status
     FROM pelican_group_test_plans p

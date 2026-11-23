@@ -45,7 +45,7 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 	w := &pelicanRecorder{ResponseRecorder: httptest.NewRecorder(), cancel: cancel}
 	c, _ := gin.CreateTestContext(w)
 	c.Request = (&http.Request{Header: make(http.Header)}).WithContext(ctx)
-	err := s.TestPelicanAccountConnection(c, accountID, model, intelligenceTestPrompt(cfg), cfg.ReasoningEffort)
+	err := s.TestPelicanAccountConnection(c, accountID, model, intelligenceTestPrompt(cfg), cfg.ReasoningEffort, cfg.MaxOutputTokens)
 	output, message := parsePelicanOutput(w.Body.String())
 	if w.overflow {
 		output, message = "", pelicanErrCaptureLimit
@@ -66,8 +66,11 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 	finished := time.Now()
 	snapshot := *cfg
 	snapshot.ModelID = model
+	if isCandyTest(cfg) {
+		snapshot.QuestionKind = "candy"
+	}
 	var assessment *PelicanAssessment
-	if status == "success" && cfg.QuestionKind != "candy" && !isBuiltinCandyPlan(cfg) && !deferred {
+	if status == "success" && !isCandyTest(cfg) && !deferred {
 		output, assessment = s.pelicanAssessment.AssessOutputWithQuality(ctx, output)
 	}
 	result := &ScheduledTestResult{Status: status, ResponseText: output, ErrorMessage: message, LatencyMs: finished.Sub(started).Milliseconds(), StartedAt: started, FinishedAt: finished, PelicanConfig: &snapshot}
@@ -114,7 +117,7 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 			logger.LegacyPrintf("service.scheduled_test_runner", "pelican plan=%d save failed: %v", plan.ID, err)
 		}
 	}
-	if succeeded && plan.AutoRecover && !isBuiltinCandyPlan(plan.PelicanConfig) {
+	if succeeded && plan.AutoRecover && !isCandyTest(plan.PelicanConfig) {
 		s.tryRecoverAccount(saveCtx, plan.AccountID, plan.ID)
 	}
 	if err := s.planRepo.FinishPelican(saveCtx, plan.ID, until, time.Now()); err != nil {
@@ -182,9 +185,13 @@ func parsePelicanOutput(body string) (string, string) {
 func isBuiltinCandyPlan(cfg *PelicanTestConfig) bool {
 	return cfg != nil && strings.TrimSpace(cfg.Prompt) == strings.TrimSpace(CandyPrompt)
 }
+func isCandyTest(cfg *PelicanTestConfig) bool {
+	return cfg != nil && (cfg.QuestionKind == "candy" || isBuiltinCandyPlan(cfg))
+}
+
 func intelligenceTestPrompt(cfg *PelicanTestConfig) string {
 	contract := PelicanDeliveryContract
-	if cfg.QuestionKind == "candy" || isBuiltinCandyPlan(cfg) {
+	if isCandyTest(cfg) {
 		contract = "只输出最终整数，不要解释。"
 	}
 	return cfg.Prompt + "\n\n" + contract
@@ -196,7 +203,7 @@ func intelligenceTestOutputError(cfg *PelicanTestConfig, output string) string {
 	if isBuiltinCandyPlan(cfg) && !candyAnswerPattern.MatchString(strings.TrimSpace(output)) {
 		return "answer_mismatch: expected 21"
 	}
-	if cfg.QuestionKind != "candy" && !isBuiltinCandyPlan(cfg) && !pelicanHTMLPattern.MatchString(output) {
+	if !isCandyTest(cfg) && !pelicanHTMLPattern.MatchString(output) {
 		return "Model did not return HTML or SVG"
 	}
 	return ""

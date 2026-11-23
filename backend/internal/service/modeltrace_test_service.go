@@ -233,7 +233,7 @@ func (s *AccountTestService) runModelTraceSample(ctx context.Context, accountID 
 	w := &pelicanRecorder{ResponseRecorder: httptest.NewRecorder(), cancel: cancel}
 	c, _ := gin.CreateTestContext(w)
 	c.Request = (&http.Request{Header: make(http.Header)}).WithContext(ctx)
-	err = s.TestPelicanAccountConnection(c, accountID, model, challenge.Prompt, effort)
+	err = s.TestPelicanAccountConnection(c, accountID, model, challenge.Prompt, effort, 0)
 	text, message := parsePelicanOutput(w.Body.String())
 	if w.overflow || len(text) > 64<<10 {
 		sample.Error = "output_limit"

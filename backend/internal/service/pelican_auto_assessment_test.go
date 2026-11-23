@@ -107,7 +107,7 @@ func TestPelicanAutomaticManualAndScheduledPaths(t *testing.T) {
 				require.Equal(t, "normal", result.QualityVerdict)
 			} else {
 				c, recorder := newTestContext()
-				require.NoError(t, svc.TestPelicanAccountConnection(c, account.ID, "claude-opus-5-5", "draw", "medium"))
+				require.NoError(t, svc.TestPelicanAccountConnection(c, account.ID, "claude-opus-5-5", "draw", "medium", 0))
 				body := recorder.Body.String()
 				require.Less(t, strings.Index(body, `"type":"test_complete"`), strings.Index(body, `"type":"pelican_assessing"`))
 				require.Contains(t, body, `"type":"pelican_assessment"`)

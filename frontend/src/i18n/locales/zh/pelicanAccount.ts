@@ -8,6 +8,9 @@ pelicanTest: {
         stateProbeQuestion: '状态探针（几秒判满血/降智）',
         stateProbeHint: '不发题目：每次跑一发门票探针，结果记为满血 / 降智 / 无法判断。只适用于 OpenAI 订阅（OAuth）账号；同一账号同一时刻只跑一次，并行固定为 1。',
         stateProbeBadge: '探针',
+        maxOutputTokens: '最大输出 Token',
+        maxOutputTokensHint: '每份测试的输出上限。留空沿用原有设置。',
+        maxOutputTokensInvalid: '请输入不小于 16 的整数。',
         candyHint: '原题标准答案为 21；展示本次回答供比较，不据此判断账号永久降智。',
 
         recordCount: '共 {count} 条记录',

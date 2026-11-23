@@ -77,7 +77,7 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Co
 
 	payload, err := createTestPayload(testModelID)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
-		payload, err = createPelicanClaudePayload(testModelID, options.prompt, options.reasoningEffort)
+		payload, err = createPelicanClaudePayload(testModelID, options)
 	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create adaptive Anthropic test payload")
@@ -184,7 +184,7 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *gin.Co
 
 	payload := createOpenAITestPayload(testModelID, false)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
-		payload = createPelicanOpenAIPayload(testModelID, false, options.prompt, options.reasoningEffort)
+		payload = createPelicanOpenAIPayload(testModelID, false, options)
 	}
 	// DeepSeek / Kimi native Responses endpoints are stateless and do not need
 	// the OpenAI probe's synthetic instructions.
@@ -273,7 +273,7 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 
 	payload, err := createTestPayload(testModelID)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
-		payload, err = createPelicanClaudePayload(testModelID, options.prompt, options.reasoningEffort)
+		payload, err = createPelicanClaudePayload(testModelID, options)
 	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create Anthropic test payload")

@@ -100,7 +100,7 @@ func (s *PelicanGroupTestService) RunSwitchTests(ctx context.Context, now time.T
 		s.switchSlots = make(chan struct{}, pelicanGroupTestMaxRunning)
 	}
 	for _, plan := range plans {
-		if !plan.Enabled || plan.PelicanConfig == nil || plan.ModelID == "" || !pelicanWindowAllows(plan.PelicanConfig, now) || (plan.RunningUntil != nil && !plan.RunningUntil.Before(now)) {
+		if !plan.Enabled || plan.PelicanConfig == nil || isCandyTest(plan.PelicanConfig) || plan.ModelID == "" || !pelicanWindowAllows(plan.PelicanConfig, now) || (plan.RunningUntil != nil && !plan.RunningUntil.Before(now)) {
 			continue
 		}
 		group, err := s.groups.GetByID(ctx, plan.GroupID)

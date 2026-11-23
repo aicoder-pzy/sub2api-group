@@ -137,6 +137,9 @@ func validateScheduledTestPlan(plan *ScheduledTestPlan) error {
 		if err := validatePelicanWindow(cfg); err != nil {
 			return err
 		}
+		if err := validatePelicanMaxOutputTokens(cfg.MaxOutputTokens); err != nil {
+			return err
+		}
 		cfg.Prompt = strings.TrimSpace(cfg.Prompt)
 		if cfg.Prompt == "" || len(cfg.Prompt) > 32000 {
 			return fmt.Errorf("prompt required (maximum 32000 bytes)")

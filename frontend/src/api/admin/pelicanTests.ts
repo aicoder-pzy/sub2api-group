@@ -8,6 +8,7 @@ import type { PaginatedResponse } from '@/types'
 import type { PelicanCreativeMaterials, PelicanCreativeRound } from '../pelicanCreative'
 
 export interface PelicanGroupTestConfig {
+  max_output_tokens?: number
   creative_judge_group_id?: number
   creative_judge_model_id?: string
   prompt_mode?: 'fixed' | 'random_creative'
@@ -87,6 +88,8 @@ export interface PelicanGroupTestPlan {
 
 /** What an admin edits. The group of an existing plan cannot change. */
 export interface PelicanGroupTestPlanInput {
+  question_kind?: 'pelican' | 'candy'
+  max_output_tokens?: number
   creative_judge_group_id?: number
   creative_judge_model_id?: string
   prompt_mode?: 'fixed' | 'random_creative'

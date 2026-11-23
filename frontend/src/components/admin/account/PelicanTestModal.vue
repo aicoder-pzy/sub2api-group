@@ -12,19 +12,26 @@
             <div class="text-xs text-gray-500 dark:text-gray-400">{{ account.platform }} · {{ t('admin.accounts.pelicanTest.subtitle') }}</div>
           </div>
         </div>
-        <span v-if="activeTab !== 'modeltrace'" class="whitespace-nowrap rounded-full bg-white px-2.5 py-1 text-xs font-medium text-amber-700 shadow-sm dark:bg-dark-800 dark:text-amber-300">
+        <span v-if="activeTab !== 'modeltrace' && questionKind === 'pelican'" class="whitespace-nowrap rounded-full bg-white px-2.5 py-1 text-xs font-medium text-amber-700 shadow-sm dark:bg-dark-800 dark:text-amber-300">
           {{ t('admin.accounts.pelicanTest.noScoring') }}
         </span>
       </div>
 
       <div v-if="activeTab !== 'modeltrace'" class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <TextArea
-          v-model="prompt"
-          :label="t('admin.accounts.pelicanTest.promptLabel')"
-          :disabled="running"
-          :rows="5"
-          :hint="t('admin.accounts.pelicanTest.promptHint')"
-        />
+        <div class="space-y-3">
+          <div>
+            <label class="input-label mb-1.5 block">{{ t('admin.accounts.pelicanTest.question') }}</label>
+            <Select :model-value="questionKind" :options="questionOptions" :aria-label="t('admin.accounts.pelicanTest.question')" :disabled="running" @update:model-value="selectQuestion" />
+          </div>
+          <TextArea
+            v-model="prompt"
+            :label="t('admin.accounts.pelicanTest.promptLabel')"
+            :disabled="running"
+            :readonly="questionKind === 'candy'"
+            :rows="5"
+            :hint="t(questionKind === 'candy' ? 'admin.accounts.pelicanTest.candyHint' : 'admin.accounts.pelicanTest.promptHint')"
+          />
+        </div>
         <div class="space-y-3">
           <label class="block input-label">
             {{ t('admin.accounts.pelicanTest.model') }}
@@ -42,6 +49,7 @@
             :disabled="running"
             :hint="t('admin.accounts.pelicanTest.parallelHint')"
           />
+          <PelicanOutputTokenField v-model="maxOutputTokens" :disabled="running" />
         </div>
       </div>
 
@@ -85,7 +93,7 @@
         :model-options="availableModels.map(m => ({value:m.id,label:m.display_name || m.id}))" :reasoning-levels="reasoningOptions.map(o => o.value)" />
       <ScheduledTestsPanel v-else-if="show && account && activeTab === 'schedule'" :key="account.id" :show="true" embedded
         :account-id="account.id" :default-model="modelId" :model-options="[{ value: modelId, label: modelId }]"
-        :pelican-config="{ prompt, reasoning_effort: reasoningEffort, parallel_count: Number(parallelCount) }"
+        :pelican-config="{ prompt, question_kind: questionKind, reasoning_effort: reasoningEffort, parallel_count: Number(parallelCount), max_output_tokens: maxOutputTokens }"
         :disabled="running" @preview="previewScheduled" @history="scheduledRecords = $event" />
       <div v-else-if="activeTab === 'history'" class="space-y-2">
         <button v-for="result in scheduledRecords" :key="`scheduled-${result.id}`" type="button"
@@ -174,7 +182,8 @@ import { extractPelicanHtml as extractHtml } from '@/utils/pelicanHtml'
 import PelicanAssessment from './PelicanAssessment.vue'
 import ModelTracePanel from './ModelTracePanel.vue'
 import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
-import { CANDY_PROMPT } from '@/utils/intelligenceTest'
+import { CANDY_PROMPT, PELICAN_PROMPT, questionContract, questionPrompt, validPelicanOutputTokenLimit } from '@/utils/intelligenceTest'
+import PelicanOutputTokenField from './PelicanOutputTokenField.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Input from '@/components/common/Input.vue'
 import TextArea from '@/components/common/TextArea.vue'
@@ -189,8 +198,6 @@ import PelicanRecordsDashboard from './PelicanRecordsDashboard.vue'
 
 const { t } = useI18n()
 
-const DEFAULT_PROMPT = '创建一个 HTML，内容是 SVG 绘制一个鹈鹕骑自行车的 2D 动画，你不需要任何测试'
-const DELIVERY_CONTRACT = '所有账号使用相同交付约定：直接返回独立 HTML，不使用 Markdown 代码块或外部依赖。只输出 HTML，不要解释。'
 const STORAGE_PREFIX = 'sub2api-pelican-test:'
 
 type RunStatus = 'running' | 'success' | 'error'
@@ -214,13 +221,14 @@ interface TestRecord {
   prompt: string
   modelId: string
   reasoningEffort: string
+  maxOutputTokens?: number
   runs: TestRun[]
 }
 
 const props = defineProps<{ show: boolean; account: Account | null; accounts?: AccountListItem[] }>()
 const emit = defineEmits<{ (event: 'close'): void }>()
 
-const prompt = ref(DEFAULT_PROMPT)
+const prompt = ref(PELICAN_PROMPT)
 const modelId = ref(props.account?.platform === 'anthropic' ? 'claude-opus-5-5' : 'gpt-6-astra')
 const availableModels = ref<Array<{id:string;display_name?:string}>>([])
 async function loadModels() {
@@ -236,6 +244,7 @@ async function loadModels() {
 }
 const reasoningEffort = ref('medium')
 const parallelCount = ref<string | number>(1)
+const maxOutputTokens = ref<number>()
 const activeTab = ref<'results' | 'history' | 'schedule' | 'modeltrace'>('results')
 const running = ref(false)
 const viewingScheduled = ref(false)
@@ -245,14 +254,20 @@ const records = ref<TestRecord[]>([])
 const scheduledRecords = ref<ScheduledTestResult[]>([])
 const controllers = new Map<string, AbortController>()
 
-const deliveryContract = computed(() => prompt.value.trim() === CANDY_PROMPT.trim() ? '只输出最终整数，不要解释。' : DELIVERY_CONTRACT)
+const questionKind = computed(() => prompt.value.trim() === CANDY_PROMPT ? 'candy' : 'pelican')
+const questionOptions = computed(() => ['pelican', 'candy'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.${value}Question`) })))
+const deliveryContract = computed(() => questionContract(questionKind.value))
+
+function selectQuestion(value: string | number | boolean | null) {
+  if (value === 'pelican' || value === 'candy') prompt.value = questionPrompt(value)
+}
 const reasoningOptions = computed(() => [
  {value:'none',label:'none'}, {value:'minimal',label:'minimal'}, {value:'xhigh',label:'xhigh'}, {value:'max',label:'max'}, {value:'ultra',label:'ultra'},
   { value: 'low', label: t('admin.accounts.pelicanTest.reasoningLow') },
   { value: 'medium', label: t('admin.accounts.pelicanTest.reasoningMedium') },
   { value: 'high', label: t('admin.accounts.pelicanTest.reasoningHigh') }
 ])
-const canStart = computed(() => Boolean(props.account && prompt.value.trim() && modelId.value.trim() && normalizeCount() > 0))
+const canStart = computed(() => Boolean(props.account && prompt.value.trim() && modelId.value.trim() && normalizeCount() > 0 && validPelicanOutputTokenLimit(maxOutputTokens.value)))
 const hasDownloadable = computed(() => runs.value.some((run) => Boolean(run.html)))
 
 const storageKey = computed(() => `${STORAGE_PREFIX}${props.account?.id ?? 'unknown'}`)
@@ -291,6 +306,7 @@ function editSchedule(config: PelicanTestConfig, model: string) {
   modelId.value = model
   reasoningEffort.value = config.reasoning_effort
   parallelCount.value = config.parallel_count
+  maxOutputTokens.value = config.max_output_tokens
 }
 
 function openManualResults() {
@@ -319,6 +335,7 @@ function loadRecord(record: TestRecord) {
   prompt.value = record.prompt
   modelId.value = record.modelId
   reasoningEffort.value = record.reasoningEffort || 'medium'
+  maxOutputTokens.value = record.maxOutputTokens
   runs.value = record.runs.map((run) => ({ ...run, modelId: run.modelId || record.modelId, reasoningEffort: run.reasoningEffort || record.reasoningEffort }))
   viewingScheduled.value = false
   activeTab.value = 'results'
@@ -343,7 +360,8 @@ async function consumeRun(run: TestRun, signal: AbortSignal) {
       model_id: modelId.value.trim(),
       prompt: `${prompt.value.trim()}\n\n${deliveryContract.value}`,
       mode: 'default',
-      reasoning_effort: reasoningEffort.value
+      reasoning_effort: reasoningEffort.value,
+      max_output_tokens: maxOutputTokens.value
     }),
     signal
   })
@@ -391,7 +409,7 @@ async function consumeRun(run: TestRun, signal: AbortSignal) {
   if (buffer.trim()) consumeLine(buffer.trim())
   if (!completed) throw new Error(t('admin.accounts.pelicanTest.incompleteResponse'))
   if (!run.output.trim()) throw new Error(t('admin.accounts.pelicanTest.emptyResponse'))
-  if (prompt.value.trim() === CANDY_PROMPT.trim()) {
+  if (questionKind.value === 'candy') {
     if (!/^21\s*(?:个)?[。.!！]?$/.test(run.output.trim())) throw new Error('answer_mismatch: expected 21')
   } else {
     run.html = extractHtml(run.output)
@@ -444,6 +462,7 @@ async function startTest() {
     prompt: prompt.value.trim(),
     modelId: modelId.value.trim(),
     reasoningEffort: reasoningEffort.value,
+    maxOutputTokens: maxOutputTokens.value,
     runs: runs.value.map((run) => ({ ...run }))
   }
   records.value = [record, ...records.value.filter((item) => item.id !== record.id)]
@@ -473,11 +492,12 @@ watch(() => [props.show, props.account?.id] as const, ([show]) => {
     activeTab.value = 'results'
     viewingScheduled.value = false
     scheduledRecords.value = []
-    prompt.value = DEFAULT_PROMPT
+    prompt.value = PELICAN_PROMPT
     modelId.value = props.account?.platform === 'anthropic' ? 'claude-opus-5-5' : 'gpt-6-astra'
     void loadModels()
     reasoningEffort.value = 'medium'
     parallelCount.value = 1
+    maxOutputTokens.value = undefined
     runs.value = []
   } else {
     for (const controller of controllers.values()) controller.abort()

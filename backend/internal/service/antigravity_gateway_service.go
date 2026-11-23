@@ -416,7 +416,7 @@ func (s *AntigravityGatewayService) TestConnectionWithPrompt(ctx context.Context
 		if generation == nil {
 			generation = map[string]any{}
 		}
-		generation["maxOutputTokens"] = 32000
+		generation["maxOutputTokens"] = options.outputTokenLimit(32000)
 		payload["generationConfig"] = generation
 		requestBody, err = json.Marshal(wrapped)
 		if err != nil {

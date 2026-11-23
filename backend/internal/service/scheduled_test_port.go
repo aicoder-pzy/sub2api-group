@@ -15,6 +15,7 @@ type PelicanTestConfig struct {
 	QuestionKind         string                `json:"question_kind,omitempty"`
 	Prompt               string                `json:"prompt"`
 	ReasoningEffort      string                `json:"reasoning_effort"`
+	MaxOutputTokens      int                   `json:"max_output_tokens,omitempty"`
 	ParallelCount        int                   `json:"parallel_count"`
 	ModelID              string                `json:"model_id,omitempty"`
 	DailyStart           string                `json:"daily_start,omitempty"`

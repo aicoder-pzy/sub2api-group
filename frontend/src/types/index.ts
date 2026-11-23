@@ -2670,6 +2670,7 @@ export interface TotpLogin2FARequest {
 // ==================== Scheduled Test Types ====================
 
 export interface PelicanTestConfig {
+ max_output_tokens?: number
  question_kind?: 'pelican'|'candy'|'state_probe'
  prompt: string
  reasoning_effort: string

@@ -36,6 +36,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // sseDataPrefix matches SSE data lines with optional whitespace after colon.
@@ -441,6 +442,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.IsTypeSafe() {
+		if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.maxOutputTokens > 0 {
+			return s.sendErrorAndEnd(c, "TypeSafe does not support a custom output token limit")
+		}
 		return s.testTypeSafeAccountConnection(c, account, prompt)
 	}
 
@@ -582,7 +586,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	// Create Claude Code style payload (same for all account types)
 	payload, err := createTestPayload(testModelID)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
-		payload, err = createPelicanClaudePayload(testModelID, options.prompt, options.reasoningEffort)
+		payload, err = createPelicanClaudePayload(testModelID, options)
 	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
@@ -664,7 +668,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 
 	payload, err := createTestPayload(testModelID)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
-		payload, err = createPelicanClaudePayload(testModelID, options.prompt, options.reasoningEffort)
+		payload, err = createPelicanClaudePayload(testModelID, options)
 	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
@@ -761,11 +765,11 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 	// Create a minimal Bedrock-compatible payload (no stream, no cache_control)
 	bedrockPayload := buildBedrockTestPayload(testModelID)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
-		pelican, err := createPelicanClaudePayload(testModelID, options.prompt, options.reasoningEffort)
+		pelican, err := createPelicanClaudePayload(testModelID, options)
 		if err != nil {
 			return s.sendErrorAndEnd(c, err.Error())
 		}
-		bedrockPayload["messages"], bedrockPayload["max_tokens"] = pelican["messages"], pelicanClaudeMaxTokens
+		bedrockPayload["messages"], bedrockPayload["max_tokens"] = pelican["messages"], pelican["max_tokens"]
 		if effort := pelican["output_config"]; effort != nil {
 			bedrockPayload["output_config"] = effort
 		}
@@ -879,6 +883,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 
 	// Route to image generation test if an image model is selected
 	if isOpenAIImageModel(testModelID) {
+		if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.maxOutputTokens > 0 {
+			return s.sendErrorAndEnd(c, "Image generation does not support a custom output token limit")
+		}
 		imagePrompt := strings.TrimSpace(prompt)
 		if imagePrompt == "" {
 			imagePrompt = defaultOpenAIImageTestPrompt
@@ -904,6 +911,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	var isOAuth bool
 
 	if credentialAccount.IsOAuth() {
+		if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.maxOutputTokens > 0 {
+			return s.sendErrorAndEnd(c, "ChatGPT Codex OAuth does not support a custom output token limit; leave it unset or use an API key account")
+		}
 		isOAuth = true
 		// Agent Identity signs each request and does not retain the OAuth token.
 		if !credentialAccount.IsOpenAIAgentIdentity() {
@@ -954,7 +964,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt, reasoningEffort)
 	applyQualityVisionInput(ctx, payload, false)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
-		payload = createPelicanOpenAIPayload(upstreamTestModelID, isOAuth, options.prompt, options.reasoningEffort)
+		payload = createPelicanOpenAIPayload(upstreamTestModelID, isOAuth, options)
 	}
 	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
@@ -1119,6 +1129,10 @@ func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *
 		testModelID = mapped
 	}
 
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.maxOutputTokens > 0 &&
+		(isGrokImageGenerationModel(testModelID) || isGrokVideoGenerationModel(testModelID)) {
+		return s.sendErrorAndEnd(c, "Media generation does not support a custom output token limit")
+	}
 	switch {
 	case isGrokImageGenerationModel(testModelID):
 		return s.testGrokImageGeneration(c, ctx, account, authToken, testModelID, resolveGrokImagePrompt(prompt), opts.ImageDataURL)
@@ -1321,7 +1335,7 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 
 	payloadBytes, err := buildGrokQuotaProbeBody(testModelID)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
-		payloadBytes, err = json.Marshal(createPelicanOpenAIPayload(testModelID, false, options.prompt, options.reasoningEffort))
+		payloadBytes, err = json.Marshal(createPelicanOpenAIPayload(testModelID, false, options))
 	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create Grok test payload")
@@ -2204,8 +2218,13 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
 	applyQualityVisionInput(ctx, payload, true)
-	if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.reasoningEffort != "" {
-		payload["reasoning_effort"] = options.reasoningEffort
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
+		if options.reasoningEffort != "" {
+			payload["reasoning_effort"] = options.reasoningEffort
+		}
+		if options.maxOutputTokens > 0 {
+			payload["max_completion_tokens"] = options.maxOutputTokens
+		}
 	}
 	if pelicanUsageFromContext(ctx) != nil {
 		payload["stream_options"] = map[string]any{"include_usage": true}
@@ -2503,6 +2522,13 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 
 	// Create test payload (Gemini format)
 	payload := createGeminiTestPayload(testModelID, prompt)
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.maxOutputTokens > 0 {
+		var err error
+		payload, err = sjson.SetBytes(payload, "generationConfig.maxOutputTokens", options.maxOutputTokens)
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Failed to set Gemini output token limit")
+		}
+	}
 
 	// Build request based on account type
 	var req *http.Request
@@ -2853,6 +2879,9 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 
 				// Check for completion after extracting content
 				if finishReason, ok := candidate["finishReason"].(string); ok && finishReason != "" {
+					if pelicanTestRequested(c) && finishReason == "MAX_TOKENS" {
+						return s.sendErrorAndEnd(c, pelicanErrMaxTokens)
+					}
 					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 					return nil
 				}
@@ -3089,6 +3118,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 				}
 			}
 			if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
+				if pelicanTestRequested(c) && finishReason == "length" {
+					return s.sendErrorAndEnd(c, pelicanErrMaxTokens)
+				}
 				if _, probing := c.Get(schedulingProbeObserverKey); (probing || pelicanTestRequested(c) || modelTraceRequested(c.Request.Context())) && finishReason != "stop" {
 					return s.sendErrorAndEnd(c, "Chat Completions response did not finish normally: "+finishReason)
 				}
@@ -3145,7 +3177,18 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 			if delta, ok := data["delta"].(string); ok && delta != "" {
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
-		case "response.completed", "response.done":
+		case "response.incomplete", "response.completed", "response.done":
+			if eventType == "response.incomplete" && !pelicanTestRequested(c) {
+				continue
+			}
+			if pelicanTestRequested(c) {
+				if reason := gjson.Get(jsonStr, "response.incomplete_details.reason").String(); reason == "max_output_tokens" {
+					return s.sendErrorAndEnd(c, pelicanErrMaxTokens)
+				}
+				if eventType == "response.incomplete" {
+					return s.sendErrorAndEnd(c, "OpenAI response did not complete")
+				}
+			}
 			if _, probing := c.Get(schedulingProbeObserverKey); probing || pelicanTestRequested(c) || modelTraceRequested(c.Request.Context()) {
 				if response, ok := data["response"].(map[string]any); ok {
 					if status, _ := response["status"].(string); status != "" && status != "completed" {

@@ -11,6 +11,7 @@
         </div>
         <Input :model-value="String(modelValue.parallel_count)" type="number" :label="t('admin.accounts.pelicanTest.parallel')" :hint="t('admin.accounts.pelicanTest.parallelHint')" @update:model-value="update('parallel_count', Number($event))" />
       </div>
+      <PelicanOutputTokenField :model-value="modelValue.max_output_tokens" @update:model-value="update('max_output_tokens', $event)" />
     </template>
     <PelicanScheduleWindow v-if="scheduled" :start="modelValue.daily_start" :end="modelValue.daily_end" @change="emit('update:modelValue', { ...modelValue, ...$event })" />
   </div>
@@ -24,6 +25,7 @@ import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import type { PelicanTestConfig } from '@/types'
 import PelicanScheduleWindow from '@/components/admin/PelicanScheduleWindow.vue'
+import PelicanOutputTokenField from './PelicanOutputTokenField.vue'
 const props = defineProps<{ modelValue: PelicanTestConfig; scheduled?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: PelicanTestConfig] }>()
 const { t } = useI18n()
@@ -35,7 +37,7 @@ function selectQuestion(value: string | number | boolean | null) {
   if (value !== 'candy' && value !== 'pelican') return
   emit('update:modelValue', { ...props.modelValue, question_kind: value, prompt: questionPrompt(value) })
 }
-function update(key: keyof PelicanTestConfig, value: string | number | boolean | null) {
+function update(key: keyof PelicanTestConfig, value: string | number | boolean | null | undefined) {
   emit('update:modelValue', { ...props.modelValue, [key]: value })
 }
 </script>

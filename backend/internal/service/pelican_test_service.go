@@ -18,6 +18,13 @@ import (
 // the output limit of every Claude 4 and later model.
 const pelicanClaudeMaxTokens = 32000
 
+func validatePelicanMaxOutputTokens(limit int) error {
+	if limit != 0 && limit < 16 {
+		return fmt.Errorf("maximum output tokens must be at least 16, or omitted for the default")
+	}
+	return nil
+}
+
 type pelicanTestContextKey struct{}
 type pelicanDeferAssessmentKey struct{}
 
@@ -49,6 +56,14 @@ func (w *pelicanCaptureWriter) WriteString(data string) (int, error) {
 type pelicanTestOptions struct {
 	prompt          string
 	reasoningEffort string
+	maxOutputTokens int
+}
+
+func (o pelicanTestOptions) outputTokenLimit(defaultLimit int) int {
+	if o.maxOutputTokens > 0 {
+		return o.maxOutputTokens
+	}
+	return defaultLimit
 }
 
 func withPelicanTestOptions(ctx context.Context, options pelicanTestOptions) context.Context {
@@ -63,9 +78,13 @@ func pelicanTestOptionsFromContext(ctx context.Context) (pelicanTestOptions, boo
 // TestPelicanAccountConnection is the dedicated account test path for the
 // Pelican UI. The existing /test endpoint deliberately keeps its historical
 // probe payload; only this endpoint opts into the user prompt and reasoning.
-func (s *AccountTestService) TestPelicanAccountConnection(c *gin.Context, accountID int64, modelID, prompt, reasoningEffort string) error {
+func (s *AccountTestService) TestPelicanAccountConnection(c *gin.Context, accountID int64, modelID, prompt, reasoningEffort string, maxOutputTokens int) error {
+	if err := validatePelicanMaxOutputTokens(maxOutputTokens); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	options, _ := pelicanTestOptionsFromContext(c.Request.Context())
 	options.prompt = strings.TrimSpace(prompt)
+	options.maxOutputTokens = maxOutputTokens
 	options.reasoningEffort = normalizePelicanReasoningEffort(reasoningEffort)
 	ctx := withPelicanTestOptions(c.Request.Context(), options)
 	ctx = WithRequestedReasoningEffort(ctx, options.reasoningEffort)
@@ -115,13 +134,13 @@ func pelicanTestRequested(c *gin.Context) bool {
 	return ok
 }
 
-func createPelicanClaudePayload(modelID, prompt, reasoningEffort string) (map[string]any, error) {
+func createPelicanClaudePayload(modelID string, options pelicanTestOptions) (map[string]any, error) {
 	payload, err := createTestPayload(modelID)
 	if err != nil {
 		return nil, err
 	}
-	payload["max_tokens"] = pelicanClaudeMaxTokens
-	if effort := pelicanClaudeEffort(modelID, reasoningEffort); effort != "" {
+	payload["max_tokens"] = options.outputTokenLimit(pelicanClaudeMaxTokens)
+	if effort := pelicanClaudeEffort(modelID, options.reasoningEffort); effort != "" {
 		payload["output_config"] = map[string]any{"effort": effort}
 		if claude.SupportsAdaptiveThinking(modelID) {
 			payload["thinking"] = map[string]any{"type": "adaptive"}
@@ -133,7 +152,7 @@ func createPelicanClaudePayload(modelID, prompt, reasoningEffort string) (map[st
 	}
 	content, ok := messages[0]["content"].([]map[string]any)
 	if ok && len(content) > 0 {
-		content[0]["text"] = promptOrDefault(prompt)
+		content[0]["text"] = promptOrDefault(options.prompt)
 	}
 	return payload, nil
 }
@@ -168,16 +187,19 @@ func pelicanClaudeStopFailure(stopReason, category string) string {
 	return ""
 }
 
-func createPelicanOpenAIPayload(modelID string, isOAuth bool, prompt, reasoningEffort string) map[string]any {
+func createPelicanOpenAIPayload(modelID string, isOAuth bool, options pelicanTestOptions) map[string]any {
 	payload := createOpenAITestPayload(modelID, isOAuth)
+	if options.maxOutputTokens > 0 {
+		payload["max_output_tokens"] = options.maxOutputTokens
+	}
 	input, ok := payload["input"].([]map[string]any)
 	if ok && len(input) > 0 {
 		content, ok := input[0]["content"].([]map[string]any)
 		if ok && len(content) > 0 {
-			content[0]["text"] = promptOrDefault(prompt)
+			content[0]["text"] = promptOrDefault(options.prompt)
 		}
 	}
-	if effort := normalizePelicanReasoningEffort(reasoningEffort); effort != "" {
+	if effort := normalizePelicanReasoningEffort(options.reasoningEffort); effort != "" {
 		payload["reasoning"] = map[string]any{"effort": effort}
 	}
 	return payload

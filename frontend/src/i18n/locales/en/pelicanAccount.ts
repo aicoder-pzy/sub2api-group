@@ -8,6 +8,9 @@ pelicanTest: {
         stateProbeQuestion: 'State probe (full capability or degraded in seconds)',
         stateProbeHint: 'No question is sent: each run fires one turn-state probe and records Full capability / Degraded / Inconclusive. OpenAI subscription (OAuth) accounts only; one probe per account at a time, so parallel runs are fixed at 1.',
         stateProbeBadge: 'Probe',
+        maxOutputTokens: 'Maximum output tokens',
+        maxOutputTokensHint: 'Output limit per test sample. Leave blank to keep the existing default.',
+        maxOutputTokensInvalid: 'Enter a whole number of at least 16.',
         candyHint: 'The original question has a reference answer of 21. Compare this response without treating it as a permanent account capability rating.',
 
         recordCount: '{count} records',

@@ -17,13 +17,14 @@ func (h *AccountHandler) PelicanTest(c *gin.Context) {
 	var req struct {
 		ModelID         string `json:"model_id" binding:"required,max=100"`
 		Prompt          string `json:"prompt" binding:"required,max=32000"`
+		MaxOutputTokens int    `json:"max_output_tokens"`
 		ReasoningEffort string `json:"reasoning_effort" binding:"oneof=none minimal low medium high xhigh max ultra"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "invalid test configuration")
 		return
 	}
-	_ = h.accountTestService.TestPelicanAccountConnection(c, accountID, req.ModelID, req.Prompt, req.ReasoningEffort)
+	_ = h.accountTestService.TestPelicanAccountConnection(c, accountID, req.ModelID, req.Prompt, req.ReasoningEffort, req.MaxOutputTokens)
 }
 func (h *ScheduledTestHandler) GetResult(c *gin.Context) {
 	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)

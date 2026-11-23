@@ -96,11 +96,13 @@ type PelicanGroupTestResult struct {
 	CreatedAt      time.Time                 `json:"created_at"`
 }
 
-// PelicanGroupTestPlanInput is what an admin edits; the question is always the HTML drawing kind.
+// PelicanGroupTestPlanInput describes a drawing or candy test plan.
 type PelicanGroupTestPlanInput struct {
 	CreativeJudgeGroupID int64  `json:"creative_judge_group_id,omitempty"`
 	CreativeJudgeModelID string `json:"creative_judge_model_id,omitempty"`
 	PromptMode           string `json:"prompt_mode,omitempty"`
+	QuestionKind         string `json:"question_kind,omitempty"`
+	MaxOutputTokens      int    `json:"max_output_tokens,omitempty"`
 	VerificationTasks    bool   `json:"verification_tasks,omitempty"`
 	GroupID              int64  `json:"group_id"`
 	ModelID              string `json:"model_id"`
@@ -285,10 +287,23 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	if plan.ModelID == "" || len(plan.ModelID) > 100 {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "model is required (maximum 100 bytes)")
 	}
+	kind := input.QuestionKind
+	if kind == "" {
+		kind = "pelican"
+	}
+	if kind != "pelican" && kind != "candy" {
+		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "invalid question kind")
+	}
 	prompt := strings.TrimSpace(input.Prompt)
 	mode := strings.TrimSpace(input.PromptMode)
 	if mode != "" && mode != "fixed" && mode != pelicanRandomCreative {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "invalid prompt mode")
+	}
+	if kind == "candy" || (mode != pelicanRandomCreative && prompt == CandyPrompt) {
+		kind, mode, prompt = "candy", "fixed", CandyPrompt
+	}
+	if err := validatePelicanMaxOutputTokens(input.MaxOutputTokens); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", err.Error())
 	}
 	if (prompt == "" && mode != pelicanRandomCreative) || len(prompt) > 32000 {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "prompt is required (maximum 32000 bytes)")
@@ -308,8 +323,12 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	if plan.CronExpression == "" {
 		plan.CronExpression = pelicanGroupTestDefaultCron
 	}
-	plan.PelicanConfig = &PelicanTestConfig{VerificationTasks: input.VerificationTasks, QuestionKind: "pelican", Prompt: prompt, ReasoningEffort: effort, ParallelCount: parallel, ModelID: plan.ModelID, DailyStart: input.DailyStart, DailyEnd: input.DailyEnd}
-	plan.PelicanConfig.PromptMode = mode
+	plan.PelicanConfig = &PelicanTestConfig{
+		PromptMode: mode, QuestionKind: kind, Prompt: prompt, ReasoningEffort: effort,
+		ParallelCount: parallel, MaxOutputTokens: input.MaxOutputTokens, ModelID: plan.ModelID,
+		DailyStart: input.DailyStart, DailyEnd: input.DailyEnd,
+		VerificationTasks: kind == "pelican" && input.VerificationTasks,
+	}
 	judgeModel := strings.TrimSpace(input.CreativeJudgeModelID)
 	if mode == pelicanRandomCreative && (input.CreativeJudgeGroupID != 0 || judgeModel != "") {
 		if input.CreativeJudgeGroupID <= 0 || len(judgeModel) == 0 || len(judgeModel) > 100 {
@@ -612,7 +631,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			if creative && result.PelicanConfig.CreativeRound != nil {
 				result.PelicanConfig.CreativeRound.Checks = checkPelicanCreative(sample.ResponseText, result.PelicanConfig.CreativeRound)
 			}
-			if sample.Status == "success" && (creative || s.assessOutput != nil || checks != nil) {
+			if sample.Status == "success" && !isCandyTest(generationConfig) && (creative || s.assessOutput != nil || checks != nil) {
 				var assessment *PelicanAssessment
 				if creative {
 					evaluation, judgeCosts := s.assessCreative(ctx, route.account.ID, result.PelicanConfig, sample.ResponseText)
@@ -677,6 +696,9 @@ func (s *PelicanGroupTestService) newResult(plan *PelicanGroupTestPlan, started,
 	if plan.PelicanConfig != nil {
 		snapshot := *plan.PelicanConfig
 		snapshot.ModelID = plan.ModelID
+		if isCandyTest(&snapshot) {
+			snapshot.QuestionKind = "candy"
+		}
 		if snapshot.CreativeRound != nil {
 			round := *snapshot.CreativeRound
 			round.Prompt = snapshot.Prompt

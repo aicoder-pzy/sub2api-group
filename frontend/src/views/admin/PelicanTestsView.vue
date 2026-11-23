@@ -107,6 +107,7 @@
                   </p>
                   <p class="plan-meta">
                     <template v-if="plan.pelican_config?.prompt_mode === 'random_creative'"><span class="text-primary-600 dark:text-primary-400">{{ t('pelicanTests.creative.mode') }}</span><span v-if="!plan.pelican_config.creative_judge_group_id || !plan.pelican_config.creative_judge_model_id" class="text-amber-600">{{ t('pelicanTests.creative.awaitingJudge') }}</span><span>·</span></template>
+                    <template v-if="plan.pelican_config?.question_kind === 'candy'"><span>{{ t('admin.accounts.pelicanTest.candyQuestion') }}</span><span>·</span></template>
                     <code v-if="plan.model_id">{{ plan.model_id }}</code>
                     <span v-else class="text-amber-600 dark:text-amber-400">{{ t('pelicanTests.plans.modelMissing') }}</span>
                     <span>·</span><span>{{ effortLabel(plan.pelican_config?.reasoning_effort) }}</span>
@@ -181,7 +182,10 @@
               <tr v-for="result in results" :key="result.id" :data-testid="`pelican-result-${result.id}`">
                 <td class="whitespace-nowrap">{{ formatDateTimeToMinute(result.started_at) }}</td>
                 <td><strong :title="result.group_name">{{ result.group_name }}</strong></td>
-                <td><code>{{ result.pelican_config?.model_id || '—' }}</code></td>
+                <td>
+                  <code>{{ result.pelican_config?.model_id || '—' }}</code>
+                  <small v-if="result.pelican_config?.question_kind === 'candy'">{{ t('admin.accounts.pelicanTest.candyQuestion') }}</small>
+                </td>
                 <td>
                   <strong v-if="result.account_id" :title="accountName(result)">{{ accountName(result) }}</strong>
                   <span v-else class="text-gray-400">{{ t('pelicanTests.plans.noAccount') }}</span>
@@ -198,7 +202,7 @@
                 <td class="whitespace-nowrap tabular-nums">{{ pelicanDurationLabel(t, result.latency_ms) }}</td>
                 <td class="whitespace-nowrap tabular-nums" :title="costHint(result)" :data-testid="`pelican-result-cost-${result.id}`">{{ costLabel(result.cost_usd, result.cost_incomplete) }}</td>
                 <td class="whitespace-nowrap text-right">
-                  <button v-if="result.status === 'success'" class="link-button" :data-testid="`pelican-result-view-${result.id}`" @click="openPreview(result)">
+                  <button v-if="result.status === 'success' || result.pelican_config?.question_kind === 'candy'" class="link-button" :data-testid="`pelican-result-view-${result.id}`" @click="openPreview(result)">
                     {{ t('pelicanTests.history.view') }}
                   </button>
                 </td>
@@ -249,9 +253,10 @@
         </div>
         <div>
           <label class="field-label mt-0" for="pelican-test-mode">{{ t('pelicanTests.creative.questionMode') }}</label>
-          <select id="pelican-test-mode" v-model="editor.form.prompt_mode" class="input w-full" data-testid="pelican-test-mode">
+          <select id="pelican-test-mode" :value="editor.form.question_kind === 'candy' ? 'candy' : editor.form.prompt_mode" class="input w-full" data-testid="pelican-test-mode" @change="setQuestionMode(($event.target as HTMLSelectElement).value)">
             <option value="fixed">{{ t('pelicanTests.creative.fixed') }}</option>
             <option value="random_creative">{{ t('pelicanTests.creative.mode') }}</option>
+            <option value="candy">{{ t('admin.accounts.pelicanTest.candyQuestion') }}</option>
           </select>
         </div>
         <div v-if="editor.form.prompt_mode === 'random_creative'" class="space-y-3" data-testid="creative-editor">
@@ -288,6 +293,11 @@
             <p class="field-hint">{{ t('pelicanTests.creative.previewHint') }}</p>
           </template>
         </div>
+        <div v-else-if="editor.form.question_kind === 'candy'">
+          <label class="field-label mt-0" for="pelican-test-candy-prompt">{{ t('pelicanTests.editor.prompt') }}</label>
+          <textarea id="pelican-test-candy-prompt" :value="CANDY_PROMPT" readonly rows="5" class="input w-full" />
+          <p class="field-hint">{{ t('admin.accounts.pelicanTest.candyHint') }}</p>
+        </div>
         <div v-else>
           <div class="flex items-center justify-between">
             <label class="field-label mt-0" for="pelican-test-prompt">{{ t('pelicanTests.editor.prompt') }}</label>
@@ -307,7 +317,8 @@
             <p class="field-hint">{{ t('pelicanTests.editor.parallelHint') }}</p>
           </div>
         </div>
-        <label class="block text-sm"><input v-model="editor.form.verification_tasks" type="checkbox" class="mr-2" />{{ t('pelicanTests.editor.verificationTasks') }}<p class="field-hint">{{ t('pelicanTests.editor.verificationTasksHint') }}</p></label>
+        <PelicanOutputTokenField v-model="editor.form.max_output_tokens" />
+        <label v-if="editor.form.question_kind !== 'candy'" class="block text-sm"><input v-model="editor.form.verification_tasks" type="checkbox" class="mr-2" />{{ t('pelicanTests.editor.verificationTasks') }}<p class="field-hint">{{ t('pelicanTests.editor.verificationTasksHint') }}</p></label>
         <div>
           <label class="field-label mt-0">{{ t('pelicanTests.editor.schedule') }}</label>
           <Select v-model="editor.schedule" :options="scheduleOptions" :aria-label="t('pelicanTests.editor.schedule')" data-testid="pelican-test-schedule" />
@@ -343,17 +354,23 @@
       @close="preview = null"
     >
       <div v-if="preview" class="flex min-h-0 flex-1 flex-col gap-3" data-testid="pelican-result-preview">
-        <PelicanCreativeDetails v-if="preview.result.pelican_config?.creative_round" :round="preview.result.pelican_config.creative_round" />
-        <PelicanAssessment v-else-if="preview.status === 'ready'" :output="preview.result.response_text || ''" />
-        <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-900">
-          <PelicanArtworkPreview v-if="preview.status === 'ready'" :html="preview.html" :title="previewTitle" :creative="preview.result.pelican_config?.prompt_mode === 'random_creative'" :evaluation="preview.result.pelican_config?.creative_round?.evaluation" :quality="preview.result.quality_verdict" :reason="preview.result.quality_reason" />
-          <div v-else class="flex h-full items-center justify-center p-6 text-sm text-gray-500">
-            <span v-if="preview.status === 'loading'" class="animate-pulse">{{ t('pelicanTests.history.previewLoading') }}</span>
-            <span v-else-if="preview.status === 'invalid'">{{ t('pelicanTests.history.invalidHtml') }}</span>
-            <span v-else class="text-red-500">{{ t('pelicanTests.history.previewLoadFailed') }}</span>
-          </div>
+        <div v-if="preview.status === 'ready' && preview.result.pelican_config?.question_kind === 'candy'" class="space-y-2">
+          <p class="text-xs text-gray-500">{{ t('admin.accounts.pelicanTest.candyHint') }}</p>
+          <pre class="max-h-[70vh] overflow-auto whitespace-pre-wrap rounded-lg border border-gray-200 p-3 text-sm dark:border-dark-700" data-testid="pelican-candy-answer">{{ preview.result.response_text || '—' }}</pre>
         </div>
-        <p class="shrink-0 text-xs text-gray-400 dark:text-gray-500">{{ t('pelicanTests.history.sandboxNote') }}</p>
+        <template v-else>
+          <PelicanCreativeDetails v-if="preview.result.pelican_config?.creative_round" :round="preview.result.pelican_config.creative_round" />
+          <PelicanAssessment v-else-if="preview.status === 'ready'" :output="preview.result.response_text || ''" />
+          <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-900">
+            <PelicanArtworkPreview v-if="preview.status === 'ready'" :html="preview.html" :title="previewTitle" :creative="preview.result.pelican_config?.prompt_mode === 'random_creative'" :evaluation="preview.result.pelican_config?.creative_round?.evaluation" :quality="preview.result.quality_verdict" :reason="preview.result.quality_reason" />
+            <div v-else class="flex h-full items-center justify-center p-6 text-sm text-gray-500">
+              <span v-if="preview.status === 'loading'" class="animate-pulse">{{ t('pelicanTests.history.previewLoading') }}</span>
+              <span v-else-if="preview.status === 'invalid'">{{ t('pelicanTests.history.invalidHtml') }}</span>
+              <span v-else class="text-red-500">{{ t('pelicanTests.history.previewLoadFailed') }}</span>
+            </div>
+          </div>
+          <p class="shrink-0 text-xs text-gray-400 dark:text-gray-500">{{ t('pelicanTests.history.sandboxNote') }}</p>
+        </template>
       </div>
       <template #footer>
         <div class="flex w-full justify-end">
@@ -421,7 +438,8 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTimeToMinute } from '@/utils/format'
-import { PELICAN_PROMPT } from '@/utils/intelligenceTest'
+import { CANDY_PROMPT, PELICAN_PROMPT, validPelicanOutputTokenLimit } from '@/utils/intelligenceTest'
+import PelicanOutputTokenField from '@/components/admin/account/PelicanOutputTokenField.vue'
 import type { PelicanCreativeMaterials } from '@/api/pelicanCreative'
 import { extractPelicanHtml } from '@/utils/pelicanHtml'
 import { platformBadgeLightClass, platformLabel } from '@/utils/platformColors'
@@ -683,6 +701,8 @@ function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
   return {
     group_id: plan.group_id,
     prompt_mode: plan.pelican_config?.prompt_mode || 'fixed',
+    ...(plan.pelican_config?.question_kind === 'candy' ? { question_kind: 'candy' } : {}),
+    max_output_tokens: plan.pelican_config?.max_output_tokens,
     ...(plan.pelican_config?.creative_judge_group_id ? { creative_judge_group_id: plan.pelican_config.creative_judge_group_id, creative_judge_model_id: plan.pelican_config.creative_judge_model_id || '' } : {}),
     model_id: plan.model_id,
     cron_expression: plan.cron_expression,
@@ -705,6 +725,14 @@ function openEditor(plan?: PelicanGroupTestPlan) {
   void loadGroups()
 }
 
+function setQuestionMode(value: string) {
+  const form = editor.value?.form
+  if (!form) return
+  form.question_kind = value === 'candy' ? 'candy' : undefined
+  form.prompt_mode = value === 'random_creative' ? 'random_creative' : 'fixed'
+  if (value !== 'candy' && form.prompt === CANDY_PROMPT) form.prompt = PELICAN_PROMPT
+}
+
 async function savePlan() {
   const current = editor.value
   if (!current || savingPlan.value) return
@@ -713,13 +741,19 @@ async function savePlan() {
     fail(null, t('pelicanTests.creative.judgeRequired'))
     return
   }
-  if (!form.group_id || !form.model_id.trim() || (form.prompt_mode !== 'random_creative' && !form.prompt.trim()) || !form.cron_expression.trim()) {
+  if (!validPelicanOutputTokenLimit(form.max_output_tokens)) return
+  const candy = form.question_kind === 'candy'
+  if (!form.group_id || !form.model_id.trim() || (!candy && form.prompt_mode !== 'random_creative' && !form.prompt.trim()) || !form.cron_expression.trim()) {
     fail(null, t('pelicanTests.editor.required'))
     return
   }
   savingPlan.value = true
   try {
-    const input = { ...form, parallel_count: Number(form.parallel_count) || 1 }
+    const input = {
+      ...form,
+      ...(candy ? { prompt: CANDY_PROMPT, verification_tasks: undefined } : {}),
+      parallel_count: Number(form.parallel_count) || 1,
+    }
     if (current.id) {
       await pelicanTestsAPI.updatePlan(current.id, input)
       succeed(t('pelicanTests.editor.updated'))
@@ -805,8 +839,9 @@ async function openPreview(result: PelicanGroupTestResult) {
   try {
     const full = await pelicanTestsAPI.getResult(result.id)
     if (preview.value?.result.id !== result.id) return
-    const html = extractPelicanHtml(full.response_text || '')
-    preview.value = { result: full, html, status: html ? 'ready' : 'invalid' }
+    const candy = full.pelican_config?.question_kind === 'candy'
+    const html = candy ? '' : extractPelicanHtml(full.response_text || '')
+    preview.value = { result: full, html, status: candy || html ? 'ready' : 'invalid' }
   } catch {
     if (preview.value?.result.id === result.id) preview.value = { result, html: '', status: 'error' }
   }

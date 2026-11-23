@@ -2,6 +2,7 @@ import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PelicanTestsView from '../PelicanTestsView.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import { CANDY_PROMPT } from '@/utils/intelligenceTest'
 import PelicanScheduleWindow from '@/components/admin/PelicanScheduleWindow.vue'
 import type { PelicanGroupTestPlan, PelicanGroupTestResult } from '@/api/admin/pelicanTests'
 
@@ -101,6 +102,34 @@ afterEach(() => {
 })
 
 describe('PelicanTestsView', () => {
+  it('saves a candy plan with a token limit and opens the original text of a failed answer', async () => {
+    const candyConfig = { ...plan().pelican_config, question_kind: 'candy', prompt: CANDY_PROMPT, max_output_tokens: 1536 }
+    const candyResult = result({ status: 'failed', error_message: 'answer_mismatch: expected 21', pelican_config: candyConfig })
+    api.listResults.mockResolvedValue({ items: [candyResult], total: 1 })
+    api.getResult.mockResolvedValue({ ...candyResult, response_text: '22' })
+    api.updatePlan.mockImplementation(async () => {
+      const saved = plan({ pelican_config: candyConfig })
+      api.listPlans.mockResolvedValue([saved])
+      return saved
+    })
+    wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="pelican-plan-edit-7"]').trigger('click')
+    const editor = wrapper.get('[data-testid="pelican-test-editor"]')
+    await editor.get('[data-testid="pelican-test-mode"]').setValue('candy')
+    await editor.get('[data-testid="pelican-max-output-tokens"]').setValue('1536')
+    await editor.trigger('submit')
+    await flushPromises()
+    expect(api.updatePlan).toHaveBeenCalledWith(7, expect.objectContaining({ question_kind: 'candy', max_output_tokens: 1536, prompt: CANDY_PROMPT }))
+    await wrapper.get('[data-testid="pelican-plan-edit-7"]').trigger('click')
+    expect((wrapper.get('[data-testid="pelican-test-mode"]').element as HTMLSelectElement).value).toBe('candy')
+    expect((wrapper.get('[data-testid="pelican-max-output-tokens"]').element as HTMLInputElement).value).toBe('1536')
+    await wrapper.get('[data-testid="pelican-result-view-90"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="pelican-candy-answer"]').text()).toBe('22')
+    expect(wrapper.find('[data-testid="assessment-control"]').exists()).toBe(false)
+  })
+
   it('previews materials without running a model and preserves creative mode on save and pause', async () => {
     const round = { id: 'round-1', seed: 'seed', pool_version: 'test', started_at: '2026-11-07T04:00:00Z', materials: [{ key: 'subject', label: '主体', value: '海獭' }], prompt: 'shared creative question' }
     api.getCreativeMaterials.mockResolvedValue({ pool: { version: 'test', source: 'Public samples', categories: [{ key: 'subject', label: '主体', values: ['海獭'] }] }, round })

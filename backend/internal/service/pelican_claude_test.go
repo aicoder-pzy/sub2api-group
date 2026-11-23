@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -103,7 +104,7 @@ func TestPelicanClaudeLeavesRoomForThinkingBeforeTheAnswer(t *testing.T) {
 	svc := pelicanClaudeTestService(account, upstream)
 	c, rec := newTestContext()
 
-	err := svc.TestPelicanAccountConnection(c, account.ID, "claude-opus-5-5", "draw the pelican", "medium")
+	err := svc.TestPelicanAccountConnection(c, account.ID, "claude-opus-5-5", "draw the pelican", "medium", 0)
 
 	require.NoError(t, err)
 	require.Len(t, upstream.bodies, 1)
@@ -127,7 +128,7 @@ func TestPelicanClaudePayloadFollowsModelReasoningSupport(t *testing.T) {
 		{model: "claude-opus-5-5"},
 	} {
 		t.Run(tc.model+"/"+tc.effort, func(t *testing.T) {
-			payload, err := createPelicanClaudePayload(tc.model, "draw the pelican", tc.effort)
+			payload, err := createPelicanClaudePayload(tc.model, pelicanTestOptions{prompt: "draw the pelican", reasoningEffort: tc.effort})
 			require.NoError(t, err)
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
@@ -149,10 +150,11 @@ func TestPelicanClaudeReportsWhyTheAnswerIsMissing(t *testing.T) {
 		name       string
 		upstream   *claudeThinkingUpstream
 		wantOutput bool
+		limit      int
 		want       string
 	}{
 		{name: "thinking used the whole budget", upstream: &claudeThinkingUpstream{thinkingTokens: 40000, answerTokens: 2500}, want: pelicanErrMaxTokens},
-		{name: "answer cut off", upstream: &claudeThinkingUpstream{thinkingTokens: 31000, answerTokens: 2500}, wantOutput: true, want: pelicanErrMaxTokens},
+		{name: "answer cut off at custom limit", upstream: &claudeThinkingUpstream{thinkingTokens: 3000, answerTokens: 2500}, wantOutput: true, limit: 4096, want: pelicanErrMaxTokens},
 		{name: "refused", upstream: &claudeThinkingUpstream{thinkingTokens: 100, refusal: "cyber"}, want: pelicanErrRefused + " (category: cyber)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -160,7 +162,10 @@ func TestPelicanClaudeReportsWhyTheAnswerIsMissing(t *testing.T) {
 			svc := pelicanClaudeTestService(account, tc.upstream)
 			c, rec := newTestContext()
 
-			require.Error(t, svc.TestPelicanAccountConnection(c, account.ID, "claude-opus-5-5", "draw the pelican", "medium"))
+			require.Error(t, svc.TestPelicanAccountConnection(c, account.ID, "claude-opus-5-5", "draw the pelican", "medium", tc.limit))
+			if tc.limit > 0 {
+				require.EqualValues(t, tc.limit, gjson.GetBytes(tc.upstream.bodies[0], "max_tokens").Int())
+			}
 
 			output, message := parsePelicanOutput(rec.Body.String())
 			require.Equal(t, tc.want, message)
@@ -194,10 +199,11 @@ func TestPelicanAdaptiveCNRequestsOneAnswer(t *testing.T) {
 	account := adaptiveCNAccountTestAccount(513, PlatformKimi)
 	svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNChatTestResponse())
 	c, rec := newTestContext()
-	require.NoError(t, svc.TestPelicanAccountConnection(c, account.ID, "k3-256k", "draw a pelican", "high"))
+	require.NoError(t, svc.TestPelicanAccountConnection(c, account.ID, "k3-256k", "draw a pelican", "high", 2048))
 	require.Len(t, upstream.requests, 1)
 	require.Equal(t, "http://chat.example/v1/chat/completions", upstream.requests[0].URL.String())
 	require.Equal(t, "draw a pelican", gjson.GetBytes(upstream.bodies[0], "messages.0.content").String())
+	require.EqualValues(t, 2048, gjson.GetBytes(upstream.bodies[0], "max_completion_tokens").Int())
 	require.Contains(t, rec.Body.String(), `"type":"test_complete","success":true`)
 }
 
@@ -243,7 +249,7 @@ func TestPelicanClaudeVertexServiceAccountSendsTheQuestion(t *testing.T) {
 	svc.claudeTokenProvider = NewClaudeTokenProvider(nil, cache, nil)
 	c, rec := newTestContext()
 
-	require.NoError(t, svc.TestPelicanAccountConnection(c, account.ID, "claude-opus-5-5", "draw the pelican", "high"))
+	require.NoError(t, svc.TestPelicanAccountConnection(c, account.ID, "claude-opus-5-5", "draw the pelican", "high", 0))
 
 	require.Len(t, upstream.bodies, 1)
 	require.Contains(t, upstream.urls[0], "/publishers/anthropic/models/claude-opus-5-5:streamRawPredict")
@@ -252,4 +258,56 @@ func TestPelicanClaudeVertexServiceAccountSendsTheQuestion(t *testing.T) {
 	output, message := parsePelicanOutput(rec.Body.String())
 	require.Empty(t, message)
 	require.Equal(t, pelicanClaudeTestHTML, output)
+}
+
+func TestPelicanGroupCandyUsesResponsesLimitAndGradesAnswer(t *testing.T) {
+	for _, tc := range []struct {
+		answer, finalEvent, wantError string
+	}{
+		{answer: "21", finalEvent: `{"type":"response.completed"}`},
+		{answer: "22", finalEvent: `{"type":"response.completed"}`, wantError: "answer_mismatch: expected 21"},
+		{finalEvent: `{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}`, wantError: pelicanErrMaxTokens},
+	} {
+		t.Run(tc.wantError+tc.answer, func(t *testing.T) {
+			ctx := context.Background()
+			upstreamAccount := &Account{
+				ID: 71, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "fixture-key", "base_url": "http://responses.example"},
+			}
+			resp := adaptiveCNResponsesTestResponse()
+			_ = resp.Body.Close()
+			resp.Body = io.NopCloser(strings.NewReader(fmt.Sprintf("data: {\"type\":\"response.output_text.delta\",\"delta\":%q}\n\ndata: %s\n\n", tc.answer, tc.finalEvent)))
+			accounts, upstream := adaptiveCNAccountTestService(upstreamAccount, resp)
+			repo := newGroupTestRepoFake()
+			router := &groupTestRouterFake{steps: []routeStep{{account: upstreamAccount}}}
+			groupTests, showcase := newGroupTestService(repo, router, accounts.RunPelicanBackground)
+			groupTests.assessOutput = func(context.Context, string) (string, *PelicanAssessment) {
+				t.Error("candy answers must not be sent for artwork assessment")
+				return "", nil
+			}
+			plan, err := groupTests.CreatePlan(ctx, PelicanGroupTestPlanInput{
+				GroupID: 4, ModelID: "gpt-6-astra", QuestionKind: "candy",
+				ReasoningEffort: "medium", MaxOutputTokens: 1536, VerificationTasks: true,
+			})
+			require.NoError(t, err)
+			require.NoError(t, groupTests.RunNow(ctx, plan.ID))
+			groupTests.runs.Wait()
+			require.Len(t, upstream.bodies, 1)
+			require.EqualValues(t, 1536, gjson.GetBytes(upstream.bodies[0], "max_output_tokens").Int())
+			require.Equal(t, intelligenceTestPrompt(&PelicanTestConfig{QuestionKind: "candy", Prompt: CandyPrompt}), gjson.GetBytes(upstream.bodies[0], "input.0.content.0.text").String())
+			require.Len(t, repo.results, 1)
+			result := repo.results[0]
+			require.Equal(t, tc.answer, result.ResponseText)
+			require.Equal(t, tc.wantError, result.ErrorMessage)
+			if tc.wantError == "" {
+				require.Equal(t, "success", result.Status)
+			} else {
+				require.Equal(t, "failed", result.Status)
+			}
+			require.Empty(t, result.QualityVerdict)
+			require.Empty(t, showcase.published)
+			require.Equal(t, "candy", result.PelicanConfig.QuestionKind)
+			require.Equal(t, 1536, result.PelicanConfig.MaxOutputTokens)
+		})
+	}
 }

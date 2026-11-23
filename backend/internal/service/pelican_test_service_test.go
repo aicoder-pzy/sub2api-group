@@ -26,19 +26,21 @@ func TestPelicanPayloadsDoNotChangeDefaultAccountTestPayloads(t *testing.T) {
 	require.Equal(t, "hi", defaultOpenAIContent[0]["text"])
 	require.NotContains(t, defaultOpenAI, "reasoning")
 
-	pelicanClaude, err := createPelicanClaudePayload("claude-sonnet-4-6", "draw the pelican animation", "")
+	pelicanClaude, err := createPelicanClaudePayload("claude-sonnet-4-6", pelicanTestOptions{prompt: "draw the pelican animation"})
 	require.NoError(t, err)
 	pelicanMessages, ok := pelicanClaude["messages"].([]map[string]any)
 	require.True(t, ok)
 	pelicanContent, ok := pelicanMessages[0]["content"].([]map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "draw the pelican animation", pelicanContent[0]["text"])
+	require.Equal(t, pelicanClaudeMaxTokens, pelicanClaude["max_tokens"])
 
-	pelicanOpenAI := createPelicanOpenAIPayload("gpt-6-astra", true, "draw the pelican animation", "medium")
+	pelicanOpenAI := createPelicanOpenAIPayload("gpt-6-astra", true, pelicanTestOptions{prompt: "draw the pelican animation", reasoningEffort: "medium"})
 	pelicanInput, ok := pelicanOpenAI["input"].([]map[string]any)
 	require.True(t, ok)
 	pelicanOpenAIContent, ok := pelicanInput[0]["content"].([]map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "draw the pelican animation", pelicanOpenAIContent[0]["text"])
 	require.Equal(t, map[string]any{"effort": "medium"}, pelicanOpenAI["reasoning"])
+	require.NotContains(t, pelicanOpenAI, "max_output_tokens")
 }
