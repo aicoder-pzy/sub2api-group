@@ -20,6 +20,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -1526,6 +1527,32 @@ func openAIStreamFailedEventErrorCode(payload []byte) string {
 	return code
 }
 
+// A relay's terminal quota error does not identify which of its internal accounts
+// ran out. It can stop this request's futile retry, but is not channel-health proof.
+func isOpenAIAPIKeyTerminalQuotaExhausted(account *Account, payload []byte) bool {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey ||
+		gjson.GetBytes(payload, "type").String() != "response.failed" || !json.Valid(payload) {
+		return false
+	}
+	if gjson.GetBytes(payload, "response.error").Exists() && gjson.GetBytes(payload, "error").Exists() {
+		return false // Conflicting error envelopes cannot establish terminal quota evidence.
+	}
+	code := openAIStreamFailedEventErrorCode(payload)
+	if code == "" {
+		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.type").String()))
+		if code == "" {
+			code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.type").String()))
+		}
+	}
+	switch code {
+	case "usage_limit_reached", "insufficient_quota", "quota_exceeded":
+		_, conflict := requestmodel.ConflictingField("application/json", payload)
+		return !conflict
+	default:
+		return false
+	}
+}
+
 // isOpenAIUpstreamCapacityShedEvent 判断流内 failed 事件是否为上游容量降载信号。
 // 上游在容量紧张时会把请求丢进降载路径：HTTP 200 之后立刻推 event: error
 // （code=server_is_overloaded / slow_down）并以 response.failed 收尾。
@@ -1632,7 +1659,7 @@ var openAIStreamErrorStatusPaths = []string{
 	"status",
 }
 
-func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
+func openAIStreamFailedEventSemanticStatus(payload []byte, message string, accounts ...*Account) int {
 	if isOpenAIContextWindowError(message, payload) {
 		return http.StatusBadRequest
 	}
@@ -1650,6 +1677,8 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 		}
 	}
 	switch {
+	case len(accounts) > 0 && isOpenAIAPIKeyTerminalQuotaExhausted(accounts[0], payload):
+		return http.StatusTooManyRequests
 	case strings.Contains(combined, "rate_limit"):
 		return http.StatusTooManyRequests
 	case strings.Contains(errType, "invalid_request"):
@@ -1667,11 +1696,11 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 	}
 }
 
-func openAIStreamFailureStatus(payload []byte, message string) int {
+func openAIStreamFailureStatus(payload []byte, message string, accounts ...*Account) int {
 	if len(bytes.TrimSpace(payload)) == 0 || !gjson.ValidBytes(payload) {
 		return http.StatusBadGateway
 	}
-	semanticStatus := openAIStreamFailedEventSemanticStatus(payload, message)
+	semanticStatus := openAIStreamFailedEventSemanticStatus(payload, message, accounts...)
 	switch semanticStatus {
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, 529:
 		return semanticStatus
@@ -1846,7 +1875,7 @@ func ApplyOpenAIStreamFailedFrameRule(c *gin.Context, failoverErr *UpstreamFailo
 	return status, errType, errMsg, true
 }
 
-func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool {
+func openAIStreamFailedEventShouldFailover(payload []byte, message string, accounts ...*Account) bool {
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
 		return false
 	}
@@ -1856,7 +1885,7 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 	if isOpenAIUpstreamAccessStateError(message, payload) {
 		return true
 	}
-	semanticStatus := openAIStreamFailureStatus(payload, message)
+	semanticStatus := openAIStreamFailureStatus(payload, message, accounts...)
 	if semanticStatus == http.StatusForbidden {
 		return openAIStream403AccountFailure(payload, message)
 	}
@@ -1933,7 +1962,7 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 	headers http.Header,
 	canonicalModel ...string,
 ) (int, bool) {
-	statusCode := openAIStreamFailureStatus(payload, message)
+	statusCode := openAIStreamFailureStatus(payload, message, account)
 	if statusCode == http.StatusServiceUnavailable && (account == nil || account.Platform != PlatformOpenAI) {
 		return statusCode, false
 	}
@@ -1968,6 +1997,9 @@ func openAIStreamFailedEventRetryableOnSameAccount(account *Account, payload []b
 	if account == nil {
 		return false
 	}
+	if openAIStreamFailureStatus(payload, message, account) == http.StatusTooManyRequests && isOpenAIAPIKeyTerminalQuotaExhausted(account, payload) {
+		return false
+	}
 	// 容量降载是请求级信号，不是账号级故障：上游只是让本次请求稍后再试。
 	// 换账号并不改变被降载的因素（客户端身份、模型容量都与账号无关），
 	// 只会让单个请求把整池账号逐个消耗掉，最终仍以同一个错误告终。
@@ -1978,7 +2010,7 @@ func openAIStreamFailedEventRetryableOnSameAccount(account *Account, payload []b
 	if !account.IsPoolMode() {
 		return false
 	}
-	semanticStatus := openAIStreamFailedEventSemanticStatus(payload, message)
+	semanticStatus := openAIStreamFailedEventSemanticStatus(payload, message, account)
 	return account.IsPoolModeRetryableStatus(semanticStatus) ||
 		isOpenAITransientProcessingError(http.StatusBadRequest, message, payload)
 }
@@ -1996,7 +2028,7 @@ func (s *OpenAIGatewayService) recordOpenAIStreamUpstreamError(
 	if message == "" {
 		message = "OpenAI upstream response failed"
 	}
-	statusCode := openAIStreamFailureStatus(payload, message)
+	statusCode := openAIStreamFailureStatus(payload, message, account)
 	detail := ""
 	if len(payload) > 0 && s != nil && s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 		maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
@@ -2137,7 +2169,7 @@ func (s *OpenAIGatewayService) nonStreamingTerminalFailureFailover(
 	if account == nil || IsResponseCommitted(c) {
 		return nil
 	}
-	shouldFailover := openAIStreamFailedEventShouldFailover(payload, message)
+	shouldFailover := openAIStreamFailedEventShouldFailover(payload, message, account)
 	if terminalType == "error" {
 		shouldFailover = openAIStreamErrorEventShouldFailover(payload, message)
 	}
@@ -2360,6 +2392,21 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			}
 			eventType := effectiveOpenAISSEEventType(dataBytes, rawEventType)
 			createdAtTracker.Observe(dataBytes, eventType)
+			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
+				(eventType == "response.completed" || eventType == "response.done" ||
+					(account.Type == AccountTypeAPIKey && openAIStreamDataStartsVisibleOutput(trimmedData, eventType))) {
+				// The successful terminal supersedes the pending bare error, including
+				// its uncommitted health effects and synthesized failure on EOF.
+				sawBareError = false
+				sawFailedEvent = false
+				sawTerminalEvent = false
+				terminalEventType = ""
+				responseFailedPending = false
+				suppressCurrentEvent = false
+				bareErrorPayload = nil
+				bareErrorAccountSideEffectsPending = false
+				failedMessage = ""
+			}
 			if codexFailureTerminal && sawBareError && !sawResponseFailed && eventType != "response.failed" {
 				suppressCurrentEvent = true
 			}
@@ -2426,7 +2473,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 						if eventType == "error" {
 							shouldFailover = openAIStreamErrorEventShouldFailover(dataBytes, failedMessage)
 						} else {
-							shouldFailover = openAIStreamFailedEventShouldFailover(dataBytes, failedMessage)
+							shouldFailover = openAIStreamFailedEventShouldFailover(dataBytes, failedMessage, account)
 						}
 					}
 					if shouldFailover {

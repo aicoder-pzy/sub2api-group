@@ -256,7 +256,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
 	clientOutputStarted := false
-	codexFailureTerminal := account != nil && account.IsOpenAIOAuthLike()
+	// Compatible API-key relays can also recover a bare error with a successful
+	// terminal. Keep it pending, while preserving their original error on EOF.
+	codexFailureTerminal := account != nil && (account.IsOpenAIOAuthLike() || (account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey))
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	var streamEarlyErr error
 	terminalFailurePending := false
@@ -388,7 +390,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		}
 		if codexFailureTerminal && sawBareError && !sawResponseFailed && !clientDisconnected {
 			applyAttemptResponseHeaders()
-			if _, err := writePendingString(buildOpenAIResponseFailedSSE(responseID, originalModel, createdAtStamper.Value(), bareErrorPayload, failedMessage)); err != nil {
+			terminal := buildOpenAIResponseFailedSSE(responseID, originalModel, createdAtStamper.Value(), bareErrorPayload, failedMessage)
+			if account.Type == AccountTypeAPIKey {
+				terminal = "data: " + string(bareErrorPayload) + "\n\n"
+			}
+			if _, err := writePendingString(terminal); err != nil {
 				handlePendingWriteError(err)
 			} else {
 				failureDelivered = true
@@ -533,11 +539,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				return
 			}
 			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
-				(eventType == "response.completed" || eventType == "response.done") {
+				(eventType == "response.completed" || eventType == "response.done" ||
+					(account.Type == AccountTypeAPIKey && openAIStreamDataStartsVisibleOutput(data, eventType))) {
 				// A later successful terminal is authoritative over a pending bare
 				// error. Keep its usage and terminal visible to the client.
 				sawBareError = false
 				sawFailedEvent = false
+				sawTerminalEvent = false
+				terminalEventType = ""
 				terminalFailurePending = false
 				suppressCurrentEvent = false
 				bareErrorPayload = nil
@@ -625,7 +634,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						if eventType == "error" {
 							shouldFailover = openAIStreamErrorEventShouldFailover(dataBytes, failedMessage)
 						} else {
-							shouldFailover = openAIStreamFailedEventShouldFailover(dataBytes, failedMessage)
+							shouldFailover = openAIStreamFailedEventShouldFailover(dataBytes, failedMessage, account)
 						}
 					}
 					if shouldFailover {

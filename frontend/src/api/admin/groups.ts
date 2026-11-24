@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from '../client'
+import { invalidateAdminConfig, loadAdminConfig } from './configCache'
 
 export interface SchedulingCandidateStatus {
   capability_source?: string
@@ -116,10 +117,13 @@ export async function list(
  * @returns List of all active groups
  */
 export async function getAll(platform?: GroupPlatform): Promise<AdminGroup[]> {
-  const { data } = await apiClient.get<AdminGroup[]>('/admin/groups/all', {
-    params: platform ? { platform } : undefined
+  return loadAdminConfig(`groups:active:${platform ?? ''}`, async () => {
+    const { data } = await apiClient.get<AdminGroup[]>('/admin/groups/all', {
+      params: platform ? { platform } : undefined
+    })
+    if (!Array.isArray(data)) throw new Error('Invalid group list response')
+    return data
   })
-  return data
 }
 
 /**
@@ -127,10 +131,13 @@ export async function getAll(platform?: GroupPlatform): Promise<AdminGroup[]> {
  * that admins can filter users whose keys are still bound to a now-disabled group.
  */
 export async function getAllIncludingInactive(): Promise<AdminGroup[]> {
-  const { data } = await apiClient.get<AdminGroup[]>('/admin/groups/all', {
-    params: { include_inactive: true }
+  return loadAdminConfig('groups:all', async () => {
+    const { data } = await apiClient.get<AdminGroup[]>('/admin/groups/all', {
+      params: { include_inactive: true }
+    })
+    if (!Array.isArray(data)) throw new Error('Invalid group list response')
+    return data
   })
-  return data
 }
 
 /**
@@ -182,6 +189,7 @@ export async function getModelAllowlistCandidates(
  */
 export async function create(groupData: CreateGroupRequest): Promise<AdminGroup> {
   const { data } = await apiClient.post<AdminGroup>('/admin/groups', groupData)
+  invalidateAdminConfig('groups')
   return data
 }
 
@@ -262,6 +270,7 @@ export async function duplicate(id: number): Promise<AdminGroup> {
     duplicateOperationKeys.delete(scope.key)
     storeDuplicateOperationKey(scope.key, null)
   }
+  invalidateAdminConfig('groups')
   return data
 }
 
@@ -273,6 +282,7 @@ export async function duplicate(id: number): Promise<AdminGroup> {
  */
 export async function update(id: number, updates: UpdateGroupRequest): Promise<AdminGroup> {
   const { data } = await apiClient.put<AdminGroup>(`/admin/groups/${id}`, updates)
+  invalidateAdminConfig('groups')
   return data
 }
 
@@ -283,6 +293,7 @@ export async function update(id: number, updates: UpdateGroupRequest): Promise<A
  */
 export async function deleteGroup(id: number): Promise<{ message: string }> {
   const { data } = await apiClient.delete<{ message: string }>(`/admin/groups/${id}`)
+  invalidateAdminConfig('groups')
   return data
 }
 
@@ -347,6 +358,7 @@ export async function createCompositeRoute(
     `/admin/groups/${id}/composite-routes`,
     route
   )
+  invalidateAdminConfig('groups')
   return data
 }
 
@@ -359,6 +371,7 @@ export async function updateCompositeRoute(
     `/admin/groups/${id}/composite-routes/${routeId}`,
     route
   )
+  invalidateAdminConfig('groups')
   return data
 }
 
@@ -369,6 +382,7 @@ export async function deleteCompositeRoute(
   const { data } = await apiClient.delete<{ message: string }>(
     `/admin/groups/${id}/composite-routes/${routeId}`
   )
+  invalidateAdminConfig('groups')
   return data
 }
 
@@ -419,6 +433,7 @@ export async function updateSortOrder(
   const { data } = await apiClient.put<{ message: string }>('/admin/groups/sort-order', {
     updates
   })
+  invalidateAdminConfig('groups')
   return data
 }
 

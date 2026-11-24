@@ -457,7 +457,7 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 		upstreamMsg,
 		retryableOnSameAccount || oauth429Retry,
 	)
-	if shouldDisable {
+	if shouldDisable || (statusCode == http.StatusTooManyRequests && isOpenAIAPIKeyTerminalQuotaExhausted(account, responseBody)) {
 		failoverErr.RetryableOnSameAccount = false
 	}
 	if oauth429Retry {

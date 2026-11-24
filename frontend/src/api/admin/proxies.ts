@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from '../client'
+import { invalidateAdminConfig, loadAdminConfig } from './configCache'
 import type {
   Proxy,
   ProxyAccountSummary,
@@ -59,9 +60,11 @@ export async function list(
  * @returns List of all active proxies
  */
 export async function getAll(): Promise<Proxy[]> {
-  const { data } = await apiClient.get<Proxy[]>('/admin/proxies/all')
-  assertProxyArray(data)
-  return data
+  return loadAdminConfig('proxies:active', async () => {
+    const { data } = await apiClient.get<Proxy[]>('/admin/proxies/all')
+    assertProxyArray(data)
+    return data
+  })
 }
 
 /**
@@ -93,6 +96,7 @@ export async function getById(id: number): Promise<Proxy> {
  */
 export async function create(proxyData: CreateProxyRequest): Promise<Proxy> {
   const { data } = await apiClient.post<Proxy>('/admin/proxies', proxyData)
+  invalidateAdminConfig('proxies')
   return data
 }
 
@@ -104,6 +108,7 @@ export async function create(proxyData: CreateProxyRequest): Promise<Proxy> {
  */
 export async function update(id: number, updates: UpdateProxyRequest): Promise<Proxy> {
   const { data } = await apiClient.put<Proxy>(`/admin/proxies/${id}`, updates)
+  invalidateAdminConfig('proxies')
   return data
 }
 
@@ -114,6 +119,7 @@ export async function update(id: number, updates: UpdateProxyRequest): Promise<P
  */
 export async function deleteProxy(id: number): Promise<{ message: string }> {
   const { data } = await apiClient.delete<{ message: string }>(`/admin/proxies/${id}`)
+  invalidateAdminConfig('proxies')
   return data
 }
 
@@ -152,6 +158,7 @@ export async function testProxy(id: number): Promise<{
     country?: string
     country_code?: string
   }>(`/admin/proxies/${id}/test`)
+  invalidateAdminConfig('proxies')
   return data
 }
 
@@ -162,6 +169,7 @@ export async function testProxy(id: number): Promise<{
  */
 export async function checkProxyQuality(id: number): Promise<ProxyQualityCheckResult> {
   const { data } = await apiClient.post<ProxyQualityCheckResult>(`/admin/proxies/${id}/quality-check`)
+  invalidateAdminConfig('proxies')
   return data
 }
 
@@ -218,6 +226,7 @@ export async function batchCreate(
     created: number
     skipped: number
   }>('/admin/proxies/batch', { proxies })
+  invalidateAdminConfig('proxies')
   return data
 }
 
@@ -229,6 +238,7 @@ export async function batchDelete(ids: number[]): Promise<{
     deleted_ids: number[]
     skipped: Array<{ id: number; reason: string }>
   }>('/admin/proxies/batch-delete', { ids })
+  invalidateAdminConfig('proxies')
   return data
 }
 
@@ -261,6 +271,7 @@ export async function importData(payload: {
   data: AdminDataPayload
 }): Promise<AdminDataImportResult> {
   const { data } = await apiClient.post<AdminDataImportResult>('/admin/proxies/data', payload)
+  invalidateAdminConfig('proxies')
   return data
 }
 

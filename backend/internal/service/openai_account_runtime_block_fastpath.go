@@ -96,6 +96,16 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if isOpenAIRelayRequestError(account, statusCode, responseBody) {
 		return false
 	}
+	if statusCode == http.StatusTooManyRequests && isOpenAIAPIKeyTerminalQuotaExhausted(account, responseBody) && !account.IsCustomErrorCodesEnabled() {
+		// Keep explicit administrator rules, but do not infer a relay-wide quota
+		// cooldown from a member of its private pool (including smart channels).
+		if s != nil && s.rateLimitService != nil {
+			stateCtx, cancel := openAIAccountStateContext(ctx)
+			defer cancel()
+			return s.rateLimitService.CheckErrorPolicy(stateCtx, account, statusCode, responseBody, canonicalModel...) == ErrorPolicyTempUnscheduled
+		}
+		return false
+	}
 	if account != nil && account.Platform == PlatformGrok && isGrokContentPolicyRejection(statusCode, responseBody) {
 		return false
 	}
