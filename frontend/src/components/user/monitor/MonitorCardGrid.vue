@@ -36,21 +36,19 @@
       class="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
     >
       <MonitorCard
-        v-for="{ item, probe } in cards"
-        :key="`${item.id}:${probe?.model ?? item.primary_model}`"
+        v-for="item in items"
+        :key="item.id"
         :item="item"
-        :probe="probe"
         :window="window"
-        :availability-value="resolveAvailability(item, probe)"
+        :availability-values="resolveAvailabilities(item)"
         :countdown-seconds="countdownSeconds"
-        @click="emit('cardClick', item, probe?.model ?? item.primary_model)"
+        @click="model => emit('cardClick', item, model)"
       />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UserMonitorView, UserMonitorDetail, UserMonitorExtraModel } from '@/api/channelMonitor'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -70,12 +68,12 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const cards = computed(() => props.items.flatMap(item => [
-  { item, probe: undefined },
-  ...(item.extra_models ?? [])
-    .filter(probe => probe.model && probe.model !== item.primary_model)
-    .map(probe => ({ item, probe })),
-]))
+function resolveAvailabilities(item: UserMonitorView): Record<string, number | null> {
+  return Object.fromEntries([
+    [item.primary_model, resolveAvailability(item)],
+    ...(item.extra_models ?? []).map(model => [model.model, resolveAvailability(item, model)]),
+  ])
+}
 
 function resolveAvailability(item: UserMonitorView, probe?: UserMonitorExtraModel): number | null {
   if (props.window === '7d') {

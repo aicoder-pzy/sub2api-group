@@ -42,7 +42,7 @@ function mountCard(item: UserMonitorView) {
     props: {
       item,
       window: '7d',
-      availabilityValue: 100,
+      availabilityValues: { [item.primary_model]: 100 },
       countdownSeconds: 0,
     },
     global: {

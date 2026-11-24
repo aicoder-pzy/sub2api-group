@@ -1,11 +1,9 @@
 <template>
   <article
     class="relative group text-left p-5 rounded-2xl min-h-[280px] min-w-0 w-full bg-white/70 backdrop-blur-xl border border-gray-200/80 shadow-card dark:bg-dark-800/60 dark:border-dark-700/70 hover:-translate-y-1 hover:shadow-card-hover dark:hover:border-primary-500/30 hover:border-gray-300 transition-all duration-300 ease-out flex flex-col"
-    @click="emit('click')"
   >
-    <button type="button" class="absolute inset-0 rounded-2xl" :aria-label="`${modelName} (${item.name})`" />
     <div class="relative w-full">
-      <!-- Probe model, channel and latest status -->
+      <!-- One card per channel, with a separate result section per probe model. -->
       <div class="flex items-start gap-3">
         <span
           class="w-9 h-9 rounded-xl ring-1 ring-black/5 dark:ring-white/10 grid place-items-center flex-shrink-0"
@@ -14,10 +12,9 @@
           <ProviderIcon :provider="item.provider" :size="20" />
         </span>
         <div class="flex-1 min-w-0">
-          <h3 class="break-all font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {{ modelName }}
+          <h3 class="break-words text-base font-semibold text-gray-900 dark:text-gray-100">
+            {{ item.name }}
           </h3>
-          <div class="mt-0.5 break-words text-sm text-gray-600 dark:text-gray-300">{{ item.name }}</div>
           <div class="mt-1 flex flex-wrap items-center gap-1.5">
             <span
               class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium"
@@ -33,46 +30,69 @@
             </span>
           </div>
         </div>
-        <span
-          class="px-2.5 py-1 rounded-full text-xs font-semibold flex-shrink-0"
-          :class="statusBadgeClass(status)"
-        >
-          {{ statusLabel(status) }}
-        </span>
       </div>
 
-      <!-- Metrics -->
-      <MonitorMetricPair
-        primary-icon="bolt"
-        :primary-label="t('monitorCommon.dialogLatency')"
-        :primary-value="formatLatency(probe ? probe.latency_ms : item.primary_latency_ms)"
-        primary-unit="ms"
-        secondary-icon="globe"
-        :secondary-label="t('monitorCommon.endpointPing')"
-        :secondary-value="formatLatency(probe ? probe.ping_latency_ms : item.primary_ping_latency_ms)"
-        secondary-unit="ms"
-      />
+      <section
+        v-for="model in models"
+        :key="model.model"
+        :data-model="model.model"
+        :aria-label="formatMonitorModel(model.model)"
+        class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700/60"
+      >
+        <h4>
+          <button
+            type="button"
+            class="flex w-full items-start justify-between gap-2 rounded-md text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
+            :aria-label="`${formatMonitorModel(model.model)} (${item.name})`"
+            @click="emit('click', model.model)"
+          >
+            <span class="min-w-0 break-all font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {{ formatMonitorModel(model.model) }}
+            </span>
+            <span
+              class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold"
+              :class="statusBadgeClass(model.status)"
+            >
+              {{ statusLabel(model.status) }}
+            </span>
+          </button>
+        </h4>
 
-      <!-- 配额模式：最新用量/余额快照（服务端已按系统开关剥离，此处 flag 为纵深防御） -->
-      <MonitorQuotaView v-if="quotaVisible" :snapshot="item.latest_quota" class="mt-2" />
+        <MonitorMetricPair
+          primary-icon="bolt"
+          :primary-label="t('monitorCommon.dialogLatency')"
+          :primary-value="formatLatency(model.latency_ms)"
+          primary-unit="ms"
+          secondary-icon="globe"
+          :secondary-label="t('monitorCommon.endpointPing')"
+          :secondary-value="formatLatency(model.ping_latency_ms)"
+          secondary-unit="ms"
+        />
 
-      <!-- Divider -->
-      <div class="mt-4 border-t border-gray-100 dark:border-dark-700/60"></div>
+        <MonitorQuotaView
+          v-if="model.model === item.primary_model && quotaVisible"
+          :snapshot="item.latest_quota"
+          class="mt-2"
+        />
 
-      <!-- Availability row -->
-      <MonitorAvailabilityRow
-        :window-label="availabilityLabel"
-        :value="availabilityValue"
-      />
+        <MonitorAvailabilityRow
+          :window-label="availabilityLabel"
+          :value="availabilityValues[model.model] ?? null"
+        />
 
-      <!-- Timeline -->
-      <MonitorTimeline
-        :buckets="probe ? probe.timeline : item.timeline"
-        :countdown-seconds="countdownSeconds"
-      />
+        <MonitorTimeline
+          :buckets="model.timeline"
+          :countdown-seconds="countdownSeconds"
+        />
+
+        <MonitorIntelligenceSummary
+          v-if="model.model === item.primary_model && item.intelligence"
+          :intelligence="item.intelligence"
+          :model="item.primary_model"
+          class="mt-4 w-full border-t border-gray-200 pt-3 dark:border-dark-700"
+        />
+      </section>
     </div>
-    <MonitorIntelligenceSummary v-if="!probe && item.intelligence" :intelligence="item.intelligence" :model="item.primary_model"
-      class="relative mt-4 w-full border-t border-gray-200 pt-3 dark:border-dark-700" />
   </article>
 </template>
 
@@ -107,14 +127,13 @@ const PROVIDER_TINT: Record<string, string> = {
 
 const props = defineProps<{
   item: UserMonitorView
-  probe?: UserMonitorExtraModel
   window: '7d' | '15d' | '30d'
-  availabilityValue: number | null
+  availabilityValues: Record<string, number | null>
   countdownSeconds: number
 }>()
 
 const emit = defineEmits<{
-  (e: 'click'): void
+  (e: 'click', model: string): void
 }>()
 
 const { t } = useI18n()
@@ -131,15 +150,23 @@ const providerTintClass = computed(() =>
   PROVIDER_TINT[props.item.provider] ?? 'text-gray-500 dark:text-gray-300'
 )
 
-const modelName = computed(() => formatMonitorModel(props.probe?.model ?? props.item.primary_model))
-const status = computed(() => props.probe?.status ?? props.item.primary_status)
+const models = computed<UserMonitorExtraModel[]>(() => [
+  {
+    model: props.item.primary_model,
+    status: props.item.primary_status,
+    latency_ms: props.item.primary_latency_ms,
+    ping_latency_ms: props.item.primary_ping_latency_ms,
+    timeline: props.item.timeline,
+  },
+  ...(props.item.extra_models ?? []).filter(model => model.model && model.model !== props.item.primary_model),
+])
+
 const quotaVisible = computed(
-  () => !props.probe && isChannelMonitorQuotaVisible() && !!props.item.latest_quota
+  () => isChannelMonitorQuotaVisible() && !!props.item.latest_quota
 )
 
 const availabilityLabel = computed(() => {
   const win = t(`channelStatus.windowTab.${props.window}`)
   return `${t('monitorCommon.availabilityPrefix')} · ${win}`
 })
-
 </script>
