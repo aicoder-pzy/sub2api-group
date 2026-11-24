@@ -25,10 +25,13 @@ export interface MonitorTimelinePoint {
 }
 
 export interface MonitorIntelligencePoint {
-  status: 'normal' | 'degraded' | 'failed' | 'unknown'
+  status: 'normal' | 'degraded' | 'incorrect' | 'failed' | 'unknown'
   checked_at: string
   latency_ms: number
   effort?: string
+  answer?: string
+  expected_answer?: string
+  answer_truncated?: boolean
 }
 
 export interface MonitorIntelligenceTest {

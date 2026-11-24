@@ -11,7 +11,8 @@ import (
 
 // Only finished results for the configured group and exact public model count.
 // Text results also have to match the current question and grading rule. Private
-// prompts, answers, errors and accounts never leave the repository here.
+// prompts, custom answers, errors and accounts never leave the repository here.
+// Only the built-in candy question exposes a bounded answer and its grading value.
 const channelMonitorIntelligenceSQL = `
 SELECT m.id, COALESCE(p.id, 0), q.kind,
   COALESCE(p.pelican_config->>'question_name', ''), CASE
@@ -34,9 +35,14 @@ LEFT JOIN LATERAL (
   SELECT max(x.finished_at) AS latest,
     (array_agg(x.status ORDER BY x.finished_at DESC, x.id DESC))[1] AS last_status,
     jsonb_agg(jsonb_build_object('checked_at', x.finished_at, 'status', x.status,
-      'latency_ms', x.latency_ms, 'effort', x.effort) ORDER BY x.finished_at, x.id) AS history
+      'latency_ms', x.latency_ms, 'effort', x.effort, 'answer', x.answer,
+      'expected_answer', x.expected_answer, 'answer_truncated', x.answer_truncated)
+      ORDER BY x.finished_at, x.id) AS history
   FROM (
     SELECT r.id, r.finished_at, r.latency_ms, r.pelican_config->>'reasoning_effort' AS effort,
+      CASE WHEN q.kind='candy' THEN left(COALESCE(r.response_text, ''), 2000) END AS answer,
+      CASE WHEN q.kind='candy' THEN '21' END AS expected_answer,
+      q.kind='candy' AND length(COALESCE(r.response_text, ''))>2000 AS answer_truncated,
       CASE WHEN r.status <> 'success' AND q.kind IN ('candy','custom') AND starts_with(r.error_message, 'answer_mismatch') THEN 'incorrect'
         WHEN r.status <> 'success' THEN 'failed'
         WHEN q.kind IN ('candy','custom') THEN 'normal'

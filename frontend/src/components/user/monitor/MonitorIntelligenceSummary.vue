@@ -16,6 +16,14 @@
           @click.stop="selected = { testId: test.id, point }"
         />
       </div>
+      <details v-if="test.kind === 'candy' && test.history.length" :key="`${test.id}-${currentPoint(test)?.checked_at}`" class="mt-1.5 text-gray-600 dark:text-gray-300" data-testid="monitor-candy-answer">
+        <summary class="cursor-pointer rounded focus-visible:outline focus-visible:outline-2" :title="answerPreview(currentPoint(test))">
+          <span class="inline-block max-w-[65%] truncate align-bottom">{{ t('channelStatus.intelligence.actualAnswer') }}：{{ answerPreview(currentPoint(test)) }}</span>
+          <span class="ml-2 whitespace-nowrap text-gray-500">{{ t('channelStatus.intelligence.expectedAnswer') }}：{{ currentPoint(test)?.expected_answer || '—' }}</span>
+        </summary>
+        <p class="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap break-words" data-testid="monitor-candy-output">{{ currentPoint(test)?.answer?.trim() || t('channelStatus.intelligence.noAnswer') }}</p>
+        <p v-if="currentPoint(test)?.answer_truncated" class="mt-1 text-gray-500">{{ t('channelStatus.intelligence.answerTruncated') }}</p>
+      </details>
       <p v-if="test.history.length" class="mt-1.5 break-words text-gray-500 dark:text-gray-400">{{ intelligenceDetail(selected?.testId === test.id ? selected.point : test.history[test.history.length - 1]) }}</p>
     </div>
   </section>
@@ -51,6 +59,12 @@ function questionLabel(test: MonitorIntelligenceTest) {
   if (test.kind === 'candy') return t('admin.accounts.pelicanTest.candyQuestion')
   if (test.kind === 'custom') return test.name || t('pelicanTests.editor.customQuestion')
   return t('pelicanTests.pelicanQuestion')
+}
+function currentPoint(test: MonitorIntelligenceTest) {
+  return selected.value?.testId === test.id ? selected.value.point : test.history[test.history.length - 1]
+}
+function answerPreview(point?: MonitorIntelligencePoint) {
+  return point?.answer?.trim().split(/\r?\n/, 1)[0]?.replace(/\*\*|`/g, '') || t('channelStatus.intelligence.noAnswer')
 }
 function intelligenceDetail(point: MonitorIntelligencePoint) {
   return [new Date(point.checked_at).toLocaleString(), props.model, point.effort,
