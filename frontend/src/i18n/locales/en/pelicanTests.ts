@@ -152,7 +152,7 @@ export default {
     groupsLoadFailed: 'Failed to load groups. Refresh and try again.',
     model: 'Model',
     modelPlaceholder: 'e.g. gpt-6-astra',
-    modelHint: 'The model name users request from this group. The scheduler decides which account serves it.',
+    modelsHint: 'Enter one model per line or separate them with commas. Saving creates an independent test for each model; edit one existing model at a time.',
     prompt: 'Question',
     resetPrompt: 'Restore the default question',
     promptHint: 'A "reply with a standalone HTML file only" instruction is added when sending. Only HTML/SVG drawings are shown to users.',

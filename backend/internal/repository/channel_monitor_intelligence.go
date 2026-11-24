@@ -10,9 +10,9 @@ import (
 )
 
 // Only finished results for the configured group and exact public model count.
-// Text results also have to match the current question and grading rule. Private
-// prompts, custom answers, errors and accounts never leave the repository here.
-// Only the built-in candy question exposes a bounded answer and its grading value.
+// Text results also have to match the current question and grading rule. Only
+// question, bounded output and grading value are public; account/error fields
+// never leave the repository. Raw drawing output is rendered as escaped text.
 const channelMonitorIntelligenceSQL = `
 SELECT m.id, COALESCE(p.id, 0), q.kind,
   COALESCE(p.pelican_config->>'question_name', ''), CASE
@@ -36,14 +36,20 @@ LEFT JOIN LATERAL (
     (array_agg(x.status ORDER BY x.finished_at DESC, x.id DESC))[1] AS last_status,
     jsonb_agg(jsonb_build_object('checked_at', x.finished_at, 'status', x.status,
       'latency_ms', x.latency_ms, 'effort', x.effort, 'answer', x.answer,
-      'expected_answer', x.expected_answer, 'answer_truncated', x.answer_truncated)
+      'expected_answer', x.expected_answer, 'answer_truncated', x.answer_truncated,
+      'prompt', x.prompt, 'prompt_truncated', x.prompt_truncated,
+      'confirmation_pending', x.confirmation_pending)
       ORDER BY x.finished_at, x.id) AS history
   FROM (
     SELECT r.id, r.finished_at, r.latency_ms, r.pelican_config->>'reasoning_effort' AS effort,
-      CASE WHEN q.kind='candy' THEN left(COALESCE(r.response_text, ''), 2000) END AS answer,
-      CASE WHEN q.kind='candy' THEN '21' END AS expected_answer,
-      q.kind='candy' AND length(COALESCE(r.response_text, ''))>2000 AS answer_truncated,
-      CASE WHEN r.status <> 'success' AND q.kind IN ('candy','custom') AND starts_with(r.error_message, 'answer_mismatch') THEN 'incorrect'
+      left(COALESCE(r.pelican_config->>'prompt',''),2000) AS prompt,
+      length(COALESCE(r.pelican_config->>'prompt',''))>2000 AS prompt_truncated,
+      left(COALESCE(r.response_text, ''), 2000) AS answer,
+      CASE WHEN q.kind='candy' THEN '21' WHEN q.kind='custom' THEN r.pelican_config->>'expected_answer' ELSE 'HTML / SVG' END AS expected_answer,
+      length(COALESCE(r.response_text, ''))>2000 AS answer_truncated,
+      r.intelligence_pending AS confirmation_pending,
+      CASE WHEN r.intelligence_status<>'' AND q.kind IN ('candy','custom') THEN r.intelligence_status
+        WHEN r.status <> 'success' AND q.kind IN ('candy','custom') AND starts_with(r.error_message, 'answer_mismatch') THEN 'unknown'
         WHEN r.status <> 'success' THEN 'failed'
         WHEN q.kind IN ('candy','custom') THEN 'normal'
         WHEN r.quality_verdict IN ('normal','degraded') THEN r.quality_verdict
@@ -104,14 +110,6 @@ func (r *channelMonitorRepository) ListMonitorIntelligence(ctx context.Context, 
 		})
 		if n := len(summary.History); n > 20 {
 			summary.History = summary.History[n-20:]
-		}
-		if summary.State == "incorrect" {
-			summary.State = "failed"
-		}
-		for i := range summary.History {
-			if summary.History[i].Status == "incorrect" {
-				summary.History[i].Status = "failed"
-			}
 		}
 	}
 	return out, nil

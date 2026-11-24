@@ -50,13 +50,16 @@ func (s *ChannelMonitorService) ListUserIntelligence(ctx context.Context) ([]Mon
 }
 
 type MonitorIntelligencePoint struct {
-	Status          string    `json:"status"`
-	CheckedAt       time.Time `json:"checked_at"`
-	LatencyMs       int       `json:"latency_ms"`
-	Effort          string    `json:"effort,omitempty"`
-	Answer          string    `json:"answer,omitempty"`
-	ExpectedAnswer  string    `json:"expected_answer,omitempty"`
-	AnswerTruncated bool      `json:"answer_truncated,omitempty"`
+	Status              string    `json:"status"`
+	CheckedAt           time.Time `json:"checked_at"`
+	LatencyMs           int       `json:"latency_ms"`
+	Effort              string    `json:"effort,omitempty"`
+	Prompt              string    `json:"prompt,omitempty"`
+	PromptTruncated     bool      `json:"prompt_truncated,omitempty"`
+	Answer              string    `json:"answer,omitempty"`
+	ExpectedAnswer      string    `json:"expected_answer,omitempty"`
+	AnswerTruncated     bool      `json:"answer_truncated,omitempty"`
+	ConfirmationPending bool      `json:"confirmation_pending,omitempty"`
 }
 
 func monitorIntelligenceGroup(id *int64) *int64 {

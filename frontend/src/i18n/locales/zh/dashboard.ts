@@ -597,6 +597,8 @@ export default {
       incorrect: '答题未通过',
       actualAnswer: '实际作答',
       expectedAnswer: '标准值',
+      testQuestion: '测试题目',
+      questionTruncated: '题目过长，此处展示前 2000 字。',
       noAnswer: '未返回作答',
       answerTruncated: '作答较长，此处展示前 2000 字。',
       noChannels: '暂无绑定测智分组的渠道。',

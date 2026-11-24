@@ -29,9 +29,12 @@ export interface MonitorIntelligencePoint {
   checked_at: string
   latency_ms: number
   effort?: string
+    prompt?: string
+    prompt_truncated?: boolean
   answer?: string
   expected_answer?: string
   answer_truncated?: boolean
+    confirmation_pending?: boolean
 }
 
 export interface MonitorIntelligenceTest {

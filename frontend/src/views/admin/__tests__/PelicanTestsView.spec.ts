@@ -323,6 +323,21 @@ describe('PelicanTestsView', () => {
     expect(wrapper.find('[data-testid="pelican-test-editor"]').exists()).toBe(false)
   })
 
+  it('creates one independent group test per model from a single configuration', async () => {
+    api.createPlan.mockResolvedValue(plan())
+    wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="pelican-tests-create"]').trigger('click')
+    await flushPromises()
+    const editor = wrapper.get('[data-testid="pelican-test-editor"]')
+    await editor.get('[data-testid="pelican-test-group"]').setValue('4')
+    await editor.get('[data-testid="pelican-test-model"]').setValue('gpt-6.2-sol\n gpt-6.1-sol, gpt-6.2-sol ')
+    await editor.trigger('submit')
+    await flushPromises()
+    expect(api.createPlan).toHaveBeenCalledTimes(2)
+    expect(api.createPlan.mock.calls.map(([input]) => input.model_id)).toEqual(['gpt-6.2-sol', 'gpt-6.1-sol'])
+  })
+
   it('asks for the missing fields before creating', async () => {
     wrapper = mountView()
     await flushPromises()

@@ -482,6 +482,11 @@ func (s *PelicanGroupTestService) RunDue(ctx context.Context, now time.Time) {
 		}(plan)
 	}
 	wg.Wait()
+	go func() {
+		retryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		s.runTextIntelligenceDue(retryCtx, s.now())
+	}()
 	s.runDegradationDue(ctx, s.now(), 0)
 }
 

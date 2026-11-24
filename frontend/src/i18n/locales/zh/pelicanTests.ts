@@ -158,7 +158,7 @@ export default {
     groupsLoadFailed: '分组加载失败，请刷新后重试',
     model: '模型',
     modelPlaceholder: '例如 gpt-6-astra',
-    modelHint: '用户请求这个分组时使用的模型名；实际落到哪个账号由调度器决定。',
+    modelsHint: '每行或用逗号分隔一个模型；保存后会为每个模型建立独立测试。编辑现有计划时只能填一个模型。',
     prompt: '题目',
     resetPrompt: '恢复默认题目',
     promptHint: '发送时会加上「只输出独立 HTML」的交付要求；只有画出 HTML/SVG 的作品会展示给用户。',

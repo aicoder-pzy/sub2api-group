@@ -272,8 +272,8 @@
         </div>
         <div>
           <label class="field-label mt-0" for="pelican-test-model">{{ t('pelicanTests.editor.model') }}</label>
-          <input id="pelican-test-model" v-model.trim="editor.form.model_id" maxlength="100" class="input w-full" :placeholder="t('pelicanTests.editor.modelPlaceholder')" data-testid="pelican-test-model" />
-          <p class="field-hint">{{ t('pelicanTests.editor.modelHint') }}</p>
+          <textarea id="pelican-test-model" v-model="editor.models" rows="2" class="input w-full" :placeholder="t('pelicanTests.editor.modelPlaceholder')" data-testid="pelican-test-model" />
+          <p class="field-hint">{{ t('pelicanTests.editor.modelsHint') }}</p>
         </div>
         <div v-if="editor.form.question_kind === 'pelican'">
           <label class="field-label mt-0" for="pelican-test-mode">{{ t('pelicanTests.creative.questionMode') }}</label>
@@ -534,7 +534,7 @@ const questionSets = computed(() => {
   }
   return sets
 })
-const editor = ref<{ id: number | null; groupName: string; form: PelicanGroupTestPlanInput; schedule: string } | null>(null)
+const editor = ref<{ id: number | null; groupName: string; models: string; form: PelicanGroupTestPlanInput; schedule: string } | null>(null)
 const deleting = ref<PelicanGroupTestPlan | null>(null)
 const resetting = ref<PelicanGroupTestPlan | null>(null)
 const resettingGroupID = ref<number | null>(null)
@@ -798,7 +798,7 @@ function openEditor(target: PelicanGroupTestPlan | PelicanGroupTestQuestionKind,
   } : inputFrom(target)
   const schedule = SCHEDULES.some((preset) => preset.cron === form.cron_expression) ? form.cron_expression : 'custom'
   const plan = typeof target === 'string' ? null : target
-  editor.value = { id: plan?.id ?? null, groupName: plan?.group_name ?? reference?.group_name ?? '', form, schedule }
+  editor.value = { id: plan?.id ?? null, groupName: plan?.group_name ?? reference?.group_name ?? '', models: form.model_id, form, schedule }
   void loadGroups()
 }
 
@@ -815,13 +815,14 @@ async function savePlan() {
   const current = editor.value
   if (!current || savingPlan.value) return
   const form = current.form
+  const models = [...new Set(current.models.split(/[\s,，;；]+/).map(model => model.trim()).filter(Boolean))]
   if (form.enabled && form.prompt_mode === 'random_creative' && (!form.creative_judge_group_id || !form.creative_judge_model_id?.trim())) {
     fail(null, t('pelicanTests.creative.judgeRequired'))
     return
   }
   if (!validPelicanOutputTokenLimit(form.max_output_tokens)) return
   const candy = form.question_kind === 'candy'
-  if (!form.group_id || !form.model_id.trim() || (!candy && form.prompt_mode !== 'random_creative' && !form.prompt.trim()) || !form.cron_expression.trim()) {
+  if (!form.group_id || !models.length || models.some(model => model.length > 100) || (current.id && models.length !== 1) || (!candy && form.prompt_mode !== 'random_creative' && !form.prompt.trim()) || !form.cron_expression.trim()) {
     fail(null, t('pelicanTests.editor.required'))
     return
   }
@@ -833,6 +834,7 @@ async function savePlan() {
   try {
     const input = {
       ...form,
+      model_id: models[0]!,
       ...(candy ? { prompt: CANDY_PROMPT, verification_tasks: undefined } : {}),
       parallel_count: Number(form.parallel_count) || 1,
     }
@@ -840,13 +842,16 @@ async function savePlan() {
       await pelicanTestsAPI.updatePlan(current.id, input)
       succeed(t('pelicanTests.editor.updated'))
     } else {
-      await pelicanTestsAPI.createPlan(input)
+      for (const model of models) await pelicanTestsAPI.createPlan({ ...input, model_id: model })
       succeed(t('pelicanTests.editor.created'))
     }
     editor.value = null
     plans.value = await pelicanTestsAPI.listPlans()
   } catch (err: unknown) {
     fail(err, t('pelicanTests.editor.saveFailed'))
+    if (!current.id) {
+      try { plans.value = await pelicanTestsAPI.listPlans() } catch { /* keep the already loaded plan list */ }
+    }
   } finally {
     savingPlan.value = false
   }

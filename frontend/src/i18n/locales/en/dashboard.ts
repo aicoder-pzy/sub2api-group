@@ -592,6 +592,8 @@ export default {
       incorrect: 'Incorrect answer',
       actualAnswer: 'Actual answer',
       expectedAnswer: 'Expected answer',
+      testQuestion: 'Test question',
+      questionTruncated: 'Long question; showing the first 2,000 characters.',
       noAnswer: 'No answer returned',
       answerTruncated: 'Long answer; showing the first 2,000 characters.',
       noChannels: 'No channels have a test group configured.',
