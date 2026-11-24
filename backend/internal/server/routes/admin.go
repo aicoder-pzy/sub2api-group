@@ -435,6 +435,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/upstream-balance/notifications/:channel_id/test", h.Admin.Account.TestBalanceNotification)
 		accounts.GET("/upstream-balance/notifications/history", h.Admin.Account.GetBalanceNotificationHistory)
 		accounts.GET("/upstream-balance/notifications/account-switch-history", h.Admin.Account.GetSchedulingNotificationHistory)
+		accounts.POST("/upstream-billing-probe/group-preview", h.Admin.Account.PreviewUpstreamGroup)
 		accounts.GET("/ollama-cloud-usage/settings", h.Admin.Account.GetOllamaCloudUsageSettings)
 		accounts.PUT("/ollama-cloud-usage/settings", h.Admin.Account.UpdateOllamaCloudUsageSettings)
 		accounts.GET("/opencode-go-usage/settings", h.Admin.Account.GetOpenCodeGoUsageSettings)

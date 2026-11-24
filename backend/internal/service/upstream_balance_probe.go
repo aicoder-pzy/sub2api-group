@@ -399,7 +399,7 @@ func (s *UpstreamBillingProbeService) probeLoadedBalance(ctx context.Context, ac
 		req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(WithHTTPUpstreamProfile(req.Context(), profile)))
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("Authorization", "Bearer "+key)
-		account.ApplyHeaderOverrides(req.Header)
+		account.ApplyHeaderOverrides(req.Context(), req.Header)
 		var tlsProfile *tlsfingerprint.Profile
 		if s.accountTestService.tlsFPProfileService != nil {
 			tlsProfile = s.accountTestService.tlsFPProfileService.ResolveTLSProfile(account)

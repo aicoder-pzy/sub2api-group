@@ -34,6 +34,25 @@ func newCompactBridgeTestService() *OpenAIGatewayService {
 	}
 }
 
+func TestCompactFailureKeepsCapacityErrorsRetryable(t *testing.T) {
+	for _, test := range []struct{ code, want string }{
+		{"server_is_overloaded", openAICapacityShedRetryableClientCode},
+		{" SLOW_DOWN ", openAICapacityShedRetryableClientCode},
+		{"invalid_encrypted_content", "invalid_encrypted_content"},
+		{" ", "upstream_error"},
+	} {
+		t.Run(test.code, func(t *testing.T) {
+			c, recorder := newCompactBridgeTestContext(t, true)
+			writeOpenAICompactSSEFailureWithCode(c, http.StatusServiceUnavailable, test.code, "safe upstream error")
+			events := parseCompactBridgeSSE(t, recorder.Body.String())
+			require.Len(t, events, 1)
+			require.Equal(t, "response.failed", events[0][0])
+			require.Equal(t, test.want, gjson.Get(events[0][1], "response.error.code").String())
+			require.Equal(t, "safe upstream error", gjson.Get(events[0][1], "response.error.message").String())
+		})
+	}
+}
+
 // parseCompactBridgeSSE 把合成的 SSE 文本拆成 (eventType, dataJSON) 序列。
 func parseCompactBridgeSSE(t *testing.T, body string) [][2]string {
 	t.Helper()

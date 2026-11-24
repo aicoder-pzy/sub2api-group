@@ -140,7 +140,7 @@ func (s *UpstreamBillingProbeService) newAPIRequest(ctx context.Context, a *Acco
 	if e != nil {
 		return newAPIError("request_build_failed")
 	}
-	a.ApplyHeaderOverrides(req.Header)
+	a.ApplyHeaderOverrides(req.Context(), req.Header)
 	for key := range req.Header {
 		if strings.EqualFold(key, "Authorization") || strings.EqualFold(key, "New-Api-User") || strings.EqualFold(key, "Cookie") {
 			delete(req.Header, key)
