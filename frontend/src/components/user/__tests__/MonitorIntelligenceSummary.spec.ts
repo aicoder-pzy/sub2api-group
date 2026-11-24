@@ -22,17 +22,23 @@ it('shows the real latest and selected candy answers, never inventing an answer 
   const wrapper = mount(MonitorIntelligenceSummary, { props: { intelligence, model: 'gpt-6.2-sol' } })
   expect(wrapper.findAll('[data-testid="monitor-candy-answer"]')).toHaveLength(1)
   const candy = wrapper.get('[data-testid="monitor-intelligence-test-1"]')
-  expect(candy.get('summary').text()).toContain('最少取 21 个。')
-  expect(candy.get('summary').text()).toContain('channelStatus.intelligence.expectedAnswer：21')
+  expect(candy.get('summary').attributes('aria-label')).toBe('channelStatus.intelligence.actualAnswer')
+  expect(candy.get('[data-testid="monitor-candy-answer"]').text()).toContain('channelStatus.intelligence.expectedAnswer：21')
+  expect(candy.get('[data-testid="monitor-candy-output"]').text()).toContain('最少取 **21 个**。')
   expect(candy.get('[data-testid="monitor-candy-output"]').text()).toContain('<script>alert(1)</script>')
   expect(wrapper.find('script').exists()).toBe(false)
   await candy.findAll('button')[0]!.trigger('click')
-  expect(candy.get('summary').text()).toContain('channelStatus.intelligence.actualAnswer：29')
   expect(candy.get('[data-testid="monitor-candy-output"]').text()).toBe('29')
+  const detail = candy.get('[data-testid="monitor-intelligence-detail"]')
+  expect(detail.text()).not.toContain('gpt-6.2-sol')
+  expect(detail.attributes('title')).toContain('gpt-6.2-sol')
+  const popup = candy.get('details')
+  popup.element.open = true
+  await popup.trigger('keydown', { key: 'Escape' })
+  expect(popup.element.open).toBe(false)
   await wrapper.setProps({ intelligence: { state: 'failed', history: [], tests: [
     { id: 1, kind: 'candy', state: 'failed', history: [{ status: 'failed', checked_at: '2026-11-24T05:30:00Z', latency_ms: 2000, expected_answer: '21' }] },
   ] } })
-  expect(wrapper.get('summary').text()).toContain('channelStatus.intelligence.noAnswer')
   expect(wrapper.get('[data-testid="monitor-candy-output"]').text()).toBe('channelStatus.intelligence.noAnswer')
   await wrapper.setProps({ intelligence: { state: 'normal', history: [], tests: [
     { id: 1, kind: 'candy', state: 'normal', history: [{ status: 'normal', checked_at: '2026-11-24T05:45:00Z', latency_ms: 2000, answer: '21'.repeat(1000), expected_answer: '21', answer_truncated: true }] },
