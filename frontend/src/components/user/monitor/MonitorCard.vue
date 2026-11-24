@@ -3,7 +3,7 @@
     class="relative group text-left p-5 rounded-2xl min-h-[280px] min-w-0 w-full bg-white/70 backdrop-blur-xl border border-gray-200/80 shadow-card dark:bg-dark-800/60 dark:border-dark-700/70 hover:-translate-y-1 hover:shadow-card-hover dark:hover:border-primary-500/30 hover:border-gray-300 transition-all duration-300 ease-out flex flex-col"
   >
     <div class="relative w-full">
-      <!-- One card per channel, with a separate result section per probe model. -->
+      <!-- One card per channel; switch models without stacking result panels. -->
       <div class="flex items-start gap-3">
         <span
           class="w-9 h-9 rounded-xl ring-1 ring-black/5 dark:ring-white/10 grid place-items-center flex-shrink-0"
@@ -32,32 +32,34 @@
         </div>
       </div>
 
-      <section
-        v-for="model in models"
-        :key="model.model"
-        :data-model="model.model"
-        :aria-label="formatMonitorModel(model.model)"
-        class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700/60"
-      >
-        <h4>
+      <div class="mt-3 flex items-start gap-2">
+        <div class="flex min-w-0 flex-1 flex-wrap gap-1.5">
           <button
+            v-for="probe in models"
+            :key="probe.model"
             type="button"
-            class="flex w-full items-start justify-between gap-2 rounded-md text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
-            :aria-label="`${formatMonitorModel(model.model)} (${item.name})`"
-            @click="emit('click', model.model)"
+            :data-model-select="probe.model"
+            :aria-pressed="model.model === probe.model"
+            :title="statusLabel(probe.status)"
+            class="max-w-full rounded-md border border-transparent px-2 py-1 text-left text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
+            :class="[statusBadgeClass(probe.status), { 'ring-1 ring-current': model.model === probe.model }]"
+            @click="selectedModel = probe.model"
           >
-            <span class="min-w-0 break-all font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {{ formatMonitorModel(model.model) }}
-            </span>
-            <span
-              class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold"
-              :class="statusBadgeClass(model.status)"
-            >
-              {{ statusLabel(model.status) }}
-            </span>
+            <span class="break-all font-mono font-medium">{{ formatMonitorModel(probe.model) }}</span>
+            <span class="sr-only"> · {{ statusLabel(probe.status) }}</span>
           </button>
-        </h4>
+        </div>
+        <button
+          type="button"
+          class="shrink-0 rounded-md px-1 py-1 text-xs text-gray-500 hover:text-primary-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 dark:text-gray-400"
+          :aria-label="`${formatMonitorModel(model.model)} (${item.name})`"
+          @click="emit('click', model.model)"
+        >
+          {{ t('common.view') }} ›
+        </button>
+      </div>
 
+      <section :data-model="model.model" :aria-label="formatMonitorModel(model.model)">
         <MonitorMetricPair
           primary-icon="bolt"
           :primary-label="t('monitorCommon.dialogLatency')"
@@ -97,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UserMonitorExtraModel, UserMonitorView } from '@/api/channelMonitor'
 import {
@@ -160,6 +162,12 @@ const models = computed<UserMonitorExtraModel[]>(() => [
   },
   ...(props.item.extra_models ?? []).filter(model => model.model && model.model !== props.item.primary_model),
 ])
+
+const selectedModel = ref(props.item.primary_model)
+const model = computed(() => models.value.find(probe => probe.model === selectedModel.value) ?? models.value[0]!)
+watch(models, probes => {
+  if (!probes.some(probe => probe.model === selectedModel.value)) selectedModel.value = props.item.primary_model
+})
 
 const quotaVisible = computed(
   () => isChannelMonitorQuotaVisible() && !!props.item.latest_quota
