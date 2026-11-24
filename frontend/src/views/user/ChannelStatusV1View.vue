@@ -21,7 +21,8 @@
 
     <MonitorDetailDialog
       :show="showDetail"
-      :monitor-id="detailTarget?.id ?? null"
+      :monitor-id="detailTarget?.item.id ?? null"
+      :model="detailTarget?.model"
       :title="detailTitle"
       @close="closeDetail"
     />
@@ -58,7 +59,7 @@ const loading = ref(false)
 const currentWindow = ref<MonitorWindow>('7d')
 const detailCache = reactive<Record<number, UserMonitorDetail>>({})
 const showDetail = ref(false)
-const detailTarget = ref<UserMonitorView | null>(null)
+const detailTarget = ref<{ item: UserMonitorView; model: string } | null>(null)
 
 let abortController: AbortController | null = null
 
@@ -74,16 +75,14 @@ const countdown = autoRefresh.countdown
 
 // ── Computed ──
 const overallStatus = computed<OverallStatus>(() => {
-  if (items.value.length === 0) return 'operational'
-  for (const it of items.value) {
-    if (it.primary_status === 'failed' || it.primary_status === 'error') return 'degraded'
-    if (it.primary_status !== STATUS_OPERATIONAL) return 'degraded'
-  }
-  return 'operational'
+  return items.value.some(item =>
+    item.primary_status !== STATUS_OPERATIONAL ||
+    item.extra_models?.some(probe => probe.status && probe.status !== STATUS_OPERATIONAL)
+  ) ? 'degraded' : 'operational'
 })
 
 const detailTitle = computed(() => {
-  return detailTarget.value?.name || t('channelStatus.detailTitle')
+  return detailTarget.value?.item.name || t('channelStatus.detailTitle')
 })
 
 // ── Loaders ──
@@ -138,8 +137,8 @@ async function handleWindowChange(value: MonitorWindow) {
   await ensureDetailsForWindow()
 }
 
-function openDetail(row: UserMonitorView) {
-  detailTarget.value = row
+function openDetail(item: UserMonitorView, model: string) {
+  detailTarget.value = { item, model }
   showDetail.value = true
 }
 

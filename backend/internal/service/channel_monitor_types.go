@@ -147,7 +147,7 @@ type CheckResult struct {
 	Quota *domain.MonitorQuotaSnapshot
 }
 
-// UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7d 可用率 + 附加模型最近状态）。
+// UserMonitorView contains saved probe results for the configured models.
 type UserMonitorView struct {
 	Intelligence         *MonitorIntelligence
 	ID                   int64
@@ -157,10 +157,11 @@ type UserMonitorView struct {
 	PrimaryModel         string
 	PrimaryStatus        string
 	PrimaryLatencyMs     *int
-	PrimaryPingLatencyMs *int    // 主模型最近一次 ping 延迟
-	Availability7d       float64 // 0-100
-	ExtraModels          []ExtraModelStatus
-	Timeline             []UserMonitorTimelinePoint // 主模型最近 N 个历史点（按 checked_at DESC，最新在前）
+	PrimaryPingLatencyMs *int // 主模型最近一次 ping 延迟
+	Availability7d       float64
+	HasAvailability7d    bool
+	ExtraModels          []UserMonitorExtraModel
+	Timeline             []UserMonitorTimelinePoint
 	// LatestQuota 主模型最近一次配额快照；channel_monitor_show_quota=false
 	// 时由 handler 服务端剥离。
 	LatestQuota *domain.MonitorQuotaSnapshot
@@ -176,9 +177,17 @@ type UserMonitorTimelinePoint struct {
 
 // ExtraModelStatus 附加模型最近一次状态。
 type ExtraModelStatus struct {
-	Model     string
-	Status    string
-	LatencyMs *int
+	Model          string
+	Status         string
+	LatencyMs      *int
+	PingLatencyMs  *int
+	Availability7d *float64
+}
+
+// UserMonitorExtraModel contains one additional probe model's status and history.
+type UserMonitorExtraModel struct {
+	ExtraModelStatus
+	Timeline []UserMonitorTimelinePoint
 }
 
 // UserMonitorDetail 用户只读视图：监控详情（含全部模型 7d/15d/30d 可用率与平均延迟）。
@@ -249,9 +258,11 @@ type ChannelMonitorAvailability struct {
 // PrimaryStatus / PrimaryLatencyMs 描述主模型最近状态；Availability7d 是主模型 7 天可用率；
 // ExtraModels 描述附加模型最近状态（用于 hover 展示）。
 type MonitorStatusSummary struct {
-	PrimaryStatus    string // 空字符串表示无历史
-	PrimaryLatencyMs *int
-	Availability7d   float64 // 0-100，无历史时为 0
-	ExtraModels      []ExtraModelStatus
-	LatestQuota      *domain.MonitorQuotaSnapshot // 主模型最近配额快照（配额模式）
+	PrimaryPingLatencyMs *int
+	HasAvailability7d    bool
+	PrimaryStatus        string // 空字符串表示无历史
+	PrimaryLatencyMs     *int
+	Availability7d       float64 // 0-100，无历史时为 0
+	ExtraModels          []ExtraModelStatus
+	LatestQuota          *domain.MonitorQuotaSnapshot // 主模型最近配额快照（配额模式）
 }

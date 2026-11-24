@@ -115,7 +115,7 @@ const (
 	// MonitorHistoryMaxLimit 历史查询最大返回条数（handler 层共享）。
 	MonitorHistoryMaxLimit = 1000
 
-	// monitorTimelineMaxPoints 用户视图 timeline 每个监控最多返回的历史点数。
+	// monitorTimelineMaxPoints caps the history returned per probe model.
 	monitorTimelineMaxPoints = 60
 
 	// monitorEndpointResolveTimeout validateEndpoint 解析 hostname 的最长耗时。

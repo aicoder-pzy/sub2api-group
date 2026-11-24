@@ -52,25 +52,32 @@ func (h *ChannelMonitorUserHandler) quotaVisible(c *gin.Context) bool {
 // --- Response ---
 
 type channelMonitorUserListItem struct {
-	Intelligence         *service.MonitorIntelligence         `json:"intelligence,omitempty"`
-	ID                   int64                                `json:"id"`
-	Name                 string                               `json:"name"`
-	Provider             string                               `json:"provider"`
-	GroupName            string                               `json:"group_name"`
-	PrimaryModel         string                               `json:"primary_model"`
-	PrimaryStatus        string                               `json:"primary_status"`
-	PrimaryLatencyMs     *int                                 `json:"primary_latency_ms"`
-	PrimaryPingLatencyMs *int                                 `json:"primary_ping_latency_ms"`
-	Availability7d       float64                              `json:"availability_7d"`
-	ExtraModels          []dto.ChannelMonitorExtraModelStatus `json:"extra_models"`
-	Timeline             []channelMonitorUserTimelinePoint    `json:"timeline"`
+	Intelligence         *service.MonitorIntelligence      `json:"intelligence,omitempty"`
+	ID                   int64                             `json:"id"`
+	Name                 string                            `json:"name"`
+	Provider             string                            `json:"provider"`
+	GroupName            string                            `json:"group_name"`
+	PrimaryModel         string                            `json:"primary_model"`
+	PrimaryStatus        string                            `json:"primary_status"`
+	PrimaryLatencyMs     *int                              `json:"primary_latency_ms"`
+	PrimaryPingLatencyMs *int                              `json:"primary_ping_latency_ms"`
+	Availability7d       float64                           `json:"availability_7d"`
+	HasAvailability7d    bool                              `json:"has_availability_7d"`
+	ExtraModels          []channelMonitorUserExtraModel    `json:"extra_models"`
+	Timeline             []channelMonitorUserTimelinePoint `json:"timeline"`
 	// LatestQuota 主模型最近配额快照；channel_monitor_show_quota=false 时
 	// 由 userMonitorViewToItem 的调用方传入 false 剥离（服务端脱敏，非仅前端隐藏）。
 	LatestQuota *domain.MonitorQuotaSnapshot `json:"latest_quota,omitempty"`
 }
 
-// channelMonitorUserTimelinePoint 主模型最近一次检测的 timeline 点。
-// 仅用于用户视图 list 响应，admin 视图不使用。
+type channelMonitorUserExtraModel struct {
+	dto.ChannelMonitorExtraModelStatus
+	PingLatencyMs  *int                              `json:"ping_latency_ms"`
+	Availability7d *float64                          `json:"availability_7d"`
+	Timeline       []channelMonitorUserTimelinePoint `json:"timeline"`
+}
+
+// channelMonitorUserTimelinePoint is one saved result for a probe model.
 type channelMonitorUserTimelinePoint struct {
 	Status        string `json:"status"`
 	LatencyMs     *int   `json:"latency_ms"`
@@ -97,21 +104,17 @@ type channelMonitorUserModelStat struct {
 }
 
 func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channelMonitorUserListItem {
-	extras := make([]dto.ChannelMonitorExtraModelStatus, 0, len(v.ExtraModels))
+	extras := make([]channelMonitorUserExtraModel, 0, len(v.ExtraModels))
 	for _, e := range v.ExtraModels {
-		extras = append(extras, dto.ChannelMonitorExtraModelStatus{
-			Model:     e.Model,
-			Status:    e.Status,
-			LatencyMs: e.LatencyMs,
-		})
-	}
-	timeline := make([]channelMonitorUserTimelinePoint, 0, len(v.Timeline))
-	for _, p := range v.Timeline {
-		timeline = append(timeline, channelMonitorUserTimelinePoint{
-			Status:        p.Status,
-			LatencyMs:     p.LatencyMs,
-			PingLatencyMs: p.PingLatencyMs,
-			CheckedAt:     p.CheckedAt.UTC().Format(time.RFC3339),
+		extras = append(extras, channelMonitorUserExtraModel{
+			ChannelMonitorExtraModelStatus: dto.ChannelMonitorExtraModelStatus{
+				Model:     e.Model,
+				Status:    e.Status,
+				LatencyMs: e.LatencyMs,
+			},
+			PingLatencyMs:  e.PingLatencyMs,
+			Availability7d: e.Availability7d,
+			Timeline:       userMonitorTimelineToResponse(e.Timeline),
 		})
 	}
 	item := channelMonitorUserListItem{
@@ -125,13 +128,27 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 		PrimaryLatencyMs:     v.PrimaryLatencyMs,
 		PrimaryPingLatencyMs: v.PrimaryPingLatencyMs,
 		Availability7d:       v.Availability7d,
+		HasAvailability7d:    v.HasAvailability7d,
 		ExtraModels:          extras,
-		Timeline:             timeline,
+		Timeline:             userMonitorTimelineToResponse(v.Timeline),
 	}
 	if includeQuota {
 		item.LatestQuota = v.LatestQuota
 	}
 	return item
+}
+
+func userMonitorTimelineToResponse(points []service.UserMonitorTimelinePoint) []channelMonitorUserTimelinePoint {
+	timeline := make([]channelMonitorUserTimelinePoint, 0, len(points))
+	for _, p := range points {
+		timeline = append(timeline, channelMonitorUserTimelinePoint{
+			Status:        p.Status,
+			LatencyMs:     p.LatencyMs,
+			PingLatencyMs: p.PingLatencyMs,
+			CheckedAt:     p.CheckedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return timeline
 }
 
 func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUserDetailResponse {

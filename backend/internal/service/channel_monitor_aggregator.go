@@ -54,7 +54,7 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 //	1 次查 monitors；
 //	1 次批量 latest（含 ping_latency_ms）；
 //	1 次批量 7d availability；
-//	1 次批量 timeline（主模型最近 N 条）。
+//	1 batched timeline query for the configured models.
 func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonitorView, error) {
 	monitors, err := s.repo.ListEnabled(ctx)
 	if err != nil {
@@ -66,14 +66,12 @@ func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonito
 
 	ids, primaryByID, extrasByID := collectMonitorIndexes(monitors)
 	summaries := s.BatchMonitorStatusSummary(ctx, ids, primaryByID, extrasByID)
-	latestMap := s.batchLatest(ctx, ids)
-	timelineMap := s.batchTimeline(ctx, ids, primaryByID)
+	timelineMap := s.batchTimeline(ctx, monitors)
 
 	intelligence := s.batchMonitorIntelligence(ctx, monitors)
 	views := make([]*UserMonitorView, 0, len(monitors))
 	for _, m := range monitors {
-		primaryLatest := pickLatest(latestMap[m.ID], m.PrimaryModel)
-		view := buildUserViewFromSummary(m, summaries[m.ID], primaryLatest, timelineMap[m.ID])
+		view := buildUserViewFromSummary(m, summaries[m.ID], timelineMap[m.ID])
 		view.Intelligence = intelligence[m.ID]
 		views = append(views, view)
 	}
@@ -93,41 +91,21 @@ func collectMonitorIndexes(monitors []*ChannelMonitor) ([]int64, map[int64]strin
 	return ids, primaryByID, extrasByID
 }
 
-// batchLatest 批量取 latest per model，失败仅日志（与现有 BatchMonitorStatusSummary 一致，不阻断列表渲染）。
-func (s *ChannelMonitorService) batchLatest(ctx context.Context, ids []int64) map[int64][]*ChannelMonitorLatest {
-	latestMap, err := s.repo.ListLatestForMonitorIDs(ctx, ids)
-	if err != nil {
-		slog.Warn("channel_monitor: user view batch latest failed", "error", err)
-		return map[int64][]*ChannelMonitorLatest{}
-	}
-	return latestMap
-}
-
-// batchTimeline 批量取每个 monitor 主模型最近 monitorTimelineMaxPoints 条历史。
+// batchTimeline reads a bounded history for each configured model in one query.
 func (s *ChannelMonitorService) batchTimeline(
 	ctx context.Context,
-	ids []int64,
-	primaryByID map[int64]string,
-) map[int64][]*ChannelMonitorHistoryEntry {
-	timelineMap, err := s.repo.ListRecentHistoryForMonitors(ctx, ids, primaryByID, monitorTimelineMaxPoints)
+	monitors []*ChannelMonitor,
+) map[int64]map[string][]*ChannelMonitorHistoryEntry {
+	modelsByMonitor := make(map[int64][]string, len(monitors))
+	for _, m := range monitors {
+		modelsByMonitor[m.ID] = normalizeModels(append([]string{m.PrimaryModel}, m.ExtraModels...))
+	}
+	timelines, err := s.repo.ListRecentHistoryForMonitors(ctx, modelsByMonitor, monitorTimelineMaxPoints)
 	if err != nil {
 		slog.Warn("channel_monitor: user view batch timeline failed", "error", err)
-		return map[int64][]*ChannelMonitorHistoryEntry{}
-	}
-	return timelineMap
-}
-
-// pickLatest 从 latest 切片中挑出指定 model 对应项，未命中返回 nil。
-func pickLatest(rows []*ChannelMonitorLatest, model string) *ChannelMonitorLatest {
-	if model == "" {
 		return nil
 	}
-	for _, r := range rows {
-		if r.Model == model {
-			return r
-		}
-	}
-	return nil
+	return timelines
 }
 
 // GetUserDetail 用户只读视图：单个监控详情（每个模型 7d/15d/30d 可用率与平均延迟）。
@@ -207,11 +185,13 @@ func buildStatusSummary(
 		if l, ok := latestByModel[primary]; ok {
 			summary.PrimaryStatus = l.Status
 			summary.PrimaryLatencyMs = l.LatencyMs
+			summary.PrimaryPingLatencyMs = l.PingLatencyMs
 			// 配额快照只挂主模型行（quota 模式唯一行 / quota_probe 的主行）。
 			summary.LatestQuota = l.Quota
 		}
 		if a, ok := availByModel[primary]; ok {
 			summary.Availability7d = a.AvailabilityPct
+			summary.HasAvailability7d = true
 		}
 	}
 	for _, model := range extras {
@@ -219,37 +199,44 @@ func buildStatusSummary(
 		if l, ok := latestByModel[model]; ok {
 			entry.Status = l.Status
 			entry.LatencyMs = l.LatencyMs
+			entry.PingLatencyMs = l.PingLatencyMs
+		}
+		if a, ok := availByModel[model]; ok {
+			entry.Availability7d = &a.AvailabilityPct
 		}
 		summary.ExtraModels = append(summary.ExtraModels, entry)
 	}
 	return summary
 }
 
-// buildUserViewFromSummary 用预聚合好的 MonitorStatusSummary + 主模型 latest + timeline 装填 UserMonitorView（无 IO）。
-// primaryLatest 可能为 nil（该监控尚无历史）；timelineEntries 可能为空。
+// buildUserViewFromSummary attaches each model's history to its own status.
 func buildUserViewFromSummary(
 	m *ChannelMonitor,
 	summary MonitorStatusSummary,
-	primaryLatest *ChannelMonitorLatest,
-	timelineEntries []*ChannelMonitorHistoryEntry,
+	timelineByModel map[string][]*ChannelMonitorHistoryEntry,
 ) *UserMonitorView {
-	view := &UserMonitorView{
-		ID:               m.ID,
-		Name:             m.Name,
-		Provider:         m.Provider,
-		GroupName:        m.GroupName,
-		PrimaryModel:     m.PrimaryModel,
-		PrimaryStatus:    summary.PrimaryStatus,
-		PrimaryLatencyMs: summary.PrimaryLatencyMs,
-		Availability7d:   summary.Availability7d,
-		ExtraModels:      summary.ExtraModels,
-		Timeline:         buildTimelinePoints(timelineEntries),
+	extras := make([]UserMonitorExtraModel, 0, len(summary.ExtraModels))
+	for _, extra := range summary.ExtraModels {
+		extras = append(extras, UserMonitorExtraModel{
+			ExtraModelStatus: extra,
+			Timeline:         buildTimelinePoints(timelineByModel[extra.Model]),
+		})
 	}
-	if primaryLatest != nil {
-		view.PrimaryPingLatencyMs = primaryLatest.PingLatencyMs
-		view.LatestQuota = primaryLatest.Quota
+	return &UserMonitorView{
+		ID:                   m.ID,
+		Name:                 m.Name,
+		Provider:             m.Provider,
+		GroupName:            m.GroupName,
+		PrimaryModel:         m.PrimaryModel,
+		PrimaryStatus:        summary.PrimaryStatus,
+		PrimaryLatencyMs:     summary.PrimaryLatencyMs,
+		PrimaryPingLatencyMs: summary.PrimaryPingLatencyMs,
+		Availability7d:       summary.Availability7d,
+		HasAvailability7d:    summary.HasAvailability7d,
+		ExtraModels:          extras,
+		Timeline:             buildTimelinePoints(timelineByModel[m.PrimaryModel]),
+		LatestQuota:          summary.LatestQuota,
 	}
-	return view
 }
 
 // buildTimelinePoints 把 history entry 裁剪为 timeline 点（去除 message/ID/Model，减小响应体）。

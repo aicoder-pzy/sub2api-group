@@ -36,21 +36,23 @@
       class="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
     >
       <MonitorCard
-        v-for="item in items"
-        :key="item.id"
+        v-for="{ item, probe } in cards"
+        :key="`${item.id}:${probe?.model ?? item.primary_model}`"
         :item="item"
+        :probe="probe"
         :window="window"
-        :availability-value="resolveAvailability(item)"
+        :availability-value="resolveAvailability(item, probe)"
         :countdown-seconds="countdownSeconds"
-        @click="emit('cardClick', item)"
+        @click="emit('cardClick', item, probe?.model ?? item.primary_model)"
       />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { UserMonitorView, UserMonitorDetail } from '@/api/channelMonitor'
+import type { UserMonitorView, UserMonitorDetail, UserMonitorExtraModel } from '@/api/channelMonitor'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MonitorCard from './MonitorCard.vue'
 
@@ -63,19 +65,26 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'cardClick', item: UserMonitorView): void
+  (e: 'cardClick', item: UserMonitorView, model: string): void
 }>()
 
 const { t } = useI18n()
 
-function resolveAvailability(item: UserMonitorView): number | null {
+const cards = computed(() => props.items.flatMap(item => [
+  { item, probe: undefined },
+  ...(item.extra_models ?? [])
+    .filter(probe => probe.model && probe.model !== item.primary_model)
+    .map(probe => ({ item, probe })),
+]))
+
+function resolveAvailability(item: UserMonitorView, probe?: UserMonitorExtraModel): number | null {
   if (props.window === '7d') {
-    return item.availability_7d ?? null
+    if (probe) return probe.availability_7d ?? null
+    return item.has_availability_7d === false || !item.primary_status ? null : item.availability_7d ?? null
   }
-  const detail = props.detailCache[item.id]
-  if (!detail) return null
-  const primary = detail.models.find(m => m.model === item.primary_model)
-  if (!primary) return null
-  return props.window === '15d' ? primary.availability_15d ?? null : primary.availability_30d ?? null
+  if (!(probe ? probe.status : item.primary_status)) return null
+  const model = probe?.model ?? item.primary_model
+  const stats = props.detailCache[item.id]?.models.find(entry => entry.model === model)
+  return props.window === '15d' ? stats?.availability_15d ?? null : stats?.availability_30d ?? null
 }
 </script>

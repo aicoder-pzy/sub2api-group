@@ -28,6 +28,7 @@
           <tr
             v-for="m in detail.models"
             :key="m.model"
+            :class="{ 'bg-primary-50 dark:bg-primary-900/20': m.model === model }"
             class="border-b border-gray-100 dark:border-dark-800"
           >
             <td class="py-2 pr-3 font-medium text-gray-900 dark:text-gray-100">{{ formatMonitorModel(m.model) }}</td>
@@ -74,6 +75,7 @@ import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 const props = defineProps<{
   show: boolean
   monitorId: number | null
+  model?: string
   title: string
 }>()
 
