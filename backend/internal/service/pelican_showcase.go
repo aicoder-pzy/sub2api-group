@@ -122,7 +122,7 @@ func (s *PelicanShowcaseService) PublishGroupResult(ctx context.Context, groupID
 	if s == nil || result == nil || result.ID <= 0 || groupID <= 0 || result.Status != "success" {
 		return
 	}
-	if !pelicanHTMLPattern.MatchString(result.ResponseText) {
+	if isTextIntelligenceTest(result.PelicanConfig) || !pelicanHTMLPattern.MatchString(result.ResponseText) {
 		return
 	}
 	runtime, err := s.settings.GetPelicanShowcaseRuntime(ctx)

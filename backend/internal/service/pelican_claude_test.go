@@ -263,9 +263,12 @@ func TestPelicanClaudeVertexServiceAccountSendsTheQuestion(t *testing.T) {
 func TestPelicanGroupCandyUsesResponsesLimitAndGradesAnswer(t *testing.T) {
 	for _, tc := range []struct {
 		answer, finalEvent, wantError string
+		legacy                        bool
 	}{
 		{answer: "21", finalEvent: `{"type":"response.completed"}`},
-		{answer: "22", finalEvent: `{"type":"response.completed"}`, wantError: "answer_mismatch: expected 21"},
+		{answer: "最少取21颗。", finalEvent: `{"type":"response.completed"}`, legacy: true},
+		{answer: "121、210、21.5", finalEvent: `{"type":"response.completed"}`, wantError: "answer_mismatch: expected 21"},
+		{answer: "29", finalEvent: `{"type":"response.completed"}`, wantError: "answer_mismatch: expected 21", legacy: true},
 		{finalEvent: `{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}`, wantError: pelicanErrMaxTokens},
 	} {
 		t.Run(tc.wantError+tc.answer, func(t *testing.T) {
@@ -290,11 +293,18 @@ func TestPelicanGroupCandyUsesResponsesLimitAndGradesAnswer(t *testing.T) {
 				ReasoningEffort: "medium", MaxOutputTokens: 1536, VerificationTasks: true,
 			})
 			require.NoError(t, err)
+			if tc.legacy {
+				plan.PelicanConfig.QuestionKind = ""
+				plan.PelicanConfig.Prompt = legacyCandyPrompt
+			}
 			require.NoError(t, groupTests.RunNow(ctx, plan.ID))
 			groupTests.runs.Wait()
+			if tc.legacy {
+				require.Equal(t, legacyCandyPrompt, plan.PelicanConfig.Prompt)
+			}
 			require.Len(t, upstream.bodies, 1)
 			require.EqualValues(t, 1536, gjson.GetBytes(upstream.bodies[0], "max_output_tokens").Int())
-			require.Equal(t, intelligenceTestPrompt(&PelicanTestConfig{QuestionKind: "candy", Prompt: CandyPrompt}), gjson.GetBytes(upstream.bodies[0], "input.0.content.0.text").String())
+			require.Equal(t, CandyPrompt, gjson.GetBytes(upstream.bodies[0], "input.0.content.0.text").String())
 			require.Len(t, repo.results, 1)
 			result := repo.results[0]
 			require.Equal(t, tc.answer, result.ResponseText)
@@ -307,6 +317,7 @@ func TestPelicanGroupCandyUsesResponsesLimitAndGradesAnswer(t *testing.T) {
 			require.Empty(t, result.QualityVerdict)
 			require.Empty(t, showcase.published)
 			require.Equal(t, "candy", result.PelicanConfig.QuestionKind)
+			require.Equal(t, CandyPrompt, result.PelicanConfig.Prompt)
 			require.Equal(t, 1536, result.PelicanConfig.MaxOutputTokens)
 		})
 	}

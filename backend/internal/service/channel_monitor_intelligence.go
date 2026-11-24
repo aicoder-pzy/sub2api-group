@@ -9,6 +9,44 @@ import (
 type MonitorIntelligence struct {
 	State   string                     `json:"state"`
 	History []MonitorIntelligencePoint `json:"history"`
+	Tests   []MonitorIntelligenceTest  `json:"tests,omitempty"`
+}
+
+type MonitorIntelligenceTest struct {
+	ID      int64                      `json:"id"`
+	Kind    string                     `json:"kind"`
+	Name    string                     `json:"name,omitempty"`
+	State   string                     `json:"state"`
+	History []MonitorIntelligencePoint `json:"history"`
+}
+
+type MonitorIntelligenceView struct {
+	ID           int64                `json:"id"`
+	Name         string               `json:"name"`
+	PrimaryModel string               `json:"primary_model"`
+	Intelligence *MonitorIntelligence `json:"intelligence"`
+}
+
+// ListUserIntelligence serves the passive dashboard without loading probe or quota history.
+func (s *ChannelMonitorService) ListUserIntelligence(ctx context.Context) ([]MonitorIntelligenceView, error) {
+	monitors, err := s.repo.ListEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configured := make([]*ChannelMonitor, 0, len(monitors))
+	for _, monitor := range monitors {
+		if monitor.CheckMode != MonitorCheckModeQuota && monitor.IntelligenceGroupID != nil {
+			configured = append(configured, monitor)
+		}
+	}
+	intelligence := s.batchMonitorIntelligence(ctx, configured)
+	items := make([]MonitorIntelligenceView, 0, len(configured))
+	for _, monitor := range configured {
+		items = append(items, MonitorIntelligenceView{
+			ID: monitor.ID, Name: monitor.Name, PrimaryModel: monitor.PrimaryModel, Intelligence: intelligence[monitor.ID],
+		})
+	}
+	return items, nil
 }
 
 type MonitorIntelligencePoint struct {

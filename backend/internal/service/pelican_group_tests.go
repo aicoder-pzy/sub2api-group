@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -96,12 +97,14 @@ type PelicanGroupTestResult struct {
 	CreatedAt      time.Time                 `json:"created_at"`
 }
 
-// PelicanGroupTestPlanInput describes a drawing or candy test plan.
+// PelicanGroupTestPlanInput describes a drawing or text question plan.
 type PelicanGroupTestPlanInput struct {
 	CreativeJudgeGroupID int64  `json:"creative_judge_group_id,omitempty"`
 	CreativeJudgeModelID string `json:"creative_judge_model_id,omitempty"`
 	PromptMode           string `json:"prompt_mode,omitempty"`
 	QuestionKind         string `json:"question_kind,omitempty"`
+	QuestionName         string `json:"question_name,omitempty"`
+	ExpectedAnswer       string `json:"expected_answer,omitempty"`
 	MaxOutputTokens      int    `json:"max_output_tokens,omitempty"`
 	VerificationTasks    bool   `json:"verification_tasks,omitempty"`
 	GroupID              int64  `json:"group_id"`
@@ -125,9 +128,8 @@ type PelicanGroupTestRepository interface {
 	DeletePlan(ctx context.Context, id int64) (bool, error)
 	// ListDue returns enabled plans whose next run has come, of groups users can still reach.
 	ListDue(ctx context.Context, now time.Time) ([]*PelicanGroupTestPlan, error)
-	// Claim takes the run lease. A scheduled claim (next != nil) also needs the plan due and
-	// unchanged since it was listed, and moves next_run_at; a manual claim only needs no run
-	// in progress.
+	// Claim takes the lease for an unchanged, idle plan. A scheduled claim also
+	// requires the plan to be enabled and due, and advances next_run_at.
 	Claim(ctx context.Context, plan *PelicanGroupTestPlan, now, until time.Time, next *time.Time) (bool, error)
 	Finish(ctx context.Context, id int64, until, finished time.Time) error
 	CreateResult(ctx context.Context, result *PelicanGroupTestResult) (*PelicanGroupTestResult, error)
@@ -171,9 +173,12 @@ type PelicanGroupTestService struct {
 	settings       *SettingService
 	now            func() time.Time
 	// runs tracks background runs so tests can wait for them.
-	runs        sync.WaitGroup
-	switchMu    sync.Mutex
-	switchSlots chan struct{}
+	runs sync.WaitGroup
+	// ponytail: one manual batch per process keeps probe load bounded. Add a
+	// shared queue if multiple groups need simultaneous batches.
+	batchRunning atomic.Bool
+	switchMu     sync.Mutex
+	switchSlots  chan struct{}
 }
 
 func NewPelicanGroupTestService(
@@ -291,7 +296,7 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	if kind == "" {
 		kind = "pelican"
 	}
-	if kind != "pelican" && kind != "candy" {
+	if kind != "pelican" && kind != "candy" && kind != "custom" {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "invalid question kind")
 	}
 	prompt := strings.TrimSpace(input.Prompt)
@@ -299,7 +304,15 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	if mode != "" && mode != "fixed" && mode != pelicanRandomCreative {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "invalid prompt mode")
 	}
-	if kind == "candy" || (mode != pelicanRandomCreative && prompt == CandyPrompt) {
+	var questionName, expectedAnswer string
+	switch {
+	case kind == "custom":
+		mode = "fixed"
+		questionName, expectedAnswer = strings.TrimSpace(input.QuestionName), strings.TrimSpace(input.ExpectedAnswer)
+		if questionName == "" || len(questionName) > 300 || expectedAnswer == "" || len(expectedAnswer) > 2000 {
+			return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "a custom question requires a name (up to 300 bytes) and expected answer (up to 2000 bytes)")
+		}
+	case kind == "candy" || (mode != pelicanRandomCreative && isBuiltinCandyPrompt(prompt)):
 		kind, mode, prompt = "candy", "fixed", CandyPrompt
 	}
 	if err := validatePelicanMaxOutputTokens(input.MaxOutputTokens); err != nil {
@@ -324,7 +337,8 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 		plan.CronExpression = pelicanGroupTestDefaultCron
 	}
 	plan.PelicanConfig = &PelicanTestConfig{
-		PromptMode: mode, QuestionKind: kind, Prompt: prompt, ReasoningEffort: effort,
+		PromptMode: mode, QuestionKind: kind, QuestionName: questionName, ExpectedAnswer: expectedAnswer,
+		Prompt: prompt, ReasoningEffort: effort,
 		ParallelCount: parallel, MaxOutputTokens: input.MaxOutputTokens, ModelID: plan.ModelID,
 		DailyStart: input.DailyStart, DailyEnd: input.DailyEnd,
 		VerificationTasks: kind == "pelican" && input.VerificationTasks,
@@ -380,6 +394,68 @@ func (s *PelicanGroupTestService) RunNow(ctx context.Context, id int64) error {
 	go func() {
 		defer s.runs.Done()
 		s.execute(plan, until)
+	}()
+	return nil
+}
+
+// RunEnabled starts the enabled questions for one group and model in order. The
+// usual per-plan lease also applies while the scheduler or a single run is active.
+func (s *PelicanGroupTestService) RunEnabled(ctx context.Context, groupID int64, model string) error {
+	model = strings.TrimSpace(model)
+	if groupID <= 0 || model == "" || len(model) > 100 {
+		return infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "group and model are required")
+	}
+	plans, err := s.repo.ListPlans(ctx)
+	if err != nil {
+		return err
+	}
+	matches := func(plan *PelicanGroupTestPlan) bool {
+		return plan != nil && plan.Enabled && plan.GroupID == groupID && plan.ModelID == model && plan.GroupStatus == StatusActive && !creativeJudgeMissing(plan.PelicanConfig)
+	}
+	var ids []int64
+	var busy bool
+	queuedAt := s.now()
+	for _, plan := range plans {
+		if !matches(plan) {
+			continue
+		}
+		if plan.RunningUntil != nil && !plan.RunningUntil.Before(queuedAt) {
+			busy = true
+			continue
+		}
+		ids = append(ids, plan.ID)
+	}
+	if len(ids) == 0 {
+		if busy {
+			return ErrPelicanGroupTestPlanRunning
+		}
+		return infraerrors.BadRequest("PELICAN_GROUP_TEST_NO_ENABLED_QUESTIONS", "no enabled questions are ready to run")
+	}
+	if !s.batchRunning.CompareAndSwap(false, true) {
+		return ErrPelicanGroupTestPlanRunning
+	}
+	s.runs.Add(1)
+	go func() {
+		defer s.runs.Done()
+		defer s.batchRunning.Store(false)
+		for _, id := range ids {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			plan, err := s.repo.GetPlan(ctx, id)
+			now := s.now()
+			until := now.Add(pelicanGroupTestLease).Truncate(time.Microsecond)
+			claimed := false
+			// A due or manually started run may have finished while this plan waited.
+			if err == nil && matches(plan) && (plan.LastRunAt == nil || plan.LastRunAt.Before(queuedAt)) {
+				claimed, err = s.repo.Claim(ctx, plan, now, until, nil)
+			}
+			cancel()
+			if err != nil {
+				logger.LegacyPrintf("service.pelican_group_test", "batch plan=%d: %v", id, err)
+			}
+			if claimed {
+				s.execute(plan, until)
+			}
+		}
 	}()
 	return nil
 }
@@ -473,11 +549,18 @@ func (s *PelicanGroupTestService) execute(plan *PelicanGroupTestPlan, until time
 	if err := s.repo.Finish(saveCtx, plan.ID, until, s.now()); err != nil {
 		logger.LegacyPrintf("service.pelican_group_test", "plan=%d finish failed: %v", plan.ID, err)
 	}
-	s.runDegradationDue(context.Background(), s.now(), plan.ID)
+	if !isTextIntelligenceTest(plan.PelicanConfig) {
+		s.runDegradationDue(context.Background(), s.now(), plan.ID)
+	}
 }
 
 func (s *PelicanGroupTestService) runSamples(ctx context.Context, plan *PelicanGroupTestPlan) []*PelicanGroupTestResult {
 	plan = preparePelicanCreativePlan(plan, s.now())
+	if current := withCurrentCandyPrompt(plan.PelicanConfig); current != plan.PelicanConfig {
+		copy := *plan
+		copy.PelicanConfig = current
+		plan = &copy
+	}
 	group, err := s.groups.GetByID(ctx, plan.GroupID)
 	if err == nil && group != nil && group.Status != StatusActive {
 		err = fmt.Errorf("group is %s", group.Status)
@@ -543,7 +626,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 	attempts := []PelicanGroupTestAttempt{}
 	selectionChanges := 0
 	// Reuse the complete question on failover, including optional verification tasks.
-	generationConfig, checks, checkErr := withPelicanQualityChecks(plan.PelicanConfig)
+	generationConfig, checks, checkErr := withPelicanQualityChecks(withCurrentCandyPrompt(plan.PelicanConfig))
 	if checkErr != nil {
 		return s.newResult(plan, started, s.now(), "quality_check_generation_failed")
 	}
@@ -631,7 +714,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			if creative && result.PelicanConfig.CreativeRound != nil {
 				result.PelicanConfig.CreativeRound.Checks = checkPelicanCreative(sample.ResponseText, result.PelicanConfig.CreativeRound)
 			}
-			if sample.Status == "success" && !isCandyTest(generationConfig) && (creative || s.assessOutput != nil || checks != nil) {
+			if sample.Status == "success" && !isTextIntelligenceTest(generationConfig) && (creative || s.assessOutput != nil || checks != nil) {
 				var assessment *PelicanAssessment
 				if creative {
 					evaluation, judgeCosts := s.assessCreative(ctx, route.account.ID, result.PelicanConfig, sample.ResponseText)

@@ -34,14 +34,15 @@
               {{ t(`admin.accounts.pelicanTest.${kind}Question`) }}
             </button>
           </div>
+          <CandyTestQuestion v-if="questionKind === 'candy'" />
           <TextArea
+            v-else
             :model-value="prompt"
             @update:model-value="restoreQuestion($event)"
             :label="t('admin.accounts.pelicanTest.promptLabel')"
             :disabled="running"
-            :readonly="questionKind === 'candy'"
             :rows="5"
-            :hint="t(questionKind === 'candy' ? 'admin.accounts.pelicanTest.candyHint' : 'admin.accounts.pelicanTest.promptHint')"
+            :hint="t('admin.accounts.pelicanTest.promptHint')"
           />
         </div>
         <div class="space-y-3">
@@ -65,7 +66,7 @@
         </div>
       </div>
 
-      <div v-if="activeTab !== 'modeltrace'" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:border-dark-600 dark:bg-dark-800/70 dark:text-gray-300">
+      <div v-if="activeTab !== 'modeltrace' && deliveryContract" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:border-dark-600 dark:bg-dark-800/70 dark:text-gray-300">
         <div class="flex items-start gap-2">
           <Icon name="shield" size="sm" class="mt-0.5 shrink-0 text-emerald-500" />
           <span>{{ deliveryContract }}</span>
@@ -194,7 +195,8 @@ import { extractPelicanHtml as extractHtml } from '@/utils/pelicanHtml'
 import PelicanAssessment from './PelicanAssessment.vue'
 import ModelTracePanel from './ModelTracePanel.vue'
 import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
-import { CANDY_PROMPT, PELICAN_PROMPT, questionContract, validPelicanOutputTokenLimit, type IntelligenceQuestion } from '@/utils/intelligenceTest'
+import { CANDY_PROMPT, PELICAN_PROMPT, candyAnswerPasses, isBuiltinCandyPrompt, questionContract, validPelicanOutputTokenLimit, type IntelligenceQuestion } from '@/utils/intelligenceTest'
+import CandyTestQuestion from './CandyTestQuestion.vue'
 import PelicanOutputTokenField from './PelicanOutputTokenField.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Input from '@/components/common/Input.vue'
@@ -280,13 +282,13 @@ function selectQuestion(kind: IntelligenceQuestion) {
   questionKind.value = kind
   if (activeTab.value === 'results') {
     viewingScheduled.value = false
-    const previous = records.value.find((record) => (record.prompt.trim() === CANDY_PROMPT) === (kind === 'candy'))
+    const previous = records.value.find((record) => isBuiltinCandyPrompt(record.prompt) === (kind === 'candy'))
     runs.value = previous?.runs ?? []
   }
 }
 
 function restoreQuestion(savedPrompt: string, kind?: string) {
-  questionKind.value = kind === 'candy' || savedPrompt.trim() === CANDY_PROMPT ? 'candy' : 'pelican'
+  questionKind.value = kind === 'candy' || isBuiltinCandyPrompt(savedPrompt) ? 'candy' : 'pelican'
   if (questionKind.value === 'pelican') drawingPrompt.value = savedPrompt
 }
 const reasoningOptions = computed(() => [
@@ -348,7 +350,7 @@ function previewScheduled(result: ScheduledTestResult) {
   if (running.value) return
   const config = result.pelican_config
   if (config) editSchedule(config, config.model_id || modelId.value)
-  const textAnswer = config?.question_kind === 'candy' || config?.prompt.trim() === CANDY_PROMPT.trim()
+  const textAnswer = config?.question_kind === 'candy' || isBuiltinCandyPrompt(config?.prompt ?? '')
   const html = textAnswer ? '' : extractHtml(result.response_text)
   runs.value = [{ id: `scheduled-${result.id}`, status: result.status === 'success' && (html || textAnswer) ? 'success' : 'error', output: result.response_text, html, error: result.error_message,
     source: 'scheduled', startedAt: result.started_at, finishedAt: result.finished_at,
@@ -386,7 +388,7 @@ async function consumeRun(run: TestRun, signal: AbortSignal) {
     },
     body: JSON.stringify({
       model_id: modelId.value.trim(),
-      prompt: `${prompt.value.trim()}\n\n${deliveryContract.value}`,
+      prompt: [prompt.value.trim(), deliveryContract.value].filter(Boolean).join('\n\n'),
       mode: 'default',
       reasoning_effort: reasoningEffort.value,
       max_output_tokens: maxOutputTokens.value
@@ -438,7 +440,7 @@ async function consumeRun(run: TestRun, signal: AbortSignal) {
   if (!completed) throw new Error(t('admin.accounts.pelicanTest.incompleteResponse'))
   if (!run.output.trim()) throw new Error(t('admin.accounts.pelicanTest.emptyResponse'))
   if (questionKind.value === 'candy') {
-    if (!/^21\s*(?:个)?[。.!！]?$/.test(run.output.trim())) throw new Error('answer_mismatch: expected 21')
+    if (!candyAnswerPasses(run.output)) throw new Error('answer_mismatch: expected 21')
   } else {
     run.html = extractHtml(run.output)
     if (!run.html) throw new Error(t('admin.accounts.pelicanTest.invalidHtml'))

@@ -13,6 +13,8 @@ type PelicanTestConfig struct {
 	CreativeJudgeModelID string                `json:"creative_judge_model_id,omitempty"`
 	VerificationTasks    bool                  `json:"verification_tasks,omitempty"`
 	QuestionKind         string                `json:"question_kind,omitempty"`
+	QuestionName         string                `json:"question_name,omitempty"`
+	ExpectedAnswer       string                `json:"expected_answer,omitempty"`
 	Prompt               string                `json:"prompt"`
 	ReasoningEffort      string                `json:"reasoning_effort"`
 	MaxOutputTokens      int                   `json:"max_output_tokens,omitempty"`

@@ -28,8 +28,29 @@ export interface MonitorIntelligencePoint {
   effort?: string
 }
 
+export interface MonitorIntelligenceTest {
+  id: number
+  kind: string
+  name?: string
+  state: string
+  history: MonitorIntelligencePoint[]
+}
+
+export interface MonitorIntelligence {
+  state: string
+  history: MonitorIntelligencePoint[]
+  tests?: MonitorIntelligenceTest[]
+}
+
+export interface MonitorIntelligenceView {
+  id: number
+  name: string
+  primary_model: string
+  intelligence: MonitorIntelligence
+}
+
 export interface UserMonitorView {
-  intelligence?: { state: string; history: MonitorIntelligencePoint[] }
+  intelligence?: MonitorIntelligence
   id: number
   name: string
   provider: Provider
@@ -94,3 +115,8 @@ export const channelMonitorUserAPI = {
 }
 
 export default channelMonitorUserAPI
+
+export async function listIntelligence(signal?: AbortSignal): Promise<MonitorIntelligenceView[]> {
+  const { data } = await apiClient.get<{ items: MonitorIntelligenceView[] }>('/channel-monitor-v2/intelligence', { signal })
+  return data.items ?? []
+}

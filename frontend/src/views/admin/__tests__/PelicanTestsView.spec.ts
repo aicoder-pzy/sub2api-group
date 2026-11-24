@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
   updatePlan: vi.fn(),
   deletePlan: vi.fn(),
   runPlan: vi.fn(),
+  runEnabledQuestions: vi.fn(),
   listResults: vi.fn(),
   getResult: vi.fn(),
   getShowcaseSettings: vi.fn(),
@@ -102,9 +103,35 @@ afterEach(() => {
 })
 
 describe('PelicanTestsView', () => {
+  it('adds a custom question to the same group and runs enabled questions together', async () => {
+    const drawing = plan()
+    const candy = plan({ id: 9, enabled: false, pelican_config: { ...drawing.pelican_config, question_kind: 'candy', prompt: CANDY_PROMPT } })
+    api.listPlans.mockResolvedValue([drawing, candy])
+    api.createPlan.mockResolvedValue({})
+    api.runEnabledQuestions.mockResolvedValue(undefined)
+    wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="pelican-set-add-7"]').trigger('click')
+    await flushPromises()
+    const editor = wrapper.get('[data-testid="pelican-test-editor"]')
+    expect((editor.get('#pelican-test-kind').element as HTMLSelectElement).value).toBe('custom')
+    await editor.get('#pelican-test-question-name').setValue('加法')
+    await editor.get('#pelican-test-custom-prompt').setValue('2+2?')
+    await editor.get('#pelican-test-expected-answer').setValue('4')
+    await editor.trigger('submit')
+    await flushPromises()
+    expect(api.createPlan).toHaveBeenCalledWith(expect.objectContaining({
+      group_id: 4, model_id: 'gpt-6-astra', question_kind: 'custom', question_name: '加法', prompt: '2+2?', expected_answer: '4',
+    }))
+    await wrapper.get('[data-testid="pelican-set-run-7"]').trigger('click')
+    await flushPromises()
+    expect(api.runEnabledQuestions).toHaveBeenCalledWith(4, 'gpt-6-astra')
+    expect(api.runPlan).not.toHaveBeenCalled()
+  })
+
   it('adds a candy plan alongside a drawing plan for the same group', async () => {
     const drawing = plan()
-    const candyConfig = { ...drawing.pelican_config, question_kind: 'candy', prompt: CANDY_PROMPT, max_output_tokens: 1536 }
+    const candyConfig = { ...drawing.pelican_config, question_kind: 'candy' as const, prompt: CANDY_PROMPT, max_output_tokens: 1536 }
     const candyResult = result({ plan_id: 9, status: 'failed', error_message: 'answer_mismatch: expected 21', pelican_config: candyConfig })
     api.listResults.mockResolvedValue({ items: [candyResult], total: 1 })
     api.getResult.mockResolvedValue({ ...candyResult, response_text: '22' })
@@ -115,10 +142,11 @@ describe('PelicanTestsView', () => {
     })
     wrapper = mountView()
     await flushPromises()
-    await wrapper.get('[data-testid="pelican-tests-create-candy"]').trigger('click')
+    await wrapper.get('[data-testid="pelican-tests-create"]').trigger('click')
+    await wrapper.get('[data-testid="pelican-test-kind"]').setValue('candy')
     await flushPromises()
     const editor = wrapper.get('[data-testid="pelican-test-editor"]')
-    await editor.get('select').setValue('4')
+    await editor.get('[data-testid="pelican-test-group"]').setValue('4')
     await editor.get('[data-testid="pelican-test-model"]').setValue(drawing.model_id)
     await editor.get('[data-testid="pelican-max-output-tokens"]').setValue('1536')
     await editor.trigger('submit')
@@ -127,6 +155,7 @@ describe('PelicanTestsView', () => {
     expect(api.updatePlan).not.toHaveBeenCalled()
     const drawingRow = wrapper.get('[data-testid="pelican-plan-7"]')
     const candyRow = wrapper.get('[data-testid="pelican-plan-9"]')
+    expect(wrapper.get('[data-testid="pelican-question-set-7"]').find('[data-testid="pelican-plan-9"]').exists()).toBe(true)
     expect(drawingRow.text()).toContain('pelicanTests.pelicanQuestion')
     expect(candyRow.text()).toContain('admin.accounts.pelicanTest.candyQuestion')
     await wrapper.get('[data-testid="pelican-plan-edit-9"]').trigger('click')
@@ -205,8 +234,9 @@ describe('PelicanTestsView', () => {
     wrapper = mountView()
     await flushPromises()
     const row = wrapper.get('[data-testid="pelican-plan-7"]')
-    expect(row.text()).toContain('GPT PRO号池')
-    expect(row.text()).toContain('gpt-6-astra')
+    const questionSet = wrapper.get('[data-testid="pelican-question-set-7"]')
+    expect(questionSet.text()).toContain('GPT PRO号池')
+    expect(questionSet.text()).toContain('gpt-6-astra')
     expect(row.text()).toContain('pelicanShowcase.efforts.high')
     expect(row.text()).toContain('pelicanTests.schedules.every30m')
     expect(row.text()).toContain('pelicanTests.plans.parallel {"count":2}')
@@ -275,9 +305,9 @@ describe('PelicanTestsView', () => {
     await wrapper.get('[data-testid="pelican-tests-create"]').trigger('click')
     await flushPromises()
     const editor = wrapper.get('[data-testid="pelican-test-editor"]')
-    const selects = editor.findAll('select')
-    expect(selects[0].findAll('option').map((option) => option.text())).toEqual(['GPT PRO号池 · OpenAI', 'Claude Max · Anthropic'])
-    await selects[0].setValue('6')
+    const group = editor.get('[data-testid="pelican-test-group"]')
+    expect(group.findAll('option').map((option) => option.text())).toEqual(['GPT PRO号池 · OpenAI', 'Claude Max · Anthropic'])
+    await group.setValue('6')
     await editor.get('[data-testid="pelican-test-model"]').setValue('claude-opus-5-5')
     await editor.get('[data-testid="pelican-test-schedule"]').setValue('0 * * * *')
     expect(editor.find('[data-testid="pelican-test-cron"]').exists()).toBe(false)
@@ -312,7 +342,7 @@ describe('PelicanTestsView', () => {
     await wrapper.get('[data-testid="pelican-plan-edit-7"]').trigger('click')
     await flushPromises()
     const editor = wrapper.get('[data-testid="pelican-test-editor"]')
-    expect(editor.findAll('select')[0].attributes('disabled')).toBeDefined()
+    expect(editor.get('[data-testid="pelican-test-group"]').attributes('disabled')).toBeDefined()
     expect((editor.get('[data-testid="pelican-test-cron"]').element as HTMLInputElement).value).toBe('5 */3 * * *')
     await editor.trigger('submit')
     await flushPromises()
@@ -340,12 +370,12 @@ describe('PelicanTestsView', () => {
     await flushPromises()
     await wrapper.get('[data-testid="pelican-plan-toggle-7"]').trigger('click')
     await flushPromises()
-    expect(api.updatePlan).toHaveBeenCalledWith(7, {
-      prompt_mode: 'fixed',
+    expect(api.updatePlan).toHaveBeenCalledWith(7, expect.objectContaining({
+      prompt_mode: 'fixed', question_kind: 'pelican',
       group_id: 4, model_id: 'gpt-6-astra', cron_expression: '*/30 * * * *', enabled: false,
       prompt: 'draw a pelican', reasoning_effort: 'high', parallel_count: 2,
       daily_start: '', daily_end: '',
-    })
+    }))
 
     api.updatePlan.mockClear()
     await wrapper.get('[data-testid="pelican-plan-toggle-8"]').trigger('click')

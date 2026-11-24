@@ -247,6 +247,21 @@
         />
       </section>
 
+      <section v-if="intelligenceItems || intelligenceUnavailable" class="card space-y-3 rounded-2xl p-4 sm:p-5">
+        <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ t('channelStatus.intelligence.title') }}</h2>
+        <p v-if="intelligenceUnavailable" class="text-xs text-gray-500 dark:text-gray-400">{{ t('channelStatus.intelligence.unavailable') }}</p>
+        <p v-else-if="!intelligenceItems?.length" class="text-xs text-gray-500 dark:text-gray-400">{{ t('channelStatus.intelligence.noChannels') }}</p>
+        <div v-else class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <article v-for="item in intelligenceItems" :key="item.id" class="min-w-0 space-y-3 rounded-xl border border-gray-200 p-3 dark:border-dark-700">
+            <div>
+              <h3 class="break-words text-sm font-medium">{{ item.name }}</h3>
+              <code class="break-all text-xs text-gray-500 dark:text-gray-400">{{ item.primary_model }}</code>
+            </div>
+            <MonitorIntelligenceSummary :intelligence="item.intelligence" :model="item.primary_model" hide-title />
+          </article>
+        </div>
+      </section>
+
       <div class="relative min-h-[320px]">
         <MonitorTrendChart
           v-if="trendView === 'line'"
@@ -475,6 +490,8 @@ import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { isChannelMonitorThroughputHidden, isChannelMonitorUserRankingHidden } from '@/utils/featureFlags'
 import * as api from '@/api/channelMonitorV2'
+import { listIntelligence, type MonitorIntelligenceView } from '@/api/channelMonitor'
+import MonitorIntelligenceSummary from '@/components/user/monitor/MonitorIntelligenceSummary.vue'
 import type {
   HealthState,
   MonitorDimensions,
@@ -558,6 +575,8 @@ const trendView = ref<TrendView>(parseTrendView(route.query.trend_view))
 const dimensions = ref<MonitorDimensions>({ platforms: [], groups: [], models: [] })
 const snapshot = ref<MonitorSnapshot | null>(null)
 const matrix = ref<MonitorMatrixResponse | null>(null)
+const intelligenceItems = ref<MonitorIntelligenceView[]>()
+const intelligenceUnavailable = ref(false)
 const modelRows = ref<MonitorModelRow[]>([])
 const errorRows = ref<MonitorErrorRow[]>([])
 const userRows = ref<MonitorUserRow[]>([])
@@ -728,11 +747,24 @@ async function loadMetrics(signal?: AbortSignal, id = sequence) {
   await loadTab(signal, id)
 }
 
+async function loadIntelligence(signal: AbortSignal) {
+  try {
+    const items = await listIntelligence(signal)
+    if (signal.aborted) return
+    intelligenceItems.value = items
+    intelligenceUnavailable.value = false
+  } catch {
+    // Keep the most recent result when this optional panel cannot refresh.
+    if (!signal.aborted && !intelligenceItems.value) intelligenceUnavailable.value = true
+  }
+}
+
 async function reload(silent = true) {
   controller?.abort()
   const request = new AbortController()
   controller = request
   const id = ++sequence
+  void loadIntelligence(request.signal)
   refreshing.value = true
   if (!silent) loading.value = true
   try {

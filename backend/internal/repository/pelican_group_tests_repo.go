@@ -123,7 +123,7 @@ func (r *pelicanGroupTestRepository) Claim(ctx context.Context, plan *service.Pe
 	var err error
 	if next == nil {
 		result, err = r.db.ExecContext(ctx, `UPDATE pelican_group_test_plans SET running_until = $3
- WHERE id = $1 AND (running_until IS NULL OR running_until < $2)`, plan.ID, now, until)
+ WHERE id = $1 AND (running_until IS NULL OR running_until < $2) AND updated_at = $4`, plan.ID, now, until, plan.UpdatedAt)
 	} else {
 		result, err = r.db.ExecContext(ctx, `UPDATE pelican_group_test_plans SET running_until = $3, next_run_at = $4
  WHERE id = $1 AND enabled = true AND next_run_at <= $2 AND (running_until IS NULL OR running_until < $2) AND updated_at = $5`,

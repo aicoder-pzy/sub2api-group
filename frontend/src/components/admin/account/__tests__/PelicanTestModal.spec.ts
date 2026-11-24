@@ -54,7 +54,7 @@ describe('PelicanTestModal',()=>{
   wrapper.unmount()
  })
  it('keeps the built-in candy answer as text when rerun manually',async()=>{
-  vi.stubGlobal('fetch',vi.fn(async()=>new Response('data: {"type":"content","text":"21"}\n\ndata: {"type":"test_complete","success":true}\n\n',{status:200})))
+  vi.stubGlobal('fetch',vi.fn(async()=>new Response('data: {"type":"content","text":"最少取21颗。"}\n\ndata: {"type":"test_complete","success":true}\n\n',{status:200})))
   const wrapper=mount(PelicanTestModal,{
    props:{show:true,account:{id:41,name:'Test',platform:'openai',type:'oauth'} as never},
    global:{stubs:{BaseDialog:{template:'<div><slot/><slot name="footer"/></div>'},Icon:true}}
@@ -72,14 +72,13 @@ describe('PelicanTestModal',()=>{
   expect(wrapper.text()).toContain('admin.accounts.pelicanTest.success')
   const payload=JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string)
   expect(payload.max_output_tokens).toBe(512)
-  expect(payload.prompt).toContain(CANDY_PROMPT)
-  expect(payload.prompt).toContain('只输出最终整数')
-  expect(payload.prompt).not.toContain('只输出 HTML')
+  expect(payload.prompt).toBe(CANDY_PROMPT)
+  expect(wrapper.get('[data-testid="candy-test-question"]').findAll('tbody tr')).toHaveLength(2)
   await drawing.trigger('click')
   expect((wrapper.get('[data-testid="pelican-max-output-tokens"]').element as HTMLInputElement).value).toBe('')
   await candy.trigger('click')
   expect((wrapper.get('[data-testid="pelican-max-output-tokens"]').element as HTMLInputElement).value).toBe('512')
-  expect(wrapper.get('pre').text()).toBe('21')
+  expect(wrapper.get('pre').text()).toBe('最少取21颗。')
   wrapper.unmount()
  })
 })

@@ -177,6 +177,16 @@ func (h *ChannelMonitorUserHandler) List(c *gin.Context) {
 	response.Success(c, gin.H{"items": items})
 }
 
+// Intelligence GET /api/v1/channel-monitor-v2/intelligence
+func (h *ChannelMonitorUserHandler) Intelligence(c *gin.Context) {
+	items, err := h.monitorService.ListUserIntelligence(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
 // GetStatus GET /api/v1/channel-monitors/:id/status
 func (h *ChannelMonitorUserHandler) GetStatus(c *gin.Context) {
 	if !h.featureEnabled(c) {

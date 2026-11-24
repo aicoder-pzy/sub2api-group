@@ -54,6 +54,7 @@ func RegisterAdminRoutes(
 		admin.PUT("/pelican-group-tests/:id", h.Admin.PelicanGroupTest.UpdatePlan)
 		admin.DELETE("/pelican-group-tests/:id", h.Admin.PelicanGroupTest.DeletePlan)
 		admin.POST("/pelican-group-tests/:id/run", h.Admin.PelicanGroupTest.RunPlan)
+		admin.POST("/pelican-group-tests/run-enabled", h.Admin.PelicanGroupTest.RunEnabled)
 		admin.GET("/pelican-group-test-results", h.Admin.PelicanGroupTest.ListResults)
 		admin.GET("/pelican-group-test-results/:id", h.Admin.PelicanGroupTest.GetResult)
 		admin.POST("/pelican-assessments", h.Admin.PelicanAssessment.Start)

@@ -75,32 +75,15 @@
         :countdown-seconds="countdownSeconds"
       />
     </div>
-    <section v-if="item.intelligence" class="relative mt-4 w-full border-t border-gray-200 pt-3 dark:border-dark-700">
-      <div class="flex items-center justify-between gap-2 text-xs">
-        <span class="font-medium text-gray-700 dark:text-gray-200">{{ t('channelStatus.intelligence.title') }}</span>
-        <span class="flex items-center gap-1.5 text-gray-600 dark:text-gray-300">
-          <span class="h-2 w-2 rounded-full" :class="intelligenceColor(item.intelligence.state)" />
-          {{ intelligenceLabel(item.intelligence.state) }}
-        </span>
-      </div>
-      <template v-if="item.intelligence.history.length">
-        <div class="mt-2 flex gap-1">
-          <button v-for="point in item.intelligence.history" :key="`${point.checked_at}-${point.status}`" type="button"
-            class="h-4 min-w-0 flex-1 rounded-sm" :class="intelligenceColor(point.status)"
-            :title="intelligenceDetail(point)" :aria-label="intelligenceDetail(point)"
-            @click.stop="selectedCheck = point"
-          />
-        </div>
-        <p v-if="displayedCheck" class="mt-2 break-words text-xs text-gray-500 dark:text-gray-400">{{ intelligenceDetail(displayedCheck) }}</p>
-      </template>
-    </section>
+    <MonitorIntelligenceSummary v-if="item.intelligence" :intelligence="item.intelligence" :model="item.primary_model"
+      class="relative mt-4 w-full border-t border-gray-200 pt-3 dark:border-dark-700" />
   </article>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { MonitorIntelligencePoint, UserMonitorView } from '@/api/channelMonitor'
+import type { UserMonitorView } from '@/api/channelMonitor'
 import {
   useChannelMonitorFormat,
   providerGradient,
@@ -110,6 +93,7 @@ import ProviderIcon from './ProviderIcon.vue'
 import MonitorMetricPair from './MonitorMetricPair.vue'
 import MonitorAvailabilityRow from './MonitorAvailabilityRow.vue'
 import MonitorTimeline from './MonitorTimeline.vue'
+import MonitorIntelligenceSummary from './MonitorIntelligenceSummary.vue'
 import MonitorQuotaView from '@/components/common/MonitorQuotaView.vue'
 
 // 图标配色与 utils/platformColors.ts 的平台色对齐（新 4 家）。
@@ -137,24 +121,6 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const selectedCheck = ref<MonitorIntelligencePoint>()
-watch(() => props.item.intelligence, () => { selectedCheck.value = undefined })
-const displayedCheck = computed(() => selectedCheck.value ?? props.item.intelligence?.history.at(-1))
-const intelligenceColors: Record<string, string> = {
-  normal: 'bg-emerald-500',
-  degraded: 'bg-amber-400',
-  failed: 'bg-rose-500',
-}
-function intelligenceColor(status: string) {
-  return intelligenceColors[status] ?? 'bg-gray-300 dark:bg-dark-500'
-}
-function intelligenceLabel(status: string) {
-  return t(`channelStatus.intelligence.${status}`)
-}
-function intelligenceDetail(point: MonitorIntelligencePoint) {
-  return [new Date(point.checked_at).toLocaleString(), props.item.primary_model, point.effort,
-    intelligenceLabel(point.status), point.latency_ms > 0 ? formatLatency(point.latency_ms) : ''].filter(Boolean).join(' · ')
-}
 const {
   statusLabel,
   statusBadgeClass,

@@ -31,7 +31,7 @@ func (r *pelicanGroupTestRepository) ListDegradationDue(ctx context.Context, now
 	rows, err := r.db.QueryContext(ctx, `SELECT p.id,d.group_id,d.account_id,d.sample_id,d.model,d.action,d.sampled_at,p.updated_at
  FROM pelican_degradation_states d JOIN groups g ON g.id=d.group_id
  JOIN LATERAL (SELECT id,updated_at FROM pelican_group_test_plans WHERE group_id=d.group_id AND enabled
- AND (pelican_config->>'question_kind') IS DISTINCT FROM 'candy'
+ AND COALESCE(pelican_config->>'question_kind', 'pelican') NOT IN ('candy', 'custom')
  AND model_id IN (d.public_model,d.model) ORDER BY (model_id=d.public_model) DESC,id LIMIT 1) p ON true
  WHERE d.action<>'' AND d.due_at<=$1 AND (d.running_until IS NULL OR d.running_until<$1)
  AND d.sampled_at>=$1::timestamptz-INTERVAL '24 hours' AND g.deleted_at IS NULL AND g.status='active'

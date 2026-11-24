@@ -428,6 +428,61 @@ func TestPelicanGroupTestUnavailableGroupRecordsOneFailure(t *testing.T) {
 	require.Contains(t, repo.results[1].ErrorMessage, "group_unavailable")
 }
 
+func TestPelicanGroupRunEnabledQuestions(t *testing.T) {
+	ctx := context.Background()
+	drawing := groupTestPlan(1)
+	drawing.GroupStatus = StatusActive
+	repo := newGroupTestRepoFake(drawing)
+	upstream := account(11, "a")
+	router := &groupTestRouterFake{steps: []routeStep{{account: upstream}, {account: upstream}}}
+	svc, showcase := newGroupTestService(repo, router, func(_ context.Context, _ int64, _ string, cfg *PelicanTestConfig) (*ScheduledTestResult, error) {
+		if cfg.QuestionKind == "pelican" {
+			return &ScheduledTestResult{Status: "success", ResponseText: "<svg></svg>"}, nil
+		}
+		if cfg.QuestionKind != "custom" || !strings.HasPrefix(intelligenceTestPrompt(cfg), "2+2?") {
+			return nil, errors.New("wrong question")
+		}
+		output := "3"
+		message := intelligenceTestOutputError(cfg, output)
+		if message == "" {
+			return &ScheduledTestResult{Status: "success", ResponseText: output}, nil
+		}
+		return &ScheduledTestResult{Status: "failed", ResponseText: output, ErrorMessage: message}, nil
+	})
+	input := PelicanGroupTestPlanInput{GroupID: 4, ModelID: drawing.ModelID, QuestionKind: "custom", QuestionName: "加法",
+		Prompt: "2+2?", ReasoningEffort: "high", Enabled: true}
+	_, err := svc.CreatePlan(ctx, input)
+	require.Error(t, err, "missing grading answer")
+	input.ExpectedAnswer = " 4 "
+	custom, err := svc.CreatePlan(ctx, input)
+	require.NoError(t, err)
+	custom.GroupStatus = StatusActive
+	require.Equal(t, "4", custom.PelicanConfig.ExpectedAnswer)
+	require.Empty(t, intelligenceTestOutputError(custom.PelicanConfig, "  4\n"))
+	paused := groupTestPlan(1)
+	paused.ID, paused.Enabled, paused.GroupStatus = 8, false, StatusActive
+	otherModel := groupTestPlan(1)
+	otherModel.ID, otherModel.ModelID, otherModel.GroupStatus = 9, "gpt-other", StatusActive
+	repo.plans[paused.ID], repo.plans[otherModel.ID] = paused, otherModel
+
+	require.NoError(t, svc.RunEnabled(ctx, drawing.GroupID, drawing.ModelID))
+	svc.runs.Wait()
+	require.Len(t, repo.claims, 2)
+	require.Len(t, repo.results, 2)
+	require.Len(t, showcase.published, 1)
+	for _, result := range repo.results {
+		if result.PlanID == custom.ID {
+			require.Equal(t, "failed", result.Status)
+			require.Equal(t, "answer_mismatch", result.ErrorMessage)
+			require.Equal(t, "加法", result.PelicanConfig.QuestionName)
+			require.Empty(t, result.QualityVerdict)
+		} else {
+			require.Equal(t, drawing.ID, result.PlanID)
+			require.Equal(t, "success", result.Status)
+		}
+	}
+}
+
 func TestPelicanGroupTestRunNowAndRunDue(t *testing.T) {
 	ctx := context.Background()
 	plan := groupTestPlan(1)

@@ -7,6 +7,8 @@ import { apiClient } from '../client'
 import type { PaginatedResponse } from '@/types'
 import type { PelicanCreativeMaterials, PelicanCreativeRound } from '../pelicanCreative'
 
+export type PelicanGroupTestQuestionKind = 'pelican' | 'candy' | 'custom'
+
 export interface PelicanGroupTestConfig {
   max_output_tokens?: number
   creative_judge_group_id?: number
@@ -14,7 +16,9 @@ export interface PelicanGroupTestConfig {
   prompt_mode?: 'fixed' | 'random_creative'
   creative_round?: PelicanCreativeRound
 	verification_tasks?: boolean
-  question_kind?: string
+  question_kind?: PelicanGroupTestQuestionKind
+  question_name?: string
+  expected_answer?: string
   prompt: string
   reasoning_effort: string
   parallel_count: number
@@ -88,7 +92,9 @@ export interface PelicanGroupTestPlan {
 
 /** What an admin edits. The group of an existing plan cannot change. */
 export interface PelicanGroupTestPlanInput {
-  question_kind?: 'pelican' | 'candy'
+  question_kind?: PelicanGroupTestQuestionKind
+  question_name?: string
+  expected_answer?: string
   max_output_tokens?: number
   creative_judge_group_id?: number
   creative_judge_model_id?: string
@@ -142,6 +148,10 @@ export async function runPlan(id: number): Promise<void> {
   await apiClient.post(`/admin/pelican-group-tests/${id}/run`)
 }
 
+export async function runEnabledQuestions(groupId: number, modelId: string): Promise<void> {
+  await apiClient.post('/admin/pelican-group-tests/run-enabled', { group_id: groupId, model_id: modelId })
+}
+
 /** Newest first, without HTML; only the requested page is transferred. */
 export async function listResults(page = 1, pageSize = 20, planId = 0, signal?: AbortSignal): Promise<PaginatedResponse<PelicanGroupTestResult>> {
   const { data } = await apiClient.get<PaginatedResponse<PelicanGroupTestResult>>('/admin/pelican-group-test-results', {
@@ -178,6 +188,7 @@ export const pelicanTestsAPI = {
   updatePlan,
   deletePlan,
   runPlan,
+  runEnabledQuestions,
   listResults,
   getResult,
   getShowcaseSettings,

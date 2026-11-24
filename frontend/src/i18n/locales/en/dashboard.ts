@@ -576,9 +576,9 @@ export default {
   // Channel Status (user-facing read-only view)
   channelStatus: {
     intelligence: {
-      title: 'Intelligence checks',
+      title: 'Intelligence monitoring',
       group: 'Intelligence check group',
-      groupHelp: 'Shows Pelican results matching the chosen group and the primary model.',
+      groupHelp: 'Channel Status shows each question result for the selected group and primary model.',
       unconfigured: 'Not configured',
       no_plan: 'No test plan',
       pending: 'Awaiting results',
@@ -589,6 +589,9 @@ export default {
       degraded: 'Possible degradation',
       failed: 'Request failed',
       unknown: 'Unknown result',
+      incorrect: 'Incorrect answer',
+      noChannels: 'No channels have a test group configured.',
+      unavailable: 'Test results are temporarily unavailable.',
     },
     title: 'Channel Status',
     description: 'Inspect channel availability, latency and recent status',

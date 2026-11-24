@@ -90,7 +90,7 @@ func (s *AccountTestService) TestPelicanAccountConnection(c *gin.Context, accoun
 	ctx = WithRequestedReasoningEffort(ctx, options.reasoningEffort)
 	c.Request = c.Request.WithContext(ctx)
 	deferred, _ := ctx.Value(pelicanDeferAssessmentKey{}).(bool)
-	if deferred {
+	if deferred || isBuiltinCandyPrompt(options.prompt) {
 		return s.TestAccountConnection(c, accountID, modelID, options.prompt, AccountTestModeDefault, AccountTestOptions{Prompt: options.prompt, ReasoningEffort: options.reasoningEffort})
 	}
 	writer := c.Writer

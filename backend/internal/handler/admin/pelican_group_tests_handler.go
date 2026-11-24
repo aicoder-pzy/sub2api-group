@@ -96,6 +96,23 @@ func (h *PelicanGroupTestHandler) RunPlan(c *gin.Context) {
 	response.Success(c, gin.H{"started": true})
 }
 
+// RunEnabled POST /api/v1/admin/pelican-group-tests/run-enabled
+func (h *PelicanGroupTestHandler) RunEnabled(c *gin.Context) {
+	var input struct {
+		GroupID int64  `json:"group_id"`
+		ModelID string `json:"model_id"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "invalid request body")
+		return
+	}
+	if err := h.svc.RunEnabled(c.Request.Context(), input.GroupID, input.ModelID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"started": true})
+}
+
 // ListResults GET /api/v1/admin/pelican-group-test-results?plan_id=&page=&page_size=
 // Newest first, without HTML; plan_id 0 or missing lists every plan.
 func (h *PelicanGroupTestHandler) ListResults(c *gin.Context) {

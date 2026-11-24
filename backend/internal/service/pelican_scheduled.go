@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,14 +17,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const CandyPrompt = `在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形，不同的形状靠手感可以分辨）。现已知不同口味的糖和不同形状的数量统计如下表。参赛者需要在活动前决定摸出的糖果数目，那么，最少取出多少个糖果才能保证手中同时拥有不同形状的苹果味和桃子味的糖？（同时手中有圆形苹果味匹配五角星桃子味糖果，或者有圆形桃子味匹配五角星苹果味糖果都满足要求）
+const legacyCandyPrompt = `在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形，不同的形状靠手感可以分辨）。现已知不同口味的糖和不同形状的数量统计如下表。参赛者需要在活动前决定摸出的糖果数目，那么，最少取出多少个糖果才能保证手中同时拥有不同形状的苹果味和桃子味的糖？（同时手中有圆形苹果味匹配五角星桃子味糖果，或者有圆形桃子味匹配五角星苹果味糖果都满足要求）
 苹果味 桃子味 西瓜味
 圆形 7 9 8
 五角星形 7 6 4`
+
+const clarifiedCandyPrompt = legacyCandyPrompt + "\n\n每次取糖时，可以在袋内凭手感挑选圆形或五角星形再取出。糖果的口味只有取出后才能分辨，取出的糖果不放回。"
+
+const CandyPrompt = `黑色袋子中有苹果、桃子、西瓜三种口味的糖果，圆形与五角星形可以靠手感区分。活动前决定取出的总数，最少取多少个，才能保证同时拥有不同形状的苹果味和桃子味糖果？
+
+| 形状 | 苹果味 | 桃子味 | 西瓜味 |
+| --- | ---: | ---: | ---: |
+| 圆形 | 7 | 9 | 8 |
+| 五角星形 | 7 | 6 | 4 |`
 const PelicanDeliveryContract = "所有账号使用相同交付约定：直接返回独立 HTML，不使用 Markdown 代码块或外部依赖。只输出 HTML，不要解释。"
 
 var pelicanHTMLPattern = regexp.MustCompile(`(?i)<(?:!doctype\s+html|html|svg)[\s>]`)
-var candyAnswerPattern = regexp.MustCompile(`^21\s*(?:个)?[。.!！]?$`)
+var candyAnswerToken = regexp.MustCompile(`[-+]?[\p{Nd}A-Za-z_]+(?:[.,][\p{Nd}]+)*`)
 
 const (
 	pelicanErrEmptyOutput  = "Model returned empty output"
@@ -37,6 +47,7 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 	if cfg == nil {
 		return nil, fmt.Errorf("pelican configuration required")
 	}
+	cfg = withCurrentCandyPrompt(cfg)
 	started := time.Now()
 	deferred, _ := ctx.Value(pelicanDeferAssessmentKey{}).(bool)
 	ctx = context.WithValue(ctx, pelicanDeferAssessmentKey{}, true)
@@ -70,7 +81,7 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 		snapshot.QuestionKind = "candy"
 	}
 	var assessment *PelicanAssessment
-	if status == "success" && !isCandyTest(cfg) && !deferred {
+	if status == "success" && !isTextIntelligenceTest(cfg) && !deferred {
 		output, assessment = s.pelicanAssessment.AssessOutputWithQuality(ctx, output)
 	}
 	result := &ScheduledTestResult{Status: status, ResponseText: output, ErrorMessage: message, LatencyMs: finished.Sub(started).Milliseconds(), StartedAt: started, FinishedAt: finished, PelicanConfig: &snapshot}
@@ -117,7 +128,7 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 			logger.LegacyPrintf("service.scheduled_test_runner", "pelican plan=%d save failed: %v", plan.ID, err)
 		}
 	}
-	if succeeded && plan.AutoRecover && !isCandyTest(plan.PelicanConfig) {
+	if succeeded && plan.AutoRecover && !isTextIntelligenceTest(plan.PelicanConfig) {
 		s.tryRecoverAccount(saveCtx, plan.AccountID, plan.ID)
 	}
 	if err := s.planRepo.FinishPelican(saveCtx, plan.ID, until, time.Now()); err != nil {
@@ -182,29 +193,62 @@ func parsePelicanOutput(body string) (string, string) {
 	}
 	return output, message
 }
-func isBuiltinCandyPlan(cfg *PelicanTestConfig) bool {
-	return cfg != nil && strings.TrimSpace(cfg.Prompt) == strings.TrimSpace(CandyPrompt)
+
+// BuiltinCandyPrompts also identifies plans saved before question_kind existed.
+func BuiltinCandyPrompts() []string {
+	return []string{CandyPrompt, legacyCandyPrompt, clarifiedCandyPrompt}
 }
+
+func isBuiltinCandyPrompt(prompt string) bool {
+	return slices.Contains(BuiltinCandyPrompts(), strings.TrimSpace(prompt))
+}
+
 func isCandyTest(cfg *PelicanTestConfig) bool {
-	return cfg != nil && (cfg.QuestionKind == "candy" || isBuiltinCandyPlan(cfg))
+	return cfg != nil && (cfg.QuestionKind == "candy" || (cfg.QuestionKind != "custom" && cfg.PromptMode != pelicanRandomCreative && isBuiltinCandyPrompt(cfg.Prompt)))
+}
+
+func isTextIntelligenceTest(cfg *PelicanTestConfig) bool {
+	return cfg != nil && (cfg.QuestionKind == "custom" || isCandyTest(cfg))
+}
+
+func withCurrentCandyPrompt(cfg *PelicanTestConfig) *PelicanTestConfig {
+	if !isCandyTest(cfg) || cfg.Prompt == CandyPrompt {
+		return cfg
+	}
+	current := *cfg
+	current.QuestionKind = "candy"
+	current.Prompt = CandyPrompt
+	return &current
 }
 
 func intelligenceTestPrompt(cfg *PelicanTestConfig) string {
-	contract := PelicanDeliveryContract
 	if isCandyTest(cfg) {
-		contract = "只输出最终整数，不要解释。"
+		return CandyPrompt
 	}
-	return cfg.Prompt + "\n\n" + contract
+	if cfg.QuestionKind == "custom" {
+		return cfg.Prompt + "\n\n只输出最终答案，不要解释。"
+	}
+	return cfg.Prompt + "\n\n" + PelicanDeliveryContract
 }
+
 func intelligenceTestOutputError(cfg *PelicanTestConfig, output string) string {
-	if strings.TrimSpace(output) == "" {
+	output = strings.TrimSpace(output)
+	if output == "" {
 		return pelicanErrEmptyOutput
 	}
-	if isBuiltinCandyPlan(cfg) && !candyAnswerPattern.MatchString(strings.TrimSpace(output)) {
-		return "answer_mismatch: expected 21"
-	}
-	if !isCandyTest(cfg) && !pelicanHTMLPattern.MatchString(output) {
-		return "Model did not return HTML or SVG"
+	switch {
+	case isCandyTest(cfg):
+		if !slices.Contains(candyAnswerToken.FindAllString(output, -1), "21") {
+			return "answer_mismatch: expected 21"
+		}
+	case cfg.QuestionKind == "custom":
+		if output != cfg.ExpectedAnswer {
+			return "answer_mismatch"
+		}
+	default:
+		if !pelicanHTMLPattern.MatchString(output) {
+			return "Model did not return HTML or SVG"
+		}
 	}
 	return ""
 }
