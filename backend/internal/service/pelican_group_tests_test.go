@@ -210,7 +210,7 @@ func TestPelicanGroupTestPlanInputValidation(t *testing.T) {
 	ctx := context.Background()
 	repo := newGroupTestRepoFake()
 	svc, _ := newGroupTestService(repo, &groupTestRouterFake{}, nil)
-	valid := PelicanGroupTestPlanInput{GroupID: 4, ModelID: " gpt-6-astra ", Prompt: " draw a pelican ", ReasoningEffort: "HIGH", Enabled: true}
+	valid := PelicanGroupTestPlanInput{GroupID: 4, ModelID: " gpt-6-astra ", Prompt: "draw a pelican", ReasoningEffort: "HIGH", Enabled: true}
 
 	for name, input := range map[string]PelicanGroupTestPlanInput{
 		"no group":          {ModelID: "m", Prompt: "p", ReasoningEffort: "high"},
@@ -224,6 +224,7 @@ func TestPelicanGroupTestPlanInputValidation(t *testing.T) {
 		"too many parallel": {GroupID: 4, ModelID: "m", Prompt: "p", ReasoningEffort: "high", ParallelCount: 9},
 		"negative parallel": {GroupID: 4, ModelID: "m", Prompt: "p", ReasoningEffort: "high", ParallelCount: -1},
 		"bad schedule":      {GroupID: 4, ModelID: "m", Prompt: "p", ReasoningEffort: "high", CronExpression: "every minute"},
+		"long candy retry":  {GroupID: 4, ModelID: "m", QuestionKind: "candy", Prompt: CandyPrompt, ReasoningEffort: "high", RetryIntervalMinutes: 61},
 	} {
 		_, err := svc.CreatePlan(ctx, input)
 		require.Error(t, err, name)
@@ -244,6 +245,15 @@ func TestPelicanGroupTestPlanInputValidation(t *testing.T) {
 	require.NoError(t, err, "random questions do not require a fixed prompt")
 	require.Equal(t, pelicanRandomCreative, randomPlan.PelicanConfig.PromptMode)
 	require.Nil(t, randomPlan.PelicanConfig.CreativeRound, "only execution snapshots a round")
+
+	candy, err := svc.CreatePlan(ctx, PelicanGroupTestPlanInput{GroupID: 4, ModelID: "gpt-6-astra", QuestionKind: "candy", Prompt: "original candy wording", RetryIntervalMinutes: 7, ReasoningEffort: "medium"})
+	require.NoError(t, err)
+	require.Equal(t, "original candy wording", candy.PelicanConfig.Prompt)
+	require.Equal(t, 7, candy.PelicanConfig.RetryIntervalMinutes)
+	defaultRetry, err := svc.CreatePlan(ctx, PelicanGroupTestPlanInput{GroupID: 4, ModelID: "gpt-6-astra", QuestionKind: "candy", ReasoningEffort: "medium"})
+	require.NoError(t, err)
+	require.Equal(t, CandyPrompt, defaultRetry.PelicanConfig.Prompt)
+	require.Equal(t, 2, defaultRetry.PelicanConfig.RetryIntervalMinutes)
 
 	// An edit keeps the plan's group: moving it would mix two groups' history.
 	updated, err := svc.UpdatePlan(ctx, plan.ID, PelicanGroupTestPlanInput{GroupID: 99, ModelID: "claude-opus-5-5", Prompt: "p", ReasoningEffort: "low", CronExpression: "0 * * * *", ParallelCount: 3})
@@ -454,10 +464,12 @@ func TestPelicanGroupRunEnabledQuestions(t *testing.T) {
 	_, err := svc.CreatePlan(ctx, input)
 	require.Error(t, err, "missing grading answer")
 	input.ExpectedAnswer = " 4 "
+	input.RetryIntervalMinutes = 7
 	custom, err := svc.CreatePlan(ctx, input)
 	require.NoError(t, err)
 	custom.GroupStatus = StatusActive
 	require.Equal(t, "4", custom.PelicanConfig.ExpectedAnswer)
+	require.Equal(t, 7, custom.PelicanConfig.RetryIntervalMinutes)
 	require.Empty(t, intelligenceTestOutputError(custom.PelicanConfig, "  4\n"))
 	paused := groupTestPlan(1)
 	paused.ID, paused.Enabled, paused.GroupStatus = 8, false, StatusActive
@@ -481,6 +493,25 @@ func TestPelicanGroupRunEnabledQuestions(t *testing.T) {
 			require.Equal(t, "success", result.Status)
 		}
 	}
+}
+
+func TestPelicanGroupRunEnabledCanCoverAllModels(t *testing.T) {
+	ctx := context.Background()
+	first := groupTestPlan(1)
+	first.GroupStatus = StatusActive
+	second := groupTestPlan(1)
+	second.ID, second.ModelID, second.PelicanConfig.ModelID, second.GroupStatus = 8, "gpt-6.2-astra", "gpt-6.2-astra", StatusActive
+	repo := newGroupTestRepoFake(first, second)
+	var ran []string
+	router := &groupTestRouterFake{steps: []routeStep{{account: account(11, "a")}, {account: account(12, "b")}}}
+	svc, _ := newGroupTestService(repo, router, func(_ context.Context, _ int64, model string, _ *PelicanTestConfig) (*ScheduledTestResult, error) {
+		ran = append(ran, model)
+		return &ScheduledTestResult{Status: "success", ResponseText: "<svg></svg>"}, nil
+	})
+	svc.groups = groupTestGroupsFake{4: {ID: 4, Status: StatusActive}}
+	require.NoError(t, svc.RunEnabled(ctx, first.GroupID, ""))
+	svc.runs.Wait()
+	require.ElementsMatch(t, []string{first.ModelID, second.ModelID}, ran)
 }
 
 func TestPelicanGroupTestRunNowAndRunDue(t *testing.T) {

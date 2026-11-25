@@ -11,6 +11,7 @@ export type PelicanGroupTestQuestionKind = 'pelican' | 'candy' | 'custom'
 
 export interface PelicanGroupTestConfig {
   max_output_tokens?: number
+  retry_interval_minutes?: number
   creative_judge_group_id?: number
   creative_judge_model_id?: string
   prompt_mode?: 'fixed' | 'random_creative'
@@ -96,6 +97,7 @@ export interface PelicanGroupTestPlanInput {
   question_name?: string
   expected_answer?: string
   max_output_tokens?: number
+  retry_interval_minutes?: number
   creative_judge_group_id?: number
   creative_judge_model_id?: string
   prompt_mode?: 'fixed' | 'random_creative'
@@ -148,7 +150,7 @@ export async function runPlan(id: number): Promise<void> {
   await apiClient.post(`/admin/pelican-group-tests/${id}/run`)
 }
 
-export async function runEnabledQuestions(groupId: number, modelId: string): Promise<void> {
+export async function runEnabledQuestions(groupId: number, modelId = ''): Promise<void> {
   await apiClient.post('/admin/pelican-group-tests/run-enabled', { group_id: groupId, model_id: modelId })
 }
 

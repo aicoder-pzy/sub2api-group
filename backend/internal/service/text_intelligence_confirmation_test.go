@@ -21,7 +21,7 @@ func (r *textIntelligenceRetryRepo) ListTextIntelligenceDue(context.Context, tim
 func (r *textIntelligenceRetryRepo) ClaimTextIntelligenceRetry(context.Context, TextIntelligenceRetry, time.Time, time.Time) (bool, error) {
 	return r.claimed, nil
 }
-func (r *textIntelligenceRetryRepo) FinishTextIntelligenceRetry(_ context.Context, work TextIntelligenceRetry, _, _ time.Time) error {
+func (r *textIntelligenceRetryRepo) FinishTextIntelligenceRetry(_ context.Context, work TextIntelligenceRetry, _ int64, _, _ time.Time) error {
 	r.finished = append(r.finished, work)
 	return nil
 }

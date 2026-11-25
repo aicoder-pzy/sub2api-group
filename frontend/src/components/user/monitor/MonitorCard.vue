@@ -88,7 +88,7 @@
         />
 
         <MonitorIntelligenceSummary
-          v-if="model.model === item.primary_model && item.intelligence"
+          v-if="item.intelligence"
           :intelligence="item.intelligence"
           :model="item.primary_model"
           class="mt-4 w-full border-t border-gray-200 pt-3 dark:border-dark-700"

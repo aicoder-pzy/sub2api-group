@@ -96,14 +96,13 @@
                   </span>
                   <div class="min-w-0">
                     <p class="truncate text-sm font-semibold" :title="questions[0].group_name">{{ questions[0].group_name }}</p>
-                    <code class="break-all text-xs text-gray-500 dark:text-gray-400">{{ questions[0].model_id }}</code>
                   </div>
                 </div>
                 <div class="plan-actions">
                   <button type="button" :disabled="questions[0].group_status !== 'active'" :data-testid="`pelican-set-add-${questions[0].id}`" @click="addToSet(questions)">
                     <Icon name="plus" size="xs" />{{ t('pelicanTests.editor.addQuestion') }}
                   </button>
-                  <button type="button" :disabled="batchStarting || !questions.some(canRunEnabled)" :data-testid="`pelican-set-run-${questions[0].id}`" @click="runEnabled(questions[0])">
+                  <button type="button" :disabled="batchStarting || !questions.some(canRunEnabled)" :data-testid="`pelican-set-run-${questions[0].id}`" @click="runEnabled(questions[0].group_id)">
                     <Icon name="play" size="xs" />{{ t('pelicanTests.plans.runEnabled') }}
                   </button>
                 </div>
@@ -114,6 +113,7 @@
                     <div class="min-w-0">
                       <p class="plan-title">
                         <strong>{{ questionLabel(planQuestionKind(plan), plan.pelican_config?.question_name) }}</strong>
+                        <code class="break-all text-xs font-normal text-gray-500 dark:text-gray-400">{{ plan.model_id }}</code>
                         <span class="inline-flex flex-wrap items-center gap-x-2 text-xs font-normal tabular-nums text-gray-500 dark:text-gray-400" :title="t('pelicanTests.cost.hint')" :data-testid="`pelican-plan-cost-${plan.id}`">
                           <span class="whitespace-nowrap">{{ t('pelicanTests.cost.today', { amount: costLabel(plan.today_cost_usd, plan.today_cost_incomplete) }) }}</span>
                           <span aria-hidden="true">·</span>
@@ -316,7 +316,10 @@
             <p class="field-hint">{{ t('pelicanTests.creative.previewHint') }}</p>
           </template>
         </div>
-        <CandyTestQuestion v-else-if="editor.form.question_kind === 'candy'" />
+        <section v-else-if="editor.form.question_kind === 'candy'" class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-700" data-testid="candy-test-question">
+          <p class="whitespace-pre-wrap text-sm">{{ editor.form.prompt }}</p>
+          <p class="text-sm">{{ t('channelStatus.intelligence.expectedAnswer') }}：21</p>
+        </section>
         <div v-else-if="editor.form.question_kind === 'custom'" class="space-y-3">
           <div>
             <label class="field-label mt-0" for="pelican-test-question-name">{{ t('pelicanTests.editor.questionName') }}</label>
@@ -353,6 +356,11 @@
           </div>
         </div>
         <PelicanOutputTokenField v-model="editor.form.max_output_tokens" />
+        <div v-if="isTextAnswerKind(editor.form.question_kind)">
+          <label class="field-label mt-0" for="pelican-test-retry-interval">{{ t('pelicanTests.editor.retryInterval') }}</label>
+          <input id="pelican-test-retry-interval" v-model.number="editor.form.retry_interval_minutes" type="number" min="1" max="60" required class="input w-full" data-testid="pelican-test-retry-interval" />
+          <p class="field-hint">{{ t('pelicanTests.editor.retryIntervalHint') }}</p>
+        </div>
         <label v-if="editor.form.question_kind === 'pelican'" class="block text-sm"><input v-model="editor.form.verification_tasks" type="checkbox" class="mr-2" />{{ t('pelicanTests.editor.verificationTasks') }}<p class="field-hint">{{ t('pelicanTests.editor.verificationTasksHint') }}</p></label>
         <div>
           <label class="field-label mt-0">{{ t('pelicanTests.editor.schedule') }}</label>
@@ -478,9 +486,8 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTimeToMinute } from '@/utils/format'
-import { CANDY_PROMPT, PELICAN_PROMPT, isBuiltinCandyPrompt, isTextAnswerKind, questionPrompt, validPelicanOutputTokenLimit } from '@/utils/intelligenceTest'
+import { PELICAN_PROMPT, isBuiltinCandyPrompt, isTextAnswerKind, questionPrompt, validPelicanOutputTokenLimit } from '@/utils/intelligenceTest'
 import PelicanOutputTokenField from '@/components/admin/account/PelicanOutputTokenField.vue'
-import CandyTestQuestion from '@/components/admin/account/CandyTestQuestion.vue'
 import type { PelicanCreativeMaterials } from '@/api/pelicanCreative'
 import { extractPelicanHtml } from '@/utils/pelicanHtml'
 import { platformBadgeLightClass, platformLabel } from '@/utils/platformColors'
@@ -525,9 +532,9 @@ const pending = reactive<Record<number, string>>({})
 const questionKinds = ['pelican', 'candy', 'custom'] as const
 const batchStarting = ref(false)
 const questionSets = computed(() => {
-  const sets = new Map<string, PelicanGroupTestPlan[]>()
+  const sets = new Map<number, PelicanGroupTestPlan[]>()
   for (const plan of plans.value) {
-    const key = `${plan.group_id}:${plan.model_id}`
+    const key = plan.group_id
     const questions = sets.get(key)
     if (questions) questions.push(plan)
     else sets.set(key, [plan])
@@ -770,6 +777,7 @@ function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
     question_name: plan.pelican_config?.question_name,
     expected_answer: plan.pelican_config?.expected_answer,
     max_output_tokens: plan.pelican_config?.max_output_tokens,
+    retry_interval_minutes: plan.pelican_config?.retry_interval_minutes ?? 2,
     ...(plan.pelican_config?.creative_judge_group_id ? { creative_judge_group_id: plan.pelican_config.creative_judge_group_id, creative_judge_model_id: plan.pelican_config.creative_judge_model_id || '' } : {}),
     model_id: plan.model_id,
     cron_expression: plan.cron_expression,
@@ -784,8 +792,14 @@ function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
 }
 
 function addToSet(questions: PelicanGroupTestPlan[]) {
-  const missing = questionKinds.find(kind => !questions.some(plan => planQuestionKind(plan) === kind))
-  openEditor(missing ?? 'custom', questions[0])
+  const models = [...new Set(questions.map(plan => plan.model_id).filter(Boolean))]
+  const missing = questionKinds.find(kind => models.some(model => !questions.some(plan => plan.model_id === model && planQuestionKind(plan) === kind)))
+  const kind = missing ?? 'custom'
+  const targets = missing
+    ? models.filter(model => !questions.some(plan => plan.model_id === model && planQuestionKind(plan) === kind))
+    : models.slice(0, 1)
+  openEditor(kind, questions[0])
+  if (editor.value) editor.value.models = targets.join('\n')
 }
 
 function openEditor(target: PelicanGroupTestPlan | PelicanGroupTestQuestionKind, reference?: PelicanGroupTestPlan) {
@@ -794,6 +808,7 @@ function openEditor(target: PelicanGroupTestPlan | PelicanGroupTestQuestionKind,
     cron_expression: reference?.cron_expression || SCHEDULES[1].cron, enabled: true,
     prompt: target === 'custom' ? '' : questionPrompt(target),
     reasoning_effort: reference?.pelican_config?.reasoning_effort || 'medium', parallel_count: 1,
+    retry_interval_minutes: reference?.pelican_config?.retry_interval_minutes ?? 2,
     daily_start: reference?.pelican_config?.daily_start, daily_end: reference?.pelican_config?.daily_end,
   } : inputFrom(target)
   const schedule = SCHEDULES.some((preset) => preset.cron === form.cron_expression) ? form.cron_expression : 'custom'
@@ -822,6 +837,10 @@ async function savePlan() {
   }
   if (!validPelicanOutputTokenLimit(form.max_output_tokens)) return
   const candy = form.question_kind === 'candy'
+  if (isTextAnswerKind(form.question_kind) && (!Number.isInteger(form.retry_interval_minutes) || form.retry_interval_minutes! < 1 || form.retry_interval_minutes! > 60)) {
+    fail(null, t('pelicanTests.editor.retryIntervalHint'))
+    return
+  }
   if (!form.group_id || !models.length || models.some(model => model.length > 100) || (current.id && models.length !== 1) || (!candy && form.prompt_mode !== 'random_creative' && !form.prompt.trim()) || !form.cron_expression.trim()) {
     fail(null, t('pelicanTests.editor.required'))
     return
@@ -835,7 +854,7 @@ async function savePlan() {
     const input = {
       ...form,
       model_id: models[0]!,
-      ...(candy ? { prompt: CANDY_PROMPT, verification_tasks: undefined } : {}),
+      ...(candy ? { verification_tasks: undefined } : {}),
       parallel_count: Number(form.parallel_count) || 1,
     }
     if (current.id) {
@@ -881,11 +900,11 @@ function canRunEnabled(plan: PelicanGroupTestPlan) {
     (cfg?.prompt_mode !== 'random_creative' || !!(cfg.creative_judge_group_id && cfg.creative_judge_model_id))
 }
 
-async function runEnabled(plan: PelicanGroupTestPlan) {
+async function runEnabled(groupId: number) {
   if (batchStarting.value) return
   batchStarting.value = true
   try {
-    await pelicanTestsAPI.runEnabledQuestions(plan.group_id, plan.model_id)
+    await pelicanTestsAPI.runEnabledQuestions(groupId, '')
     succeed(t('pelicanTests.plans.batchStarted'))
     plans.value = await pelicanTestsAPI.listPlans()
   } catch (err: unknown) {

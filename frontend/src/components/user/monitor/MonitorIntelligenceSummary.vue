@@ -13,24 +13,30 @@
       </div>
       <div v-if="test.history.length" class="mt-1.5 flex gap-1">
         <button v-for="(point, index) in test.history" :key="index" type="button"
-          class="h-3 min-w-0 flex-1 rounded-sm focus-visible:outline focus-visible:outline-2" :class="intelligenceColor(point.status)"
+          class="h-3 min-w-0 flex-1 rounded-sm focus-visible:outline focus-visible:outline-2" :class="intelligenceColor(point.status, point.confirmation_pending)"
           :title="intelligenceDetail(point)" :aria-label="intelligenceDetail(point)"
           :aria-pressed="selected?.testId === test.id && selected.point === point"
-          @click.stop="selected = { testId: test.id, point }"
+          @click.stop="selected = { testId: test.id, kind: test.kind, name: questionLabel(test), point }"
         />
       </div>
       <p v-if="test.history.length" class="mt-1.5 truncate text-gray-500 dark:text-gray-400"
         data-testid="monitor-intelligence-detail" :title="intelligenceDetail(test.history[test.history.length - 1]!)">{{ intelligenceDetail(test.history[test.history.length - 1]!, true) }}</p>
-      <div v-if="selected?.testId === test.id" class="mt-2 max-h-64 space-y-2 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3 text-gray-700 shadow-sm dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200" data-testid="monitor-intelligence-result">
-        <p class="font-medium">{{ t('channelStatus.intelligence.testQuestion') }}</p>
-        <p class="whitespace-pre-wrap break-words" data-testid="monitor-intelligence-prompt">{{ selected.point.prompt || questionLabel(test) }}</p>
-        <p v-if="selected.point.prompt_truncated" class="text-gray-500">{{ t('channelStatus.intelligence.questionTruncated') }}</p>
-        <p class="font-medium">{{ t('channelStatus.intelligence.actualAnswer') }}</p>
-        <p class="whitespace-pre-wrap break-words" data-testid="monitor-candy-output">{{ selected.point.answer?.trim() || t('channelStatus.intelligence.noAnswer') }}</p>
-        <p class="font-medium">{{ t('channelStatus.intelligence.expectedAnswer') }}：{{ selected.point.expected_answer || '—' }}</p>
-        <p v-if="selected.point.answer_truncated" class="text-gray-500">{{ t('channelStatus.intelligence.answerTruncated') }}</p>
-      </div>
     </div>
+    <BaseDialog :show="!!selected" :title="t('channelStatus.intelligence.resultTitle')" width="normal" :close-on-click-outside="true" @close="selected = undefined">
+      <div v-if="selected" class="space-y-3 text-sm text-gray-700 dark:text-gray-200" data-testid="monitor-intelligence-result">
+          <template v-if="selected.kind === 'candy' || selected.kind === 'custom'">
+            <p class="font-medium">{{ t('channelStatus.intelligence.testQuestion') }}</p>
+            <p class="whitespace-pre-wrap break-words" data-testid="monitor-intelligence-prompt">{{ selected.point.prompt || selected.name }}</p>
+            <p v-if="selected.point.prompt_truncated" class="text-gray-500">{{ t('channelStatus.intelligence.questionTruncated') }}</p>
+            <p class="font-medium">{{ t('channelStatus.intelligence.actualAnswer') }}</p>
+            <p class="whitespace-pre-wrap break-words" data-testid="monitor-candy-output">{{ selected.point.answer?.trim() || t('channelStatus.intelligence.noAnswer') }}</p>
+            <p class="font-medium">{{ t('channelStatus.intelligence.expectedAnswer') }}：{{ selected.point.expected_answer || '—' }}</p>
+            <p v-if="selected.point.answer_truncated" class="text-gray-500">{{ t('channelStatus.intelligence.answerTruncated') }}</p>
+          </template>
+          <p class="font-medium">{{ t(selected.point.confirmation_pending ? 'channelStatus.intelligence.confirming' : `channelStatus.intelligence.${selected.point.status}`) }}</p>
+          <p>{{ new Date(selected.point.checked_at).toLocaleString() }}</p>
+      </div>
+    </BaseDialog>
   </section>
 </template>
 
@@ -39,11 +45,12 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { MonitorIntelligence, MonitorIntelligencePoint, MonitorIntelligenceTest } from '@/api/channelMonitor'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 
 const props = defineProps<{ intelligence: MonitorIntelligence; model: string; hideTitle?: boolean }>()
 const { t } = useI18n()
 const { formatLatency } = useChannelMonitorFormat()
-const selected = ref<{ testId: number; point: MonitorIntelligencePoint }>()
+const selected = ref<{ testId: number; kind: string; name: string; point: MonitorIntelligencePoint }>()
 watch(() => props.intelligence, () => { selected.value = undefined })
 const questions = computed<MonitorIntelligenceTest[]>(() => props.intelligence.tests?.length ? props.intelligence.tests : [
   { id: 0, kind: '', state: props.intelligence.state, history: props.intelligence.history },
@@ -54,7 +61,8 @@ const colors: Record<string, string> = {
   incorrect: 'bg-rose-500',
   failed: 'bg-rose-500',
 }
-function intelligenceColor(status: string) {
+function intelligenceColor(status: string, pending = false) {
+  if (pending) return 'bg-gray-300 dark:bg-dark-500'
   return colors[status] ?? 'bg-gray-300 dark:bg-dark-500'
 }
 function intelligenceLabel(status: string) {
@@ -68,6 +76,6 @@ function questionLabel(test: MonitorIntelligenceTest) {
 function intelligenceDetail(point: MonitorIntelligencePoint, compact = false) {
   const checkedAt = new Date(point.checked_at)
   return [compact ? checkedAt.toLocaleTimeString() : checkedAt.toLocaleString(), compact ? '' : props.model, point.effort,
-    intelligenceLabel(point.status), point.latency_ms > 0 ? `${formatLatency(point.latency_ms)} ms` : ''].filter(Boolean).join(' · ')
+    intelligenceLabel(point.confirmation_pending ? 'confirming' : point.status), point.latency_ms > 0 ? `${formatLatency(point.latency_ms)} ms` : ''].filter(Boolean).join(' · ')
 }
 </script>

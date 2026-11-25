@@ -15,7 +15,7 @@ type TextIntelligenceRetry struct {
 type textIntelligenceRetryRepository interface {
 	ListTextIntelligenceDue(context.Context, time.Time) ([]TextIntelligenceRetry, error)
 	ClaimTextIntelligenceRetry(context.Context, TextIntelligenceRetry, time.Time, time.Time) (bool, error)
-	FinishTextIntelligenceRetry(context.Context, TextIntelligenceRetry, time.Time, time.Time) error
+	FinishTextIntelligenceRetry(context.Context, TextIntelligenceRetry, int64, time.Time, time.Time) error
 }
 
 func (s *PelicanGroupTestService) runTextIntelligenceDue(ctx context.Context, now time.Time) {
@@ -64,14 +64,16 @@ func (s *PelicanGroupTestService) executeTextIntelligenceRetry(plan *PelicanGrou
 	}
 	saveCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 	defer stop()
+	resultID := int64(0)
 	if result != nil {
 		if saved, err := s.repo.CreateResult(saveCtx, result); err == nil {
+			resultID = saved.ID
 			s.showcase.PublishGroupResult(saveCtx, plan.GroupID, saved)
 		} else {
 			logger.LegacyPrintf("service.text_intelligence", "plan=%d save retry failed: %v", plan.ID, err)
 		}
 	}
-	if err := repo.FinishTextIntelligenceRetry(saveCtx, work, until, s.now()); err != nil {
+	if err := repo.FinishTextIntelligenceRetry(saveCtx, work, resultID, until, s.now()); err != nil {
 		logger.LegacyPrintf("service.text_intelligence", "plan=%d finish retry failed: %v", plan.ID, err)
 	}
 	_ = s.repo.Finish(saveCtx, plan.ID, until, s.now())

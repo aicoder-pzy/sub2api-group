@@ -106,6 +106,7 @@ type PelicanGroupTestPlanInput struct {
 	QuestionName         string `json:"question_name,omitempty"`
 	ExpectedAnswer       string `json:"expected_answer,omitempty"`
 	MaxOutputTokens      int    `json:"max_output_tokens,omitempty"`
+	RetryIntervalMinutes int    `json:"retry_interval_minutes,omitempty"`
 	VerificationTasks    bool   `json:"verification_tasks,omitempty"`
 	GroupID              int64  `json:"group_id"`
 	ModelID              string `json:"model_id"`
@@ -299,7 +300,7 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	if kind != "pelican" && kind != "candy" && kind != "custom" {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "invalid question kind")
 	}
-	prompt := strings.TrimSpace(input.Prompt)
+	prompt := input.Prompt
 	mode := strings.TrimSpace(input.PromptMode)
 	if mode != "" && mode != "fixed" && mode != pelicanRandomCreative {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "invalid prompt mode")
@@ -313,12 +314,25 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 			return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "a custom question requires a name (up to 300 bytes) and expected answer (up to 2000 bytes)")
 		}
 	case kind == "candy" || (mode != pelicanRandomCreative && isBuiltinCandyPrompt(prompt)):
-		kind, mode, prompt = "candy", "fixed", CandyPrompt
+		kind, mode = "candy", "fixed"
+		if strings.TrimSpace(prompt) == "" {
+			prompt = CandyPrompt
+		}
+	}
+	retryInterval := 0
+	if kind == "candy" || kind == "custom" {
+		retryInterval = input.RetryIntervalMinutes
+		if retryInterval == 0 {
+			retryInterval = 2
+		}
+		if retryInterval < 1 || retryInterval > 60 {
+			return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "retry interval must be 1–60 minutes")
+		}
 	}
 	if err := validatePelicanMaxOutputTokens(input.MaxOutputTokens); err != nil {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", err.Error())
 	}
-	if (prompt == "" && mode != pelicanRandomCreative) || len(prompt) > 32000 {
+	if (strings.TrimSpace(prompt) == "" && mode != pelicanRandomCreative) || len(prompt) > 32000 {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "prompt is required (maximum 32000 bytes)")
 	}
 	effort := normalizePelicanReasoningEffort(input.ReasoningEffort)
@@ -339,7 +353,7 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	plan.PelicanConfig = &PelicanTestConfig{
 		PromptMode: mode, QuestionKind: kind, QuestionName: questionName, ExpectedAnswer: expectedAnswer,
 		Prompt: prompt, ReasoningEffort: effort,
-		ParallelCount: parallel, MaxOutputTokens: input.MaxOutputTokens, ModelID: plan.ModelID,
+		ParallelCount: parallel, MaxOutputTokens: input.MaxOutputTokens, RetryIntervalMinutes: retryInterval, ModelID: plan.ModelID,
 		DailyStart: input.DailyStart, DailyEnd: input.DailyEnd,
 		VerificationTasks: kind == "pelican" && input.VerificationTasks,
 	}
@@ -398,19 +412,19 @@ func (s *PelicanGroupTestService) RunNow(ctx context.Context, id int64) error {
 	return nil
 }
 
-// RunEnabled starts the enabled questions for one group and model in order. The
+// RunEnabled starts the enabled questions for a group in order, optionally filtered by model. The
 // usual per-plan lease also applies while the scheduler or a single run is active.
 func (s *PelicanGroupTestService) RunEnabled(ctx context.Context, groupID int64, model string) error {
 	model = strings.TrimSpace(model)
-	if groupID <= 0 || model == "" || len(model) > 100 {
-		return infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "group and model are required")
+	if groupID <= 0 || len(model) > 100 {
+		return infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "group is required (model maximum 100 bytes)")
 	}
 	plans, err := s.repo.ListPlans(ctx)
 	if err != nil {
 		return err
 	}
 	matches := func(plan *PelicanGroupTestPlan) bool {
-		return plan != nil && plan.Enabled && plan.GroupID == groupID && plan.ModelID == model && plan.GroupStatus == StatusActive && !creativeJudgeMissing(plan.PelicanConfig)
+		return plan != nil && plan.Enabled && plan.GroupID == groupID && plan.ModelID != "" && (model == "" || plan.ModelID == model) && plan.GroupStatus == StatusActive && !creativeJudgeMissing(plan.PelicanConfig)
 	}
 	var ids []int64
 	var busy bool
@@ -561,11 +575,6 @@ func (s *PelicanGroupTestService) execute(plan *PelicanGroupTestPlan, until time
 
 func (s *PelicanGroupTestService) runSamples(ctx context.Context, plan *PelicanGroupTestPlan) []*PelicanGroupTestResult {
 	plan = preparePelicanCreativePlan(plan, s.now())
-	if current := withCurrentCandyPrompt(plan.PelicanConfig); current != plan.PelicanConfig {
-		copy := *plan
-		copy.PelicanConfig = current
-		plan = &copy
-	}
 	group, err := s.groups.GetByID(ctx, plan.GroupID)
 	if err == nil && group != nil && group.Status != StatusActive {
 		err = fmt.Errorf("group is %s", group.Status)
@@ -631,7 +640,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 	attempts := []PelicanGroupTestAttempt{}
 	selectionChanges := 0
 	// Reuse the complete question on failover, including optional verification tasks.
-	generationConfig, checks, checkErr := withPelicanQualityChecks(withCurrentCandyPrompt(plan.PelicanConfig))
+	generationConfig, checks, checkErr := withPelicanQualityChecks(plan.PelicanConfig)
 	if checkErr != nil {
 		return s.newResult(plan, started, s.now(), "quality_check_generation_failed")
 	}

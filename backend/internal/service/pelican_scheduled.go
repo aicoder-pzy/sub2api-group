@@ -47,7 +47,6 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 	if cfg == nil {
 		return nil, fmt.Errorf("pelican configuration required")
 	}
-	cfg = withCurrentCandyPrompt(cfg)
 	started := time.Now()
 	deferred, _ := ctx.Value(pelicanDeferAssessmentKey{}).(bool)
 	ctx = context.WithValue(ctx, pelicanDeferAssessmentKey{}, true)
@@ -211,19 +210,9 @@ func isTextIntelligenceTest(cfg *PelicanTestConfig) bool {
 	return cfg != nil && (cfg.QuestionKind == "custom" || isCandyTest(cfg))
 }
 
-func withCurrentCandyPrompt(cfg *PelicanTestConfig) *PelicanTestConfig {
-	if !isCandyTest(cfg) || cfg.Prompt == CandyPrompt {
-		return cfg
-	}
-	current := *cfg
-	current.QuestionKind = "candy"
-	current.Prompt = CandyPrompt
-	return &current
-}
-
 func intelligenceTestPrompt(cfg *PelicanTestConfig) string {
 	if isCandyTest(cfg) {
-		return CandyPrompt
+		return cfg.Prompt
 	}
 	if cfg.QuestionKind == "custom" {
 		return cfg.Prompt + "\n\n只输出最终答案，不要解释。"

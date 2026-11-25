@@ -71,9 +71,10 @@ func (r *pelicanGroupTestRepository) ClaimTextIntelligenceRetry(ctx context.Cont
 	return true, tx.Commit()
 }
 
-func (r *pelicanGroupTestRepository) FinishTextIntelligenceRetry(ctx context.Context, work service.TextIntelligenceRetry, until, _ time.Time) error {
+func (r *pelicanGroupTestRepository) FinishTextIntelligenceRetry(ctx context.Context, work service.TextIntelligenceRetry, resultID int64, until, _ time.Time) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE text_intelligence_states SET running_until=NULL,
-	 due_at=NULL
-	 WHERE plan_id=$1 AND account_id=$2 AND running_until=$3`, work.PlanID, work.AccountID, until)
+	 due_at=CASE WHEN result_id=$4 THEN due_at WHEN result_id=$3 THEN NULL ELSE due_at END,
+	 confirm_after=CASE WHEN result_id=$4 THEN confirm_after WHEN result_id=$3 THEN NULL ELSE confirm_after END
+	 WHERE plan_id=$1 AND account_id=$2 AND running_until=$5`, work.PlanID, work.AccountID, work.ResultID, resultID, until)
 	return err
 }

@@ -68,7 +68,7 @@ it('shows one model panel per channel, preserving selection and independent resu
   expect(sol.findComponent(MonitorMetricPair).props('primaryValue')).not.toBe('2350')
   expect(sol.findComponent(MonitorTimeline).props('buckets')).toEqual(item.extra_models[0]!.timeline)
   expect(sol.findComponent(MonitorAvailabilityRow).props('value')).toBe(82.5)
-  expect(sol.find('monitor-intelligence-summary-stub').exists()).toBe(false)
+  expect(sol.find('monitor-intelligence-summary-stub').exists()).toBe(true)
   await card.get('button[aria-label="gpt-6.2-sol (Self-use)"]').trigger('click')
   expect(wrapper.emitted('cardClick')?.[0]).toEqual([item, 'gpt-6.2-sol'])
   await wrapper.setProps({ window: '15d' })

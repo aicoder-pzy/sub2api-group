@@ -29,7 +29,7 @@ LEFT JOIN pelican_group_test_plans p ON p.group_id=g.id AND p.model_id=m.primary
 CROSS JOIN LATERAL (SELECT CASE
   WHEN p.pelican_config->>'question_kind' IN ('candy','custom') THEN p.pelican_config->>'question_kind'
   WHEN (p.pelican_config->>'prompt_mode') IS DISTINCT FROM 'random_creative'
-    AND btrim(p.pelican_config->>'prompt')=ANY($3::text[]) THEN 'candy'
+    AND btrim(p.pelican_config->>'prompt')=ANY($2::text[]) THEN 'candy'
   ELSE 'pelican' END AS kind) q
 LEFT JOIN LATERAL (
   SELECT max(x.finished_at) AS latest,
@@ -42,11 +42,11 @@ LEFT JOIN LATERAL (
       ORDER BY x.finished_at, x.id) AS history
   FROM (
     SELECT r.id, r.finished_at, r.latency_ms, r.pelican_config->>'reasoning_effort' AS effort,
-      left(COALESCE(r.pelican_config->>'prompt',''),2000) AS prompt,
-      length(COALESCE(r.pelican_config->>'prompt',''))>2000 AS prompt_truncated,
-      left(COALESCE(r.response_text, ''), 2000) AS answer,
-      CASE WHEN q.kind='candy' THEN '21' WHEN q.kind='custom' THEN r.pelican_config->>'expected_answer' ELSE 'HTML / SVG' END AS expected_answer,
-      length(COALESCE(r.response_text, ''))>2000 AS answer_truncated,
+      CASE WHEN q.kind IN ('candy','custom') THEN left(COALESCE(r.pelican_config->>'prompt',''),2000) ELSE '' END AS prompt,
+      q.kind IN ('candy','custom') AND length(COALESCE(r.pelican_config->>'prompt',''))>2000 AS prompt_truncated,
+      CASE WHEN q.kind IN ('candy','custom') THEN left(COALESCE(r.response_text, ''), 2000) ELSE '' END AS answer,
+      CASE WHEN q.kind='candy' THEN '21' WHEN q.kind='custom' THEN r.pelican_config->>'expected_answer' ELSE '' END AS expected_answer,
+      q.kind IN ('candy','custom') AND length(COALESCE(r.response_text, ''))>2000 AS answer_truncated,
       r.intelligence_pending AS confirmation_pending,
       CASE WHEN r.intelligence_status<>'' AND q.kind IN ('candy','custom') THEN r.intelligence_status
         WHEN r.status <> 'success' AND q.kind IN ('candy','custom') AND starts_with(r.error_message, 'answer_mismatch') THEN 'unknown'
@@ -57,7 +57,7 @@ LEFT JOIN LATERAL (
     FROM pelican_group_test_results r
     WHERE r.plan_id=p.id AND r.pelican_config->>'model_id'=m.primary_model
       AND COALESCE(NULLIF(r.pelican_config->>'question_kind',''), 'pelican')=q.kind
-      AND (q.kind<>'candy' OR r.pelican_config->>'prompt'=$2)
+      AND (q.kind<>'candy' OR r.pelican_config->>'prompt'=p.pelican_config->>'prompt')
       AND (q.kind<>'custom' OR (r.pelican_config->>'prompt'=p.pelican_config->>'prompt'
         AND r.pelican_config->>'expected_answer'=p.pelican_config->>'expected_answer'))
     ORDER BY r.finished_at DESC, r.id DESC LIMIT 20
@@ -67,7 +67,7 @@ WHERE m.id=ANY($1) AND m.enabled AND m.intelligence_group_id IS NOT NULL
 ORDER BY m.id, p.id`
 
 func (r *channelMonitorRepository) ListMonitorIntelligence(ctx context.Context, ids []int64) (map[int64]*service.MonitorIntelligence, error) {
-	rows, err := r.db.QueryContext(ctx, channelMonitorIntelligenceSQL, pq.Array(ids), service.CandyPrompt, pq.Array(service.BuiltinCandyPrompts()))
+	rows, err := r.db.QueryContext(ctx, channelMonitorIntelligenceSQL, pq.Array(ids), pq.Array(service.BuiltinCandyPrompts()))
 	if err != nil {
 		return nil, err
 	}
