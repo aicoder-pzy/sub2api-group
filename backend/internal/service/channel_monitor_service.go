@@ -711,6 +711,9 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 		BodyOverrideMode: m.BodyOverrideMode,
 		BodyOverride:     m.BodyOverride,
 	}
+	if settings, ok := s.settings.(*SettingService); ok && settings.cfg != nil {
+		opts.monitorSecret = settings.cfg.JWT.Secret
+	}
 
 	var eg errgroup.Group
 	var mu sync.Mutex

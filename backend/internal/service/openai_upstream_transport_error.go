@@ -180,6 +180,9 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 //   - "openai.account_temp_unscheduled_transport_failed" — DB write attempted
 //     but returned an error.
 func (s *OpenAIGatewayService) tempUnscheduleOpenAITransportError(ctx context.Context, account *Account, safeErr string) {
+	if MonitorProbe(ctx) {
+		return
+	}
 	if s == nil || account == nil {
 		return
 	}

@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,7 +50,8 @@ type CheckOptions struct {
 	BodyOverrideMode string
 	// BodyOverride 在 merge 模式下做浅合并（key 命中黑名单时静默丢弃），
 	// 在 replace 模式下直接当作完整 body。
-	BodyOverride map[string]any
+	BodyOverride  map[string]any
+	monitorSecret string
 }
 
 // runCheckForModel 对单个 (provider, model) 做一次完整检测。
@@ -298,6 +300,18 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
 	full := joinURL(endpoint, monitorRequestPath(provider, endpoint, adapter, model))
+	if opts != nil && len(opts.monitorSecret) >= 32 {
+		req, reqErr := http.NewRequest(http.MethodPost, full, nil)
+		if reqErr != nil {
+			return "", "", 0, reqErr
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		stamp := fmt.Sprint(time.Now().Unix())
+		digest := fmt.Sprintf("%x", sha256.Sum256(body))
+		headers[monitorProbeHeader] = stamp + "." + digest + "." + monitorProbeSignature(req, stamp, digest, opts.monitorSecret)
+	}
 	respBytes, status, err := postRawJSON(ctx, full, body, headers)
 	if err != nil {
 		return "", "", status, err

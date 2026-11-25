@@ -811,7 +811,7 @@ func (e *UpstreamFailoverError) IsCredentialFailure() bool {
 // credential failures from being misattributed to the selected account. Legacy
 // and inference failures retain their existing scheduler-health behavior.
 func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
-	if e == nil || e.Stage == GatewayFailureStageRequestCompatibility {
+	if e == nil || e.RequestScopedTransient || e.Stage == GatewayFailureStageRequestCompatibility {
 		return false
 	}
 	if e.Scope == GatewayFailureScopeRequest && (e.Reason == "fastest_failover_retry_limit" || e.Reason == "fastest_failover_budget_exhausted" || e.Reason == "fastest_failover_shared_failure_limit" || e.Reason == "grok_unknown_forbidden") {
@@ -834,7 +834,7 @@ func (e *sseStreamErrorEventError) Error() string { return "have error in stream
 // TempUnscheduleRetryableError 对 RetryableOnSameAccount 类型的 failover 错误触发临时封禁。
 // 由 handler 层在同账号重试全部用尽、切换账号时调用。
 func (s *GatewayService) TempUnscheduleRetryableError(ctx context.Context, accountID int64, failoverErr *UpstreamFailoverError) {
-	if failoverErr == nil || !failoverErr.RetryableOnSameAccount {
+	if MonitorProbe(ctx) || failoverErr == nil || !failoverErr.RetryableOnSameAccount {
 		return
 	}
 	// 请求级瞬时故障与账号健康无关：封禁只会把与故障无关的账号一并摘掉，
@@ -1047,7 +1047,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 
 // BindStickySession sets session -> account binding with standard TTL.
 func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
-	if sessionHash == "" || accountID <= 0 || s.cache == nil || smartChannelTemporaryRetry(ctx, derefGroupID(groupID)) {
+	if sessionHash == "" || accountID <= 0 || s.cache == nil || MonitorProbe(ctx) || smartChannelTemporaryRetry(ctx, derefGroupID(groupID)) {
 		return nil
 	}
 	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTL)
@@ -1071,7 +1071,7 @@ func (s *GatewayService) bindGatewayStickySessionDuringSelection(ctx context.Con
 // account remains bound and automatically becomes eligible again if its
 // account rate recovers.
 func (s *GatewayService) BindStickySessionAfterProfitAdmission(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
-	if sessionHash == "" || accountID <= 0 || s.cache == nil {
+	if sessionHash == "" || accountID <= 0 || s.cache == nil || MonitorProbe(ctx) {
 		return nil
 	}
 	if !gatewayProfitControlGateActive(ctx) {

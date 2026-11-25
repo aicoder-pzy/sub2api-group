@@ -21,33 +21,40 @@ type smartChannelStrikeCache interface {
 	SmartChannelStrike(ctx context.Context, groupID int64, model string, accountID, revision int64, success bool) (first bool, err error)
 }
 
-// The first plain 502 can spill just this request. Two independent failures
+// The first transient 5xx can spill just this request. Two independent failures
 // before a success (within the strike TTL) restore normal failover immediately.
 func recordSmartChannelFailure(ctx context.Context, accountID int64, err error) {
 	scope, ok := ctx.Value(smartChannelForwardScopeKey{}).(groupModelSchedulingScope)
 	var failure *UpstreamFailoverError
-	if !ok || scope.model == "" || !errors.As(err, &failure) || ctx.Err() != nil {
+	if !ok || scope.model == "" || !errors.As(err, &failure) || ctx.Err() != nil || MonitorProbe(ctx) {
 		return
 	}
 	state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
 	if state == nil {
 		return
 	}
-	soft := failure.StatusCode == http.StatusBadGateway && (failure.Stage == "" || failure.Stage == GatewayFailureStageInference) && failure.Scope == "" && failure.Reason == "" && failure.ShouldRetryNextAccount()
+	requestScoped := failure.RequestScopedTransient || failure.Scope == GatewayFailureScopeRequest
+	soft := (failure.StatusCode == http.StatusBadGateway || failure.StatusCode == http.StatusServiceUnavailable || failure.StatusCode == http.StatusGatewayTimeout) &&
+		(failure.Stage == "" || failure.Stage == GatewayFailureStageInference) && failure.Scope == "" && failure.Reason == "" && failure.ShouldRetryNextAccount()
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	prior := &state.smartFailure
 	if prior.scope == scope && prior.accountID > 0 {
 		// A second submission on the same request is not independent evidence.
 		// A concrete hard failure on its original account supersedes a 502.
-		if prior.accountID == accountID && !soft && failure.Reason != "fastest_failover_retry_limit" {
+		if prior.accountID == accountID && !soft && !requestScoped {
 			prior.preserve = false
 		}
 		return
 	}
 	*prior = smartChannelFailure{scope: scope, accountID: accountID}
+	if requestScoped {
+		prior.preserve = true
+		return
+	}
 	snapshot := state.snapshots[scope]
-	if strikes, ok := snapshot.cache.(smartChannelStrikeCache); soft && snapshot.valid && snapshot.accountID > 0 && ok {
+	warm := snapshot.accountID > 0 || state.fixedSession.account > 0
+	if strikes, ok := snapshot.cache.(smartChannelStrikeCache); soft && snapshot.valid && warm && ok {
 		first, err := strikes.SmartChannelStrike(ctx, scope.groupID, scope.model, accountID, snapshot.revision, false)
 		prior.preserve = err == nil && first
 	}

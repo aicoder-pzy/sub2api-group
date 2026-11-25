@@ -22,10 +22,14 @@ func smartChannelTestContext() context.Context {
 
 type smartStrikeFake struct {
 	*modelAutoCacheFake
-	strikes map[int64]bool
+	strikes       map[int64]bool
+	failureWrites int
 }
 
 func (c *smartStrikeFake) SmartChannelStrike(_ context.Context, _ int64, _ string, id, _ int64, success bool) (bool, error) {
+	if !success {
+		c.failureWrites++
+	}
 	first := !c.strikes[id]
 	c.strikes[id] = !success
 	return first && !success, nil
@@ -40,11 +44,12 @@ func TestSmartChannelIsolated502PreservesWarmBindings(t *testing.T) {
 		{"isolated", AccountSchedulingModeSmartChannel, &UpstreamFailoverError{StatusCode: 502}, true},
 		{"auth", AccountSchedulingModeSmartChannel, &UpstreamFailoverError{StatusCode: 502, Stage: GatewayFailureStageAccountAuth}, false},
 		{"rate", AccountSchedulingModeSmartChannel, &UpstreamFailoverError{StatusCode: 429}, false},
-		{"cooldown", AccountSchedulingModeSmartChannel, &UpstreamFailoverError{StatusCode: 504}, false},
+		{"timeout", AccountSchedulingModeSmartChannel, &UpstreamFailoverError{StatusCode: 504}, true},
+		{"unavailable", AccountSchedulingModeSmartChannel, &UpstreamFailoverError{StatusCode: 503}, true},
 		{"legacy", AccountSchedulingModeModelAuto, &UpstreamFailoverError{StatusCode: 502}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cache := &smartStrikeFake{&modelAutoCacheFake{accountSchedulingCacheStub: &accountSchedulingCacheStub{bindings: map[string]int64{}}, sessions: map[string]int64{}, counts: map[string]int{}}, map[int64]bool{}}
+			cache := &smartStrikeFake{modelAutoCacheFake: &modelAutoCacheFake{accountSchedulingCacheStub: &accountSchedulingCacheStub{bindings: map[string]int64{}}, sessions: map[string]int64{}, counts: map[string]int{}}, strikes: map[int64]bool{}}
 			group := &Group{ID: 18, AccountSchedulingMode: tc.mode}
 			base := withModelAutoSession(context.WithValue(context.Background(), ctxkey.Group, group), "session")
 			all := []*Account{{ID: 1}, {ID: 2}}
@@ -89,6 +94,58 @@ func TestSmartChannelIsolated502PreservesWarmBindings(t *testing.T) {
 				require.EqualValues(t, 2, cache.bindings[groupModelSchedulingStickyKey("m")], "independent repeated failure takes over")
 			}
 		})
+	}
+}
+
+func TestSmartChannelRequestCapacityNeverMigratesWarmSession(t *testing.T) {
+	cache := &smartStrikeFake{modelAutoCacheFake: &modelAutoCacheFake{accountSchedulingCacheStub: &accountSchedulingCacheStub{bindings: map[string]int64{}}, sessions: map[string]int64{}, counts: map[string]int{}}, strikes: map[int64]bool{}}
+	group := &Group{ID: 71, AccountSchedulingMode: AccountSchedulingModeSmartChannel}
+	base := withModelAutoSession(context.WithValue(context.Background(), ctxkey.Group, group), "warm")
+	rememberGroupModelSchedulingAccount(base, cache, &group.ID, "m", 1)
+	failure := &UpstreamFailoverError{StatusCode: 529, RequestScopedTransient: true, Scope: GatewayFailureScopeRequest, Reason: "capacity"}
+	require.False(t, failure.ShouldReportAccountScheduleFailure())
+	for i := 0; i < 3; i++ {
+		ctx := prepareFastestFailoverBinding(base, cache, "m")
+		recordSmartChannelFailure(ctx, 1, failure)
+		require.True(t, smartChannelTemporaryRetry(ctx, group.ID))
+		confirmGroupModelSchedulingAccount(ctx, "m", 2)
+		require.EqualValues(t, 1, cache.bindings[groupModelSchedulingStickyKey("m")])
+	}
+	require.Zero(t, cache.failureWrites, "request capacity must not count as an account fault")
+}
+
+func TestSmartChannelTimeoutWaitsForIndependentFailureBeforeCoolingAndMigrating(t *testing.T) {
+	group := &Group{ID: 71, AccountSchedulingMode: AccountSchedulingModeSmartChannel}
+	base := context.WithValue(context.Background(), ctxkey.Group, group)
+	cache := &smartStrikeFake{
+		modelAutoCacheFake: &modelAutoCacheFake{accountSchedulingCacheStub: &accountSchedulingCacheStub{bindings: map[string]int64{}}, sessions: map[string]int64{}, counts: map[string]int{}},
+		strikes:            map[int64]bool{},
+	}
+	rememberGroupModelSchedulingAccount(base, cache, &group.ID, "model-a", 1)
+	account := &Account{ID: 1, Platform: PlatformOpenAI, Extra: map[string]any{}}
+	repo := &schedulingTimeoutRepo{schedulerTestOpenAIAccountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{*account}}}
+
+	for turn := 1; turn <= 2; turn++ {
+		ctx := prepareFastestFailoverBinding(base, cache, "model-a")
+		state := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
+		require.Equal(t, int64(1), state.snapshots[groupModelSchedulingScope{group.ID, "model-a"}].accountID)
+		require.True(t, state.snapshots[groupModelSchedulingScope{group.ID, "model-a"}].valid)
+		require.Equal(t, groupModelSchedulingScope{group.ID, "model-a"}, ctx.Value(smartChannelForwardScopeKey{}))
+		ctx, attempt := beginFastestFailoverAttempt(ctx, account)
+		_ = attempt.bind(ctx)
+		expireSchedulingAttempt(attempt)
+		err := finishFastestFailoverAttempt(ctx, repo, nil, account, []byte(`{"model":"model-a"}`), attempt, context.DeadlineExceeded)
+		var failover *UpstreamFailoverError
+		require.ErrorAs(t, err, &failover)
+		require.Equal(t, turn == 1, smartChannelTemporaryRetry(ctx, group.ID))
+		confirmGroupModelSchedulingAccount(ctx, "model-a", 2)
+		if turn == 1 {
+			require.Empty(t, repo.cooledModel, "a single request timeout must not cool the warm route")
+			require.EqualValues(t, 1, cache.bindings[groupModelSchedulingStickyKey("model-a")])
+		} else {
+			require.Equal(t, "model-a", repo.cooledModel, "a second independent timeout may cool the model route")
+			require.EqualValues(t, 2, cache.bindings[groupModelSchedulingStickyKey("model-a")])
+		}
 	}
 }
 

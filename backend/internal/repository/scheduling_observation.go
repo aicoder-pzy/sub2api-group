@@ -120,7 +120,11 @@ func scopedSchedulingQuery(ctx context.Context, query string, args []any, model 
 		if alias != "" {
 			column = alias + "." + column
 		}
-		predicate := fmt.Sprintf("AND ($%d='' OR %s=$%d)", endpointParam, column, endpointParam)
+		prefix := alias
+		if prefix != "" {
+			prefix += "."
+		}
+		predicate := fmt.Sprintf("AND ($%d='' OR %s=$%d) AND %s", endpointParam, column, endpointParam, schedulingAgentStreamSQL(prefix))
 		query = strings.ReplaceAll(query, "/*ingress:"+alias+"*/", predicate)
 	}
 	return query, args

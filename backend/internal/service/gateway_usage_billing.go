@@ -628,6 +628,10 @@ func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usage
 	if repo == nil || usageLog == nil {
 		return
 	}
+	if MonitorProbe(ctx) {
+		usageLog.Stream, usageLog.OpenAIWSMode = false, false
+		usageLog.RequestType = RequestTypeSync
+	}
 	usageCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()
 

@@ -15,7 +15,7 @@ type SchedulingPoolRecoveryCache interface {
 }
 
 func currentSchedulingAgentRun(ctx context.Context, scope fixedSchedulingScope) (SchedulingAgentRun, bool) {
-	if scope.settings == nil || scope.policy.AgentMode != "auto" || ctx.Value(schedulingAgentStreamRequestKey{}) == nil || qualityProbe(ctx) {
+	if scope.settings == nil || scope.policy.AgentMode != "auto" || ctx.Value(schedulingAgentStreamRequestKey{}) == nil || qualityProbe(ctx) || MonitorProbe(ctx) {
 		return SchedulingAgentRun{}, false
 	}
 	index := &scope.settings.schedulingIndex

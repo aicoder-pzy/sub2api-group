@@ -77,7 +77,7 @@ type groupModelSchedulingRequestState struct {
 func WithFastestFailoverRequestState(ctx context.Context) context.Context {
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
 	if group == nil || !usesFailoverScheduling(group.AccountSchedulingMode) ||
-		ctx.Value(groupModelSchedulingRequestKey{}) != nil || ctx.Value(schedulingEvaluationKey{}) != nil || qualityProbe(ctx) || ctx.Value(qualitySchedulingReadOnlyKey{}) != nil {
+		ctx.Value(groupModelSchedulingRequestKey{}) != nil || ctx.Value(schedulingEvaluationKey{}) != nil || qualityProbe(ctx) || (ctx.Value(qualitySchedulingReadOnlyKey{}) != nil && !MonitorProbe(ctx)) {
 		return ctx
 	}
 	return context.WithValue(ctx, groupModelSchedulingRequestKey{}, &groupModelSchedulingRequestState{

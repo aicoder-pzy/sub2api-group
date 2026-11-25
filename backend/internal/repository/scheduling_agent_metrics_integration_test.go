@@ -32,6 +32,8 @@ INSERT INTO ops_error_logs VALUES
  (24,1,1,NOW(),'gateway',NULL,'gw',NULL,2,true,504,NULL,'routing',false,'platform',false);`)
 	require.NoError(t, err)
 	repo := &usageLogRepository{sql: tx}
+	_, err = tx.ExecContext(ctx, `ALTER TABLE ops_error_logs ADD COLUMN upstream_latency_ms bigint, ADD COLUMN response_latency_ms bigint`)
+	require.NoError(t, err)
 	models := []string{"sync", "recovered", "request", "user-limit", "success", "sse", "ws", "legacy", "queue", "gateway"}
 	activity, err := repo.GetSchedulingAgentActivity(ctx, 24, models)
 	require.NoError(t, err)
@@ -56,6 +58,24 @@ INSERT INTO ops_error_logs VALUES
 	require.Len(t, traffic, 1)
 	require.True(t, traffic[0].Stream)
 	require.Equal(t, "xhigh", traffic[0].Effort)
+	_, err = tx.ExecContext(ctx, `INSERT INTO ops_error_logs (group_id,api_key_id,account_id,created_at,model,request_id,request_type,stream,status_code,upstream_status_code,error_phase,is_count_tokens,error_owner,is_business_limited,upstream_latency_ms) VALUES
+ (24,1,1,NOW(),'rescued','r1',2,true,200,504,'upstream',false,'provider',false,25000),
+ (24,1,1,NOW(),'rescued','r1',2,true,200,504,'upstream',false,'provider',false,25000),
+ (24,1,1,NOW(),'sync-rescued','s1',1,false,200,504,'upstream',false,'provider',false,25000),
+ (24,1,1,NOW(),'sync-rescued','s2',1,false,200,504,'upstream',false,'provider',false,25000),
+ (24,1,1,NOW(),'quick-rescued','q1',2,true,200,502,'upstream',false,'provider',false,1000),
+ (24,1,1,NOW(),'quick-rescued','q2',2,true,200,502,'upstream',false,'provider',false,1000)`)
+	require.NoError(t, err)
+	activity, err = repo.GetSchedulingAgentActivity(ctx, 24, []string{"rescued", "sync-rescued", "quick-rescued"})
+	require.NoError(t, err)
+	require.Empty(t, activity, "one slow recovery or duplicate rows must not wake AI")
+	_, err = tx.ExecContext(ctx, `INSERT INTO ops_error_logs (group_id,api_key_id,account_id,created_at,model,request_id,request_type,stream,status_code,upstream_status_code,error_phase,is_count_tokens,error_owner,is_business_limited,upstream_latency_ms) VALUES
+ (24,1,1,NOW(),'rescued','r2',3,false,200,504,'upstream',false,'provider',false,25000)`)
+	require.NoError(t, err)
+	activity, err = repo.GetSchedulingAgentActivity(ctx, 24, []string{"rescued", "sync-rescued", "quick-rescued"})
+	require.NoError(t, err)
+	require.Len(t, activity, 1)
+	require.Equal(t, "rescued", activity[0].Model)
 }
 
 func TestSchedulingAgentRequestTracesJoinRecoveryWithoutCrossingScope(t *testing.T) {

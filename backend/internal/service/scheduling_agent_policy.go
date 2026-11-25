@@ -307,7 +307,7 @@ func orderFixedScheduling(ctx context.Context, scope fixedSchedulingScope, cache
 	state, _ := ctx.Value(groupModelSchedulingRequestKey{}).(*groupModelSchedulingRequestState)
 	var snapshot fixedSessionSnapshot
 	session, _ := ctx.Value(modelAutoSessionKey{}).(string)
-	if state != nil && session != "" && cache != nil {
+	if state != nil && session != "" && cache != nil && !MonitorProbe(ctx) {
 		key := fmt.Sprintf("fixed-model:%x", sha256.Sum256([]byte(scope.model+"\x00"+session)))
 		bound, err := cache.GetSessionAccountID(ctx, scope.groupID, key)
 		if err == nil || errors.Is(err, ErrStickySessionNotFound) {

@@ -68,6 +68,11 @@ func beginFastestFailoverAttempt(ctx context.Context, account *Account, settings
 		state:        state, totalBudget: time.Duration(settings.TotalAttemptBudgetSeconds) * time.Second,
 		maxSubmissions: maxSubmissions,
 	}
+	if MonitorProbe(ctx) {
+		attempt.firstTimeout = monitorProbeAttemptTimeout
+		attempt.totalBudget = monitorProbeTotalTimeout
+		attempt.maxSubmissions = 1
+	}
 	return context.WithValue(ctx, fastestFailoverAttemptKey{}, attempt), attempt
 }
 
@@ -207,15 +212,25 @@ func (body *fastestFailoverReadCloser) Read(buffer []byte) (int, error) {
 }
 
 func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c *gin.Context, account *Account, body []byte, attempt *fastestFailoverAttempt, forwardErr error) (resultErr error) {
-	defer func() {
-		recordSchedulingSwitchFailure(ctx, account.ID, resultErr)
-		recordSmartChannelFailure(ctx, account.ID, resultErr)
-		var failure *UpstreamFailoverError
-		if ctx.Err() == nil && errors.As(resultErr, &failure) {
-			if failure.StatusCode == 429 || failure.StatusCode >= 500 {
-				recordSchedulingActionOutcome(ctx, account.ID, false)
-			}
+	failureRecorded := false
+	recordFailure := func(err error) {
+		if failureRecorded {
+			return
 		}
+		failureRecorded = true
+		recordSchedulingSwitchFailure(ctx, account.ID, err)
+		recordSmartChannelFailure(ctx, account.ID, err)
+		var failure *UpstreamFailoverError
+		if ctx.Err() == nil && errors.As(err, &failure) && failure.ShouldReportAccountScheduleFailure() &&
+			(failure.StatusCode == 429 || failure.StatusCode >= 500) {
+			recordSchedulingActionOutcome(ctx, account.ID, false)
+		}
+	}
+	defer func() {
+		if MonitorProbe(ctx) {
+			return
+		}
+		recordFailure(resultErr)
 	}()
 	forwardErr = limitFastestFailoverRetry(ctx, forwardErr, 1, account.ID)
 	if attempt == nil {
@@ -231,6 +246,19 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 	attempt.mutex.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if MonitorProbe(ctx) {
+		if timedOut {
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID,
+				Kind: "channel_monitor_timeout", Scope: "request", UpstreamStatusCode: http.StatusGatewayTimeout,
+				Message: "Monitor attempt timed out"})
+			if budgetLimited {
+				return fastestFailoverBudgetError(true)
+			}
+			return &UpstreamFailoverError{StatusCode: http.StatusGatewayTimeout,
+				ResponseBody: []byte(`{"error":{"type":"upstream_timeout","message":"Monitor attempt timed out"}}`)}
+		}
+		return forwardErr
 	}
 	if timedOut && budgetLimited {
 		forwardErr = fastestFailoverBudgetError(true)
@@ -255,6 +283,13 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 	if errors.As(forwardErr, &failoverErr) && (failoverErr.Reason == accountRateLimitExceeded || failoverErr.Reason == accountRateLimitUnknown) {
 		return forwardErr
 	}
+	if timedOut && ctx.Err() == nil {
+		forwardErr = &UpstreamFailoverError{
+			StatusCode:   http.StatusGatewayTimeout,
+			ResponseBody: []byte(`{"error":{"type":"upstream_timeout","message":"Upstream response timed out"}}`),
+		}
+	}
+	recordFailure(forwardErr)
 	upstreamTimeout := errors.As(forwardErr, &failoverErr) && (failoverErr.StatusCode == http.StatusGatewayTimeout || failoverErr.StatusCode == http.StatusRequestTimeout)
 	if !timedOut && (ctx.Err() != nil || (!upstreamTimeout && !errors.Is(forwardErr, context.DeadlineExceeded))) {
 		return forwardErr
@@ -265,7 +300,9 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 	}
 	model := gjson.GetBytes(body, "model").String()
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, model)
-	if repo != nil && modelKey != "" && account.GetModelRateLimitRemainingTimeWithContext(ctx, model) < cooldown {
+	group, _ := ctx.Value(ctxkey.Group).(*Group)
+	preserveWarmSession := group != nil && smartChannelTemporaryRetry(ctx, group.ID)
+	if repo != nil && modelKey != "" && !preserveWarmSession && account.GetModelRateLimitRemainingTimeWithContext(ctx, model) < cooldown {
 		updateCtx, release := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		err := repo.SetModelRateLimit(updateCtx, account.ID, modelKey, time.Now().Add(cooldown), "fastest_failover_timeout")
 		release()
@@ -273,10 +310,14 @@ func finishFastestFailoverAttempt(ctx context.Context, repo AccountRepository, c
 			logger.LegacyPrintf("service.account_scheduling", "fastest failover timeout cooldown failed: account=%d model=%s error=%v", account.ID, modelKey, err)
 		}
 	}
+	message := "Upstream response timed out; account model cooling down"
+	if preserveWarmSession {
+		message = "Upstream response timed out; preserving the warm session"
+	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 		UpstreamStatusCode: http.StatusGatewayTimeout, Kind: "fastest_failover_timeout",
-		Message: "Upstream response timed out; account model cooling down",
+		Message: message,
 	})
 	logger.LegacyPrintf("service.account_scheduling", "fastest failover timeout: account=%d model=%s output_started=%t cooldown=%s", account.ID, modelKey, outputStarted, cooldown)
 	return &UpstreamFailoverError{

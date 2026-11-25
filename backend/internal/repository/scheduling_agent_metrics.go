@@ -10,8 +10,8 @@ import (
 )
 
 // Use the inbound protocol, even when an error occurs before opening the stream.
-// Known request types override the legacy stream flag. Recovered attempts have
-// a successful client status and can inform diagnosis without starting it.
+// Known request types override the legacy stream flag. Repeated slow recoveries
+// are also real upstream faults; an isolated recovered attempt stays diagnostic.
 const schedulingAgentFinalFailure = `status_code >= 400
  AND api_key_id IS NOT NULL AND COALESCE(is_count_tokens,false)=false
  AND COALESCE(error_owner,'') NOT IN ('client','user')
@@ -22,15 +22,29 @@ func schedulingAgentStreamSQL(prefix string) string {
 	return `(` + prefix + `request_type IN (2,3) OR (COALESCE(` + prefix + `request_type,0)=0 AND ` + prefix + `stream))`
 }
 
-var schedulingAgentActivitySQL = `WITH failures AS (
+var schedulingAgentActivitySQL = `WITH evidence AS (
  SELECT COALESCE(NULLIF(BTRIM(requested_model),''),model) AS model, created_at,
-        COALESCE(upstream_status_code,status_code) AS upstream_status_code, account_id, api_key_id, request_id, client_request_id, error_phase
+        COALESCE(upstream_status_code,status_code) AS upstream_status_code, account_id, api_key_id, request_id, client_request_id, error_phase,
+        (` + schedulingAgentFinalFailure + `) AS final_failure,
  FROM ops_error_logs WHERE group_id=$1 AND created_at>=NOW()-INTERVAL '15 minutes'
  AND COALESCE(NULLIF(BTRIM(requested_model),''),model)=ANY($2)
- AND ` + schedulingAgentStreamSQL("") + ` AND ` + schedulingAgentFinalFailure + `
+ AND ` + schedulingAgentStreamSQL("") + `
+ AND ((` + schedulingAgentFinalFailure + `) OR
+      (status_code BETWEEN 200 AND 299 AND api_key_id IS NOT NULL AND COALESCE(is_count_tokens,false)=false
+       AND COALESCE(error_owner,'') NOT IN ('client','user') AND NOT COALESCE(is_business_limited,false)
+       AND error_phase IN ('upstream','account_auth','network') AND upstream_status_code>=500
+       AND GREATEST(COALESCE(upstream_latency_ms,0),COALESCE(response_latency_ms,0))>=20000))
+), recoveries AS (
+ SELECT model, account_id, count(DISTINCT (api_key_id,COALESCE(NULLIF(client_request_id,''),NULLIF(request_id,'')))) AS requests
+ FROM evidence WHERE NOT final_failure AND created_at>=NOW()-INTERVAL '5 minutes' AND account_id>0
+ AND COALESCE(NULLIF(client_request_id,''),NULLIF(request_id,'')) IS NOT NULL
+ GROUP BY model, account_id HAVING count(DISTINCT (api_key_id,COALESCE(NULLIF(client_request_id,''),NULLIF(request_id,''))))>=2
+), failures AS (
+ SELECT e.* FROM evidence e LEFT JOIN recoveries r USING (model,account_id)
+ WHERE e.final_failure OR r.requests>=2
 ), request_502s AS (
  SELECT model, account_id, max(created_at) AS at FROM failures
- WHERE upstream_status_code=502 AND account_id>0 AND error_phase IN ('upstream','account_auth')
+ WHERE final_failure AND upstream_status_code=502 AND account_id>0 AND error_phase IN ('upstream','account_auth')
  AND COALESCE(NULLIF(client_request_id,''),NULLIF(request_id,'')) IS NOT NULL
  AND created_at>=NOW()-INTERVAL '5 minutes'
  GROUP BY model, account_id, api_key_id, COALESCE('client:'||NULLIF(client_request_id,''),request_id)
