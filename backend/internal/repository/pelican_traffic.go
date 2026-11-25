@@ -34,7 +34,7 @@ var pelicanTrafficAccountsQuery = `SELECT t.account_id, a.name, t.seen_at FROM (
  JOIN account_groups ag ON ag.account_id=t.account_id AND ag.group_id=$1
  LEFT JOIN LATERAL (SELECT max(r.started_at) AS checked_at FROM pelican_group_test_results r
    JOIN pelican_group_test_plans p ON p.id=r.plan_id
-   WHERE r.group_id=$1 AND p.id=$4 AND r.account_id=t.account_id) checked ON true
+   WHERE p.group_id=$1 AND p.id=$4 AND r.account_id=t.account_id) checked ON true
  ORDER BY checked.checked_at ASC NULLS FIRST, t.seen_at DESC, t.account_id`
 
 func (r *pelicanGroupTestRepository) ListTrafficAccounts(ctx context.Context, plan *service.PelicanGroupTestPlan, now time.Time) ([]service.PelicanTrafficAccount, error) {

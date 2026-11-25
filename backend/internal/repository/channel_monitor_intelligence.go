@@ -13,6 +13,7 @@ import (
 // Text results also have to match the current question and grading rule. Only
 // question, bounded output and grading value are public; account/error fields
 // never leave the repository. Raw drawing output is rendered as escaped text.
+// Traffic targets scope the current verdict, never the historical timeline.
 var channelMonitorIntelligenceSQL = `
 SELECT m.id, probe.model, COALESCE(p.id, 0), q.kind,
   COALESCE(p.pelican_config->>'question_name', ''), CASE
@@ -55,7 +56,7 @@ LEFT JOIN LATERAL (
         WHEN q.kind IN ('candy','custom') THEN 'normal'
         WHEN r.quality_verdict IN ('normal','degraded') THEN r.quality_verdict
         ELSE 'unknown' END AS status
-    FROM pelican_group_test_results r JOIN targets t ON t.account_id=r.account_id
+    FROM pelican_group_test_results r
     WHERE r.plan_id=p.id AND r.pelican_config->>'model_id'=probe.model
       AND COALESCE(NULLIF(r.pelican_config->>'question_kind',''), 'pelican')=q.kind
       AND (q.kind<>'candy' OR r.pelican_config->>'prompt'=p.pelican_config->>'prompt')
