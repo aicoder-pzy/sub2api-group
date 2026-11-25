@@ -67,7 +67,9 @@ func TestPelicanAutoAssessmentUnknownAndNonHTML(t *testing.T) {
 func TestPelicanGroupAssessmentReleasesChannelBeforeEvaluating(t *testing.T) {
 	plan := groupTestPlan(1)
 	router := &groupTestRouterFake{steps: []routeStep{{account: &Account{ID: 42, Name: "channel"}}}}
-	svc := &PelicanGroupTestService{router: router, now: func() time.Time { return groupTestNow }}
+	repo := newGroupTestRepoFake()
+	repo.traffic = []PelicanTrafficAccount{{AccountID: 42, LastSeenAt: groupTestNow}}
+	svc := &PelicanGroupTestService{repo: repo, router: router, now: func() time.Time { return groupTestNow }}
 	svc.runAccount = func(ctx context.Context, _ int64, _ string, _ *PelicanTestConfig) (*ScheduledTestResult, error) {
 		require.Equal(t, true, ctx.Value(pelicanDeferAssessmentKey{}))
 		return &ScheduledTestResult{Status: "success", ResponseText: "<html><body>drawing</body></html>", LatencyMs: 1234}, nil

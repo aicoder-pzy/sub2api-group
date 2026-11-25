@@ -120,7 +120,7 @@ func TestPelicanTestUsageUnknownAndZero(t *testing.T) {
 	}
 }
 
-func TestPelicanGroupCostIncludesFailedAttempts(t *testing.T) {
+func TestPelicanGroupCostIncludesPinnedAccountFailure(t *testing.T) {
 	plan := groupTestPlan(1)
 	plan.ModelID = "public-alias"
 	a, b := account(11, "a"), account(12, "b")
@@ -139,12 +139,12 @@ func TestPelicanGroupCostIncludesFailedAttempts(t *testing.T) {
 	svc.billing = newTestBillingService()
 	got := svc.runSample(context.Background(), plan, &Group{ID: 4, RateMultiplier: 99})
 	require.Equal(t, "failed", got.Status)
-	require.Len(t, got.Attempts, 1)
+	require.Empty(t, got.Attempts)
 	require.NotNil(t, got.CostUSD)
-	// $0.003 input + $0.0075 output, at each account's actual cost multiplier.
-	require.InDelta(t, 0.0105*(0.25+0.5), *got.CostUSD, 1e-12)
+	// Failed generation still costs money, using only the actual account's rate.
+	require.InDelta(t, 0.0105*0.25, *got.CostUSD, 1e-12)
 	require.False(t, got.CostIncomplete)
-	require.ElementsMatch(t, []int64{11, 12}, router.released)
+	require.ElementsMatch(t, []int64{11}, router.released)
 }
 
 func TestPelicanGroupCostNoAccountIsFree(t *testing.T) {

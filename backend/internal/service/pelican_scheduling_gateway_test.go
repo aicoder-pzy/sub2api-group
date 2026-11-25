@@ -136,6 +136,7 @@ func TestFastestFailoverPelicanUsesLiveSchedulerPaths(t *testing.T) {
 					tests, _ := newGroupTestService(newGroupTestRepoFake(plan),
 						&gatewayPelicanGroupRouter{gateway: gateway, openai: openai, concurrency: concurrency},
 						answers(map[int64]ScheduledTestResult{2: {Status: "success", ResponseText: "<html>drawing</html>"}}))
+					tests.repo.(*groupTestRepoFake).traffic = []PelicanTrafficAccount{{AccountID: 2, LastSeenAt: groupTestNow}}
 					tests.groups = groupTestGroupsFake{groupID: group}
 					for _, result := range tests.runSamples(context.Background(), plan) {
 						require.EqualValues(t, 2, result.AccountID, "every routine sample tests the healthy primary, including parallel samples")

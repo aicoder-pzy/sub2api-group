@@ -13,14 +13,12 @@ import (
 // Text results also have to match the current question and grading rule. Only
 // question, bounded output and grading value are public; account/error fields
 // never leave the repository. Raw drawing output is rendered as escaped text.
-const channelMonitorIntelligenceSQL = `
+var channelMonitorIntelligenceSQL = `
 SELECT m.id, probe.model, COALESCE(p.id, 0), q.kind,
   COALESCE(p.pelican_config->>'question_name', ''), CASE
     WHEN g.id IS NULL THEN 'unknown'
     WHEN p.id IS NULL THEN 'no_plan'
     WHEN NOT p.enabled OR g.status <> 'active' THEN 'paused'
-    WHEN h.latest IS NULL THEN 'pending'
-    WHEN h.latest < now() - interval '24 hours' THEN 'stale'
     ELSE h.last_status
   END, COALESCE(h.history, '[]'::jsonb)
 FROM channel_monitors m
@@ -37,16 +35,14 @@ CROSS JOIN LATERAL (SELECT CASE
     AND btrim(p.pelican_config->>'prompt')=ANY($2::text[]) THEN 'candy'
   ELSE 'pelican' END AS kind) q
 LEFT JOIN LATERAL (
-  SELECT max(x.finished_at) AS latest,
-    (array_agg(x.status ORDER BY x.finished_at DESC, x.id DESC))[1] AS last_status,
-    jsonb_agg(jsonb_build_object('checked_at', x.finished_at, 'status', x.status,
-      'latency_ms', x.latency_ms, 'effort', x.effort, 'answer', x.answer,
-      'expected_answer', x.expected_answer, 'answer_truncated', x.answer_truncated,
-      'prompt', x.prompt, 'prompt_truncated', x.prompt_truncated,
-      'confirmation_pending', x.confirmation_pending)
-      ORDER BY x.finished_at, x.id) AS history
-  FROM (
-    SELECT r.id, r.finished_at, r.latency_ms, r.pelican_config->>'reasoning_effort' AS effort,
+  WITH targets AS (
+    SELECT t.account_id FROM (` + pelicanTrafficAccountsSQL("g.id", "probe.model", "now()") + `) t
+    JOIN accounts a ON a.id=t.account_id AND a.deleted_at IS NULL
+    JOIN account_groups ag ON ag.group_id=g.id AND ag.account_id=t.account_id
+  ), samples AS (
+    SELECT r.id, r.account_id, r.finished_at, r.latency_ms,
+      row_number() OVER (PARTITION BY r.account_id ORDER BY r.finished_at DESC, r.id DESC) AS position,
+      r.pelican_config->>'reasoning_effort' AS effort,
       CASE WHEN q.kind IN ('candy','custom') THEN left(COALESCE(r.pelican_config->>'prompt',''),2000) ELSE '' END AS prompt,
       q.kind IN ('candy','custom') AND length(COALESCE(r.pelican_config->>'prompt',''))>2000 AS prompt_truncated,
       CASE WHEN q.kind IN ('candy','custom') THEN left(COALESCE(r.response_text, ''), 2000) ELSE '' END AS answer,
@@ -59,14 +55,30 @@ LEFT JOIN LATERAL (
         WHEN q.kind IN ('candy','custom') THEN 'normal'
         WHEN r.quality_verdict IN ('normal','degraded') THEN r.quality_verdict
         ELSE 'unknown' END AS status
-    FROM pelican_group_test_results r
+    FROM pelican_group_test_results r JOIN targets t ON t.account_id=r.account_id
     WHERE r.plan_id=p.id AND r.pelican_config->>'model_id'=probe.model
       AND COALESCE(NULLIF(r.pelican_config->>'question_kind',''), 'pelican')=q.kind
       AND (q.kind<>'candy' OR r.pelican_config->>'prompt'=p.pelican_config->>'prompt')
       AND (q.kind<>'custom' OR (r.pelican_config->>'prompt'=p.pelican_config->>'prompt'
         AND r.pelican_config->>'expected_answer'=p.pelican_config->>'expected_answer'))
-    ORDER BY r.finished_at DESC, r.id DESC LIMIT 20
-  ) x
+  )
+  SELECT (SELECT CASE
+      WHEN bool_or(x.status='failed' AND x.finished_at>=now()-interval '24 hours') THEN 'failed'
+      WHEN bool_or(x.status='degraded' AND x.finished_at>=now()-interval '24 hours') THEN 'degraded'
+      WHEN count(x.id)<count(t.account_id) OR count(t.account_id)=0 THEN 'pending'
+      WHEN bool_or(x.finished_at<now()-interval '24 hours') THEN 'stale'
+      WHEN bool_or(x.status<>'normal') THEN 'unknown'
+      ELSE 'normal' END
+    FROM targets t LEFT JOIN samples x ON x.account_id=t.account_id AND x.position=1) AS last_status,
+    (SELECT jsonb_agg(jsonb_build_object('checked_at', x.finished_at, 'status', x.status,
+      'latency_ms', x.latency_ms, 'effort', x.effort, 'answer', x.answer,
+      'expected_answer', x.expected_answer, 'answer_truncated', x.answer_truncated,
+      'prompt', x.prompt, 'prompt_truncated', x.prompt_truncated,
+      'confirmation_pending', x.confirmation_pending)
+      ORDER BY x.finished_at, x.id)
+  FROM (
+    SELECT * FROM samples ORDER BY finished_at DESC, id DESC LIMIT 20
+  ) x) AS history
 ) h ON true
 WHERE m.id=ANY($1) AND m.enabled AND m.intelligence_group_id IS NOT NULL
 ORDER BY m.id, probe.model, p.id`

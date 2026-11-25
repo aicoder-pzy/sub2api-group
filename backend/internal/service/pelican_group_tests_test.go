@@ -32,14 +32,21 @@ type groupTestRepoFake struct {
 	listedOffset  int
 	listedLimit   int
 	nextID        int64
+	traffic       []PelicanTrafficAccount
+	trafficErr    error
 }
 
 func newGroupTestRepoFake(plans ...*PelicanGroupTestPlan) *groupTestRepoFake {
-	repo := &groupTestRepoFake{plans: map[int64]*PelicanGroupTestPlan{}, claimOK: true, nextID: 1000}
+	repo := &groupTestRepoFake{plans: map[int64]*PelicanGroupTestPlan{}, claimOK: true, nextID: 1000,
+		traffic: []PelicanTrafficAccount{{AccountID: 11, LastSeenAt: groupTestNow}, {AccountID: 12, LastSeenAt: groupTestNow}}}
 	for _, plan := range plans {
 		repo.plans[plan.ID] = plan
 	}
 	return repo
+}
+
+func (r *groupTestRepoFake) ListTrafficAccounts(context.Context, *PelicanGroupTestPlan, time.Time) ([]PelicanTrafficAccount, error) {
+	return r.traffic, r.trafficErr
 }
 
 func (r *groupTestRepoFake) ListPlans(context.Context) ([]*PelicanGroupTestPlan, error) {
@@ -146,13 +153,14 @@ type routeStep struct {
 }
 
 type groupTestRouterFake struct {
-	mu       sync.Mutex
-	steps    []routeStep
-	excluded [][]int64
-	released []int64
+	mu           sync.Mutex
+	steps        []routeStep
+	excluded     [][]int64
+	released     []int64
+	ignoreTarget bool
 }
 
-func (r *groupTestRouterFake) route(_ context.Context, _ *Group, model string, excluded map[int64]struct{}) (*pelicanGroupRoute, error) {
+func (r *groupTestRouterFake) route(ctx context.Context, _ *Group, model string, excluded map[int64]struct{}) (*pelicanGroupRoute, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	seen := []int64{}
@@ -163,8 +171,21 @@ func (r *groupTestRouterFake) route(_ context.Context, _ *Group, model string, e
 	if len(r.steps) == 0 {
 		return nil, ErrNoAvailableAccounts
 	}
-	step := r.steps[0]
-	r.steps = r.steps[1:]
+	index := 0
+	if target, _ := ctx.Value(pelicanDegradationTargetKey{}).(int64); target > 0 && !r.ignoreTarget && r.steps[0].err == nil {
+		index = -1
+		for i, step := range r.steps {
+			if step.account != nil && step.account.ID == target {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return nil, ErrNoAvailableAccounts
+		}
+	}
+	step := r.steps[index]
+	r.steps = append(r.steps[:index], r.steps[index+1:]...)
 	if step.err != nil {
 		return nil, step.err
 	}
@@ -270,103 +291,88 @@ func TestPelicanGroupTestPlanInputValidation(t *testing.T) {
 	require.ErrorIs(t, svc.DeletePlan(ctx, plan.ID), ErrPelicanGroupTestPlanNotFound)
 }
 
-func TestPelicanGroupTestSampleFailsOverLikeAUserRequest(t *testing.T) {
-	a, b, c := account(11, "pool-a"), account(12, "pool-b"), account(13, "pool-c")
-	upstream429 := ScheduledTestResult{Status: "failed", ErrorMessage: "API returned 429: rate limited"}
-	html := ScheduledTestResult{Status: "success", ResponseText: "<svg></svg>", LatencyMs: 4200}
-	cases := []struct {
-		name         string
-		steps        []routeStep
-		answers      map[int64]ScheduledTestResult
-		status       string
-		accountID    int64
-		errorMessage string
-		response     string
-		attempts     []PelicanGroupTestAttempt
-		excluded     [][]int64
-	}{
-		{
-			name: "moves on when the account fails before any output", steps: []routeStep{{account: a}, {account: b}},
-			answers: map[int64]ScheduledTestResult{11: upstream429, 12: html},
-			status:  "success", accountID: 12, response: "<svg></svg>",
-			attempts: []PelicanGroupTestAttempt{{AccountID: 11, AccountName: "pool-a", Error: upstream429.ErrorMessage}},
-			excluded: [][]int64{{}, {11}},
-		},
-		{
-			name: "keeps an answer that is not HTML", steps: []routeStep{{account: a}, {account: b}},
-			answers: map[int64]ScheduledTestResult{11: {Status: "failed", ResponseText: "Sure! Here is", ErrorMessage: "Model did not return HTML or SVG"}},
-			status:  "failed", accountID: 11, response: "Sure! Here is", errorMessage: "Model did not return HTML or SVG",
-			attempts: []PelicanGroupTestAttempt{}, excluded: [][]int64{{}},
-		},
-		{
-			name: "keeps an empty answer", steps: []routeStep{{account: a}, {account: b}},
-			answers: map[int64]ScheduledTestResult{11: {Status: "failed", ErrorMessage: pelicanErrEmptyOutput}},
-			status:  "failed", accountID: 11, errorMessage: pelicanErrEmptyOutput,
-			attempts: []PelicanGroupTestAttempt{}, excluded: [][]int64{{}},
-		},
-		{
-			name: "keeps an oversized answer", steps: []routeStep{{account: a}, {account: b}},
-			answers: map[int64]ScheduledTestResult{11: {Status: "failed", ErrorMessage: pelicanErrCaptureLimit}},
-			status:  "failed", accountID: 11, errorMessage: pelicanErrCaptureLimit,
-			attempts: []PelicanGroupTestAttempt{}, excluded: [][]int64{{}},
-		},
-		{
-			name: "gives up after three accounts", steps: []routeStep{{account: a}, {account: b}, {account: c}, {account: account(14, "pool-d")}},
-			answers: map[int64]ScheduledTestResult{11: upstream429, 12: upstream429, 13: {Status: "failed", ErrorMessage: "API returned 502"}},
-			status:  "failed", accountID: 13, errorMessage: "API returned 502",
-			attempts: []PelicanGroupTestAttempt{
-				{AccountID: 11, AccountName: "pool-a", Error: upstream429.ErrorMessage},
-				{AccountID: 12, AccountName: "pool-b", Error: upstream429.ErrorMessage},
-			},
-			excluded: [][]int64{{}, {11}, {11, 12}},
-		},
-		{
-			name: "reports that the scheduler found no account", steps: nil,
-			status: "failed", errorMessage: "no_available_account: no available accounts",
-			attempts: []PelicanGroupTestAttempt{}, excluded: [][]int64{{}},
-		},
-		{
-			name: "reports the last account when nothing is left to fail over to", steps: []routeStep{{account: a}},
-			answers: map[int64]ScheduledTestResult{11: upstream429},
-			status:  "failed", accountID: 11, errorMessage: upstream429.ErrorMessage,
-			attempts: []PelicanGroupTestAttempt{}, excluded: [][]int64{{}, {11}},
-		},
-		{
-			name: "passes a scheduler error through", steps: []routeStep{{err: errPelicanGroupAccountBusy}},
-			status: "failed", errorMessage: "no_available_account: " + errPelicanGroupAccountBusy.Error(),
-			attempts: []PelicanGroupTestAttempt{}, excluded: [][]int64{{}},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			router := &groupTestRouterFake{steps: tc.steps}
-			svc, _ := newGroupTestService(newGroupTestRepoFake(), router, answers(tc.answers))
-			result := svc.runSample(context.Background(), groupTestPlan(1), &Group{ID: 4, Status: StatusActive})
-			require.Equal(t, tc.status, result.Status)
-			require.Equal(t, tc.accountID, result.AccountID)
-			require.Equal(t, tc.errorMessage, result.ErrorMessage)
-			require.Equal(t, tc.response, result.ResponseText)
-			require.Equal(t, tc.attempts, result.Attempts)
-			require.Len(t, router.excluded, len(tc.excluded))
-			for i, ids := range tc.excluded {
-				require.ElementsMatch(t, ids, router.excluded[i], "excluded accounts on route %d", i)
+func TestPelicanGroupTestFollowsStreamingAccountWithoutFailover(t *testing.T) {
+	for _, outcome := range []string{"normal", "wrong", "429", "timeout", "unavailable", "wrong_account", "panic"} {
+		t.Run(outcome, func(t *testing.T) {
+			repo := newGroupTestRepoFake()
+			repo.traffic = []PelicanTrafficAccount{{AccountID: 11, AccountName: "actual", LastSeenAt: groupTestNow}}
+			router := &groupTestRouterFake{steps: []routeStep{{account: account(11, "actual")}, {account: account(12, "other")}}}
+			if outcome == "unavailable" {
+				router.steps[0] = routeStep{err: ErrNoAvailableAccounts}
 			}
-			require.Len(t, router.released, len(tc.excluded)-countRouteErrors(tc.steps, len(tc.excluded)), "every routed slot is released")
-			require.Equal(t, "gpt-6-astra", result.PelicanConfig.ModelID, "results carry the model users ask for")
-			require.EqualValues(t, 4, result.GroupID)
+			if outcome == "wrong_account" {
+				router.ignoreTarget = true
+				router.steps[0] = routeStep{account: account(12, "other")}
+			}
+			calls := 0
+			svc, _ := newGroupTestService(repo, router, func(ctx context.Context, id int64, model string, cfg *PelicanTestConfig) (*ScheduledTestResult, error) {
+				calls++
+				require.EqualValues(t, 11, id)
+				require.Equal(t, "gpt-6-astra", model)
+				require.Equal(t, "high", cfg.ReasoningEffort)
+				require.True(t, qualityProbe(ctx))
+				switch outcome {
+				case "429":
+					return &ScheduledTestResult{Status: "failed", ErrorMessage: "API returned 429"}, nil
+				case "timeout":
+					return nil, errors.New("timeout")
+				case "panic":
+					panic("adapter")
+				case "wrong":
+					return &ScheduledTestResult{Status: "failed", ResponseText: "29", ErrorMessage: "answer_mismatch: expected 21"}, nil
+				default:
+					return &ScheduledTestResult{Status: "success", ResponseText: "21"}, nil
+				}
+			})
+			result := svc.runSample(context.Background(), groupTestPlan(1), &Group{ID: 4})
+			require.EqualValues(t, 11, result.AccountID)
+			require.Empty(t, result.Attempts, "another account must never mask this one's failure")
+			require.Len(t, router.excluded, 1)
+			if outcome == "normal" {
+				require.Equal(t, "success", result.Status)
+			} else {
+				require.Equal(t, "failed", result.Status)
+			}
+			if outcome == "unavailable" || outcome == "wrong_account" {
+				require.Zero(t, calls)
+			} else {
+				require.Equal(t, 1, calls)
+			}
 		})
 	}
 }
 
-// countRouteErrors counts the routes among the first n that did not hand out an account.
-func countRouteErrors(steps []routeStep, n int) int {
-	errs := 0
-	for i := 0; i < n; i++ {
-		if i >= len(steps) || steps[i].err != nil {
-			errs++
-		}
+func TestPelicanGroupTestSkipsWithoutRealStreamingEvidence(t *testing.T) {
+	for _, problem := range []error{nil, errors.New("evidence unavailable")} {
+		repo := newGroupTestRepoFake()
+		repo.traffic, repo.trafficErr = nil, problem
+		router := &groupTestRouterFake{}
+		svc, _ := newGroupTestService(repo, router, func(context.Context, int64, string, *PelicanTestConfig) (*ScheduledTestResult, error) {
+			t.Fatal("no paid call without evidence")
+			return nil, nil
+		})
+		require.Empty(t, svc.runSamples(context.Background(), groupTestPlan(1)))
+		require.Nil(t, svc.runSample(context.Background(), groupTestPlan(1), &Group{ID: 4}))
+		require.Empty(t, router.excluded)
 	}
-	return errs
+}
+
+func TestPelicanGroupTestCoversActiveAccountsWithinSampleBudget(t *testing.T) {
+	plan := groupTestPlan(2)
+	repo := newGroupTestRepoFake()
+	repo.traffic = []PelicanTrafficAccount{{AccountID: 11}, {AccountID: 12}, {AccountID: 13}}
+	router := &groupTestRouterFake{steps: []routeStep{{account: account(11, "a")}, {account: account(12, "b")}, {account: account(13, "c")}}}
+	svc, _ := newGroupTestService(repo, router, answers(map[int64]ScheduledTestResult{
+		11: {Status: "failed", ResponseText: "29", ErrorMessage: "answer_mismatch"},
+		12: {Status: "success", ResponseText: "21"},
+	}))
+	results := svc.runSamples(context.Background(), plan)
+	require.Len(t, results, 2, "do not multiply the user's configured budget by the account count")
+	require.EqualValues(t, 11, results[0].AccountID)
+	require.Equal(t, "failed", results[0].Status)
+	require.EqualValues(t, 12, results[1].AccountID)
+	require.Equal(t, "success", results[1].Status)
+	require.Len(t, router.steps, 1)
 }
 
 func TestPelicanGroupTestSampleSurvivesAccountTestFailures(t *testing.T) {
@@ -389,9 +395,10 @@ func TestPelicanGroupTestSampleSurvivesAccountTestFailures(t *testing.T) {
 		return &ScheduledTestResult{Status: "success", ResponseText: "<svg></svg>"}, nil
 	})
 	result = svc.runSample(context.Background(), groupTestPlan(1), &Group{ID: 4})
-	require.Equal(t, "success", result.Status)
-	require.Equal(t, 2, calls, "an error from the account test counts as a failure before output")
-	require.Equal(t, []PelicanGroupTestAttempt{{AccountID: 11, AccountName: "a", Error: "dial tcp: timeout"}}, result.Attempts)
+	require.Equal(t, "failed", result.Status)
+	require.Equal(t, 1, calls)
+	require.Empty(t, result.Attempts)
+	require.EqualValues(t, 11, result.AccountID)
 }
 
 func TestPelicanGroupTestExecuteSavesPublishesAndFinishes(t *testing.T) {
@@ -503,7 +510,7 @@ func TestPelicanGroupRunEnabledCanCoverAllModels(t *testing.T) {
 	second.ID, second.ModelID, second.PelicanConfig.ModelID, second.GroupStatus = 8, "gpt-6.2-astra", "gpt-6.2-astra", StatusActive
 	repo := newGroupTestRepoFake(first, second)
 	var ran []string
-	router := &groupTestRouterFake{steps: []routeStep{{account: account(11, "a")}, {account: account(12, "b")}}}
+	router := &groupTestRouterFake{steps: []routeStep{{account: account(11, "a")}, {account: account(11, "a")}}}
 	svc, _ := newGroupTestService(repo, router, func(_ context.Context, _ int64, model string, _ *PelicanTestConfig) (*ScheduledTestResult, error) {
 		ran = append(ran, model)
 		return &ScheduledTestResult{Status: "success", ResponseText: "<svg></svg>"}, nil

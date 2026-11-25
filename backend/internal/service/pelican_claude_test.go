@@ -170,9 +170,7 @@ func TestPelicanClaudeReportsWhyTheAnswerIsMissing(t *testing.T) {
 			output, message := parsePelicanOutput(rec.Body.String())
 			require.Equal(t, tc.want, message)
 			require.Equal(t, tc.wantOutput, output != "")
-			// The answer itself is the result; another account would run the same model.
-			result := &ScheduledTestResult{Status: "failed", ResponseText: output, ErrorMessage: message}
-			require.False(t, pelicanFailedBeforeOutput(result))
+
 		})
 	}
 }
@@ -188,11 +186,6 @@ func TestClaudeConnectionProbeKeepsItsShortBudgetAndSuccessRule(t *testing.T) {
 	require.Equal(t, int64(1024), gjson.GetBytes(upstream.bodies[0], "max_tokens").Int())
 	require.Equal(t, "hi", gjson.GetBytes(upstream.bodies[0], "messages.0.content.0.text").String())
 	require.Contains(t, rec.Body.String(), `"type":"test_complete","success":true`)
-}
-
-func TestPelicanGroupStillRetriesAccountFailures(t *testing.T) {
-	require.True(t, pelicanFailedBeforeOutput(&ScheduledTestResult{Status: "failed", ErrorMessage: "API returned 401: invalid token"}))
-	require.False(t, pelicanFailedBeforeOutput(&ScheduledTestResult{Status: "failed", ErrorMessage: pelicanErrEmptyOutput}))
 }
 
 func TestPelicanAdaptiveCNRequestsOneAnswer(t *testing.T) {
@@ -282,6 +275,7 @@ func TestPelicanGroupCandyUsesResponsesLimitAndGradesAnswer(t *testing.T) {
 			resp.Body = io.NopCloser(strings.NewReader(fmt.Sprintf("data: {\"type\":\"response.output_text.delta\",\"delta\":%q}\n\ndata: %s\n\n", tc.answer, tc.finalEvent)))
 			accounts, upstream := adaptiveCNAccountTestService(upstreamAccount, resp)
 			repo := newGroupTestRepoFake()
+			repo.traffic = []PelicanTrafficAccount{{AccountID: 71, LastSeenAt: groupTestNow}}
 			router := &groupTestRouterFake{steps: []routeStep{{account: upstreamAccount}}}
 			groupTests, showcase := newGroupTestService(repo, router, accounts.RunPelicanBackground)
 			groupTests.assessOutput = func(context.Context, string) (string, *PelicanAssessment) {

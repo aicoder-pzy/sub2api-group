@@ -39,6 +39,10 @@ func (s *PelicanGroupTestService) runTextIntelligenceDue(ctx context.Context, no
 			continue
 		}
 		until := now.Add(pelicanGroupTestLease).Truncate(time.Microsecond)
+		active, err := s.hasStreamingAccount(ctx, plan, item.AccountID, time.Time{})
+		if err != nil || !active {
+			continue
+		}
 		claimed, err := repo.ClaimTextIntelligenceRetry(ctx, item, now, until)
 		if err != nil || !claimed {
 			continue

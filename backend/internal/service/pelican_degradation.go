@@ -107,6 +107,10 @@ func (s *PelicanGroupTestService) runDegradationDue(ctx context.Context, now tim
 			if !plan.UpdatedAt.Equal(item.PlanUpdatedAt) {
 				continue
 			}
+			active, err := s.hasStreamingAccount(ctx, plan, item.AccountID, time.Time{})
+			if err != nil || !active {
+				continue
+			}
 			until := now.Add(pelicanGroupTestLease).Truncate(time.Microsecond)
 			limit := s.settings.FastestFailoverSettings(ctx).DegradationTestsPerHour
 			claimed, err := repo.ClaimDegradation(ctx, item, now, until, limit)

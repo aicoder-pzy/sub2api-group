@@ -59,7 +59,24 @@ func (s *PelicanGroupTestService) claimReplacementTest(ctx context.Context, plan
 	if err != nil || change == nil || change.AccountID != accountID {
 		return false, err
 	}
+	adopted, err := s.hasStreamingAccount(ctx, plan, accountID, change.ChangedAt)
+	if err != nil || !adopted {
+		return false, err
+	}
 	return route.cache.ClaimPelicanSwitchTest(ctx, group.ID, plan.ModelID, route.model, effort, change, now, s.settings.FastestFailoverSettings(ctx).DegradationTestsPerHour)
+}
+
+func (s *PelicanGroupTestService) hasStreamingAccount(ctx context.Context, plan *PelicanGroupTestPlan, accountID int64, since time.Time) (bool, error) {
+	accounts, err := s.repo.ListTrafficAccounts(ctx, plan, s.now())
+	if err != nil {
+		return false, err
+	}
+	for _, account := range accounts {
+		if account.AccountID == accountID && !account.LastSeenAt.Before(since) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (r *gatewayPelicanGroupRouter) switchTestRoute(ctx context.Context, group *Group, model string) (*pelicanSwitchTestRoute, error) {
@@ -113,6 +130,10 @@ func (s *PelicanGroupTestService) RunSwitchTests(ctx context.Context, now time.T
 		}
 		change, err := route.cache.GetGroupModelSchedulingTransition(ctx, group.ID, route.model)
 		if err != nil || change == nil || change.PreviousAccountID <= 0 || change.AccountID <= 0 || change.AccountID == change.PreviousAccountID || change.ChangedAt.After(now) || now.Sub(change.ChangedAt) >= time.Hour {
+			continue
+		}
+		adopted, err := s.hasStreamingAccount(ctx, plan, change.AccountID, change.ChangedAt)
+		if err != nil || !adopted {
 			continue
 		}
 		select {

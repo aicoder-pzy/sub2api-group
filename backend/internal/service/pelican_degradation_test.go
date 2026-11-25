@@ -60,6 +60,7 @@ func TestPelicanDegradationRetestsOriginalThenTestsReplacementImmediately(t *tes
 		{PlanID: plan.ID, GroupID: plan.GroupID, AccountID: 1, Model: plan.ModelID, Action: "retry"},
 		{PlanID: plan.ID, GroupID: plan.GroupID, AccountID: 1, Model: plan.ModelID, Action: "replacement"},
 	}}
+	repo.traffic = []PelicanTrafficAccount{{AccountID: 1, LastSeenAt: groupTestNow}, {AccountID: 2, LastSeenAt: groupTestNow}}
 	var events []string
 	var called []int64
 	svc, _ := newGroupTestService(repo.groupTestRepoFake, degradationTestRouter{t, &events}, func(_ context.Context, id int64, _ string, cfg *PelicanTestConfig) (*ScheduledTestResult, error) {

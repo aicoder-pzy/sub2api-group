@@ -67,6 +67,7 @@ func TestSwitchTestRunsOneFixedChannelSampleWithoutEditingPlan(t *testing.T) {
 			next := groupTestNow.Add(6 * time.Hour)
 			plan.NextRunAt = &next
 			repo := &switchTestRepo{groupTestRepoFake: newGroupTestRepoFake(plan), eligible: true}
+			repo.traffic = []PelicanTrafficAccount{{AccountID: 2, LastSeenAt: groupTestNow}}
 			cache := &switchTestCache{allow: true, change: &GroupModelSchedulingTransition{PreviousAccountID: 1, AccountID: 2, ChangedAt: groupTestNow.Add(-time.Second)}}
 			router := switchTestRouter{groupTestRouterFake: &groupTestRouterFake{steps: []routeStep{{account: account(2, "new")}, {account: account(3, "other")}}}, cache: cache}
 			calls := 0
@@ -101,13 +102,18 @@ func TestSwitchTestRunsOneFixedChannelSampleWithoutEditingPlan(t *testing.T) {
 }
 
 func TestSwitchTestsHonorFreshnessPlansAndOnlyCommittedSmartPrimaries(t *testing.T) {
-	for _, scenario := range []string{"fresh", "disabled", "window", "running", "old", "initial", "unchanged", "legacy"} {
+	for _, scenario := range []string{"fresh", "disabled", "window", "running", "old", "initial", "unchanged", "legacy", "no_traffic", "not_adopted"} {
 		t.Run(scenario, func(t *testing.T) {
 			plan := groupTestPlan(1)
 			repo := &switchTestRepo{groupTestRepoFake: newGroupTestRepoFake(plan), eligible: true}
+			repo.traffic = []PelicanTrafficAccount{{AccountID: 2, LastSeenAt: groupTestNow}}
 			cache := &switchTestCache{allow: true, change: &GroupModelSchedulingTransition{PreviousAccountID: 1, AccountID: 2, ChangedAt: groupTestNow.Add(-time.Second)}}
 			group := &Group{ID: 4, Status: StatusActive, AccountSchedulingMode: AccountSchedulingModeSmartChannel}
 			switch scenario {
+			case "no_traffic":
+				repo.traffic = nil
+			case "not_adopted":
+				repo.traffic[0].LastSeenAt = groupTestNow.Add(-time.Minute)
 			case "fresh":
 				repo.eligible = false
 			case "disabled":
@@ -144,6 +150,7 @@ func TestSmartDegradationReplacementSharesSwitchFreshnessAndCooldown(t *testing.
 		t.Run(fmt.Sprint("recent_", recent), func(t *testing.T) {
 			plan := groupTestPlan(1)
 			repo := &switchTestRepo{groupTestRepoFake: newGroupTestRepoFake(plan), eligible: !recent}
+			repo.traffic = []PelicanTrafficAccount{{AccountID: 2, LastSeenAt: groupTestNow}}
 			cache := &switchTestCache{allow: true, change: &GroupModelSchedulingTransition{PreviousAccountID: 1, AccountID: 2, ChangedAt: groupTestNow.Add(-time.Second)}}
 			router := switchTestRouter{cache: cache}
 			svc, _ := newGroupTestService(repo.groupTestRepoFake, router, nil)

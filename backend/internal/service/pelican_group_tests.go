@@ -15,21 +15,19 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
-// Pelican group tests ask a group the Pelican question on a schedule. For every sample
-// the gateway scheduler picks the account exactly as it would for a user request to the
-// group, so the showcase reflects the group rather than one hand-picked account.
+// Group intelligence checks follow accounts observed in real streaming traffic.
+// A pinned account's failure is never replaced by another account's answer.
 
 const (
-	// PelicanGroupTestMaxAttempts bounds the accounts one sample may try: like a user
-	// request, a sample moves on only when the account fails before producing output.
-	PelicanGroupTestMaxAttempts = 3
-	pelicanGroupTestKeepResults = 100
-	pelicanGroupTestHistoryAge  = 7 * 24 * time.Hour
-	pelicanGroupTestLease       = 15 * time.Minute
-	pelicanGroupTestRunTimeout  = 10 * time.Minute
-	pelicanGroupTestSlotWait    = time.Minute
-	pelicanGroupTestMaxRunning  = 4
-	pelicanGroupTestDefaultCron = "*/30 * * * *"
+	// Bound selection retries if a concurrent real request changes the binding.
+	pelicanGroupTestMaxSelections = 3
+	pelicanGroupTestKeepResults   = 100
+	pelicanGroupTestHistoryAge    = 7 * 24 * time.Hour
+	pelicanGroupTestLease         = 15 * time.Minute
+	pelicanGroupTestRunTimeout    = 10 * time.Minute
+	pelicanGroupTestSlotWait      = time.Minute
+	pelicanGroupTestMaxRunning    = 4
+	pelicanGroupTestDefaultCron   = "*/30 * * * *"
 )
 
 var (
@@ -120,6 +118,7 @@ type PelicanGroupTestPlanInput struct {
 }
 
 type PelicanGroupTestRepository interface {
+	ListTrafficAccounts(ctx context.Context, plan *PelicanGroupTestPlan, now time.Time) ([]PelicanTrafficAccount, error)
 	ListPlans(ctx context.Context) ([]*PelicanGroupTestPlan, error)
 	// GetPlan returns nil when the plan does not exist.
 	GetPlan(ctx context.Context, id int64) (*PelicanGroupTestPlan, error)
@@ -140,6 +139,12 @@ type PelicanGroupTestRepository interface {
 	ListResults(ctx context.Context, planID int64, offset, limit int) ([]*PelicanGroupTestResult, int64, error)
 	// GetResult returns nil when the result does not exist.
 	GetResult(ctx context.Context, id int64) (*PelicanGroupTestResult, error)
+}
+
+type PelicanTrafficAccount struct {
+	AccountID   int64
+	AccountName string
+	LastSeenAt  time.Time
 }
 
 // pelicanGroupRoute is the scheduler's pick for one sample. release frees the
@@ -590,37 +595,63 @@ func (s *PelicanGroupTestService) runSamples(ctx context.Context, plan *PelicanG
 	if plan.PelicanConfig != nil && plan.PelicanConfig.ParallelCount > 1 {
 		count = plan.PelicanConfig.ParallelCount
 	}
+	targets, err := s.repo.ListTrafficAccounts(ctx, plan, s.now())
+	if err != nil || len(targets) == 0 {
+		logger.LegacyPrintf("service.pelican_group_test", "plan=%d skipped: no verified streaming account (error=%v)", plan.ID, err)
+		return nil
+	}
+	// Keep the configured sample budget. Accounts with the oldest check go first
+	// so separate active sessions are covered without multiplying paid probes.
 	results := make([]*PelicanGroupTestResult, count)
 	var wg sync.WaitGroup
 	for i := range results {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			results[index] = s.runSample(ctx, plan, group)
+			target := targets[index%len(targets)]
+			sampleCtx := context.WithValue(ctx, pelicanDegradationTargetKey{}, target.AccountID)
+			sampleCtx = context.WithValue(sampleCtx, qualitySchedulingProbeKey{}, true)
+			results[index] = s.runSample(sampleCtx, plan, group)
+			if results[index] != nil {
+				results[index].AccountID, results[index].AccountName = target.AccountID, target.AccountName
+			}
 		}(i)
 	}
 	wg.Wait()
 	return results
 }
 
-// runSample routes one sample like a user request. It moves to another account only when
-// the account failed before producing any output, which is when a user request fails over
-// too; an answer that is not HTML is the group's real answer and is kept. Each sample runs
-// in its own goroutine outside Gin's recovery, so a panic becomes a failed result.
+// runSample keeps the observed account even when the API fails. Each sample runs
+// outside Gin's recovery, so a panic becomes a failed result for the same account.
 func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGroupTestPlan, group *Group) (result *PelicanGroupTestResult) {
-	// Routine intelligence checks always follow the primary, never a trial or
-	// a proposed automatic upgrade. Confirmation retries remain pinned below.
+	// Pinned probes observe existing traffic without proposing automatic upgrades.
 	ctx = context.WithValue(ctx, modelAutoPrimaryOnlyKey{}, true)
 	if plan.PelicanConfig != nil {
 		ctx = WithRequestedReasoningEffort(ctx, plan.PelicanConfig.ReasoningEffort)
 	}
 	work, handling := ctx.Value(pelicanDegradationRunKey{}).(PelicanDegradationWork)
+	target, _ := ctx.Value(pelicanDegradationTargetKey{}).(int64)
+	if target == 0 && !handling {
+		if s.repo == nil {
+			return nil
+		}
+		accounts, err := s.repo.ListTrafficAccounts(ctx, plan, s.now())
+		if err != nil || len(accounts) == 0 {
+			return nil
+		}
+		target = accounts[0].AccountID
+		ctx = context.WithValue(ctx, pelicanDegradationTargetKey{}, target)
+		ctx = context.WithValue(ctx, qualitySchedulingProbeKey{}, true)
+	}
 	started := s.now()
 	var costUSD float64
 	var costDetails []PelicanTestCostDetail
 	priced, attempted, incomplete := false, false, false
 	defer func() {
 		if result != nil {
+			if target > 0 {
+				result.AccountID = target
+			}
 			if priced || !attempted {
 				result.CostUSD = &costUSD
 			} else {
@@ -637,9 +668,8 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 		}
 	}()
 	excluded := make(map[int64]struct{})
-	attempts := []PelicanGroupTestAttempt{}
 	selectionChanges := 0
-	// Reuse the complete question on failover, including optional verification tasks.
+	// Keep the complete question, including optional verification tasks.
 	generationConfig, checks, checkErr := withPelicanQualityChecks(plan.PelicanConfig)
 	if checkErr != nil {
 		return s.newResult(plan, started, s.now(), "quality_check_generation_failed")
@@ -650,14 +680,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 	for {
 		route, err := s.router.route(ctx, group, plan.ModelID, excluded)
 		if err != nil {
-			if len(attempts) == 0 {
-				return s.newResult(plan, started, s.now(), fmt.Sprintf("no_available_account: %v", err))
-			}
-			// Nothing left to fail over to: the last account's error is what a user would get.
-			last := attempts[len(attempts)-1]
-			result = s.newResult(plan, started, s.now(), last.Error)
-			result.AccountID, result.AccountName, result.Attempts = last.AccountID, last.AccountName, attempts[:len(attempts)-1]
-			return result
+			return s.newResult(plan, started, s.now(), fmt.Sprintf("no_available_account: %v", err))
 		}
 		if target, _ := ctx.Value(pelicanDegradationTargetKey{}).(int64); target > 0 && route.account.ID != target {
 			route.release()
@@ -673,7 +696,7 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 			if !route.confirm() {
 				route.release()
 				selectionChanges++
-				if selectionChanges >= PelicanGroupTestMaxAttempts {
+				if selectionChanges >= pelicanGroupTestMaxSelections {
 					return s.newResult(plan, started, s.now(), "replacement_binding_changed")
 				}
 				continue
@@ -686,6 +709,13 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 				if err != nil {
 					return s.newResult(plan, started, s.now(), "replacement_quality_evidence_unavailable")
 				}
+				return nil
+			}
+		}
+		if handling && work.Action == "replacement" {
+			active, err := s.hasStreamingAccount(ctx, plan, route.account.ID, time.Time{})
+			if err != nil || !active {
+				route.release()
 				return nil
 			}
 		}
@@ -718,60 +748,56 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 				sample.ErrorMessage = "pelican_group_test_empty_result: account test returned no result"
 			}
 		}
-		if handling || sample.Status == "success" || !pelicanFailedBeforeOutput(sample) || len(attempts)+1 >= PelicanGroupTestMaxAttempts {
-			result = s.newResult(plan, started, s.now(), sample.ErrorMessage)
-			result.Status = sample.Status
-			result.ResponseText = sample.ResponseText
-			// The channel's concurrency slot has already been released. Assessment
-			// never holds a generation slot or causes a switch to another account.
-			creative := generationConfig != nil && generationConfig.PromptMode == pelicanRandomCreative
-			if creative && result.PelicanConfig.CreativeRound != nil {
-				result.PelicanConfig.CreativeRound.Checks = checkPelicanCreative(sample.ResponseText, result.PelicanConfig.CreativeRound)
-			}
-			if sample.Status == "success" && !isTextIntelligenceTest(generationConfig) && (creative || s.assessOutput != nil || checks != nil) {
-				var assessment *PelicanAssessment
-				if creative {
-					evaluation, judgeCosts := s.assessCreative(ctx, route.account.ID, result.PelicanConfig, sample.ResponseText)
-					result.PelicanConfig.CreativeRound.Evaluation = evaluation
-					assessment = evaluation.assessment()
-					for _, detail := range judgeCosts {
-						costDetails = append(costDetails, detail)
-						incomplete = incomplete || detail.Incomplete || detail.CostUSD == nil
-						if detail.CostUSD != nil {
-							costUSD += *detail.CostUSD
-							priced = true
-						}
-					}
-				}
-				if !creative && s.assessOutput != nil {
-					result.ResponseText, assessment = s.assessOutput(ctx, sample.ResponseText)
-				}
-				if checks != nil {
-					if creative {
-						verification := checks.result(sample.ResponseText)
-						verification.CheckedAt = s.now()
-						result.PelicanConfig.CreativeRound.Verification = verification
-					}
-					assessment = checks.assess(sample.ResponseText, assessment)
-					if assessment != nil {
-						result.ResponseText = decoratePelicanSource(extractPelicanSource(sample.ResponseText), assessment)
-					}
-				}
-				if assessment != nil {
-					result.QualityVerdict, result.QualityReason = assessment.Quality, assessment.Reason
-					if creative {
-						result.ResponseText = decoratePelicanSource(extractPelicanSource(sample.ResponseText), assessment)
-					}
-				}
-			}
-			result.LatencyMs = sample.LatencyMs
-			result.FinishedAt = s.now()
-			result.AccountID, result.AccountName, result.Attempts = route.account.ID, route.account.Name, attempts
-			result.QualityModelID = route.model
-			return result
+		result = s.newResult(plan, started, s.now(), sample.ErrorMessage)
+		result.Status = sample.Status
+		result.ResponseText = sample.ResponseText
+		// The channel's concurrency slot has already been released. Assessment
+		// never holds a generation slot or causes a switch to another account.
+		creative := generationConfig != nil && generationConfig.PromptMode == pelicanRandomCreative
+		if creative && result.PelicanConfig.CreativeRound != nil {
+			result.PelicanConfig.CreativeRound.Checks = checkPelicanCreative(sample.ResponseText, result.PelicanConfig.CreativeRound)
 		}
-		attempts = append(attempts, PelicanGroupTestAttempt{AccountID: route.account.ID, AccountName: route.account.Name, Error: sample.ErrorMessage})
-		excluded[route.account.ID] = struct{}{}
+		if sample.Status == "success" && !isTextIntelligenceTest(generationConfig) && (creative || s.assessOutput != nil || checks != nil) {
+			var assessment *PelicanAssessment
+			if creative {
+				evaluation, judgeCosts := s.assessCreative(ctx, route.account.ID, result.PelicanConfig, sample.ResponseText)
+				result.PelicanConfig.CreativeRound.Evaluation = evaluation
+				assessment = evaluation.assessment()
+				for _, detail := range judgeCosts {
+					costDetails = append(costDetails, detail)
+					incomplete = incomplete || detail.Incomplete || detail.CostUSD == nil
+					if detail.CostUSD != nil {
+						costUSD += *detail.CostUSD
+						priced = true
+					}
+				}
+			}
+			if !creative && s.assessOutput != nil {
+				result.ResponseText, assessment = s.assessOutput(ctx, sample.ResponseText)
+			}
+			if checks != nil {
+				if creative {
+					verification := checks.result(sample.ResponseText)
+					verification.CheckedAt = s.now()
+					result.PelicanConfig.CreativeRound.Verification = verification
+				}
+				assessment = checks.assess(sample.ResponseText, assessment)
+				if assessment != nil {
+					result.ResponseText = decoratePelicanSource(extractPelicanSource(sample.ResponseText), assessment)
+				}
+			}
+			if assessment != nil {
+				result.QualityVerdict, result.QualityReason = assessment.Quality, assessment.Reason
+				if creative {
+					result.ResponseText = decoratePelicanSource(extractPelicanSource(sample.ResponseText), assessment)
+				}
+			}
+		}
+		result.LatencyMs = sample.LatencyMs
+		result.FinishedAt = s.now()
+		result.AccountID, result.AccountName = route.account.ID, route.account.Name
+		result.QualityModelID = route.model
+		return result
 	}
 }
 
@@ -804,21 +830,6 @@ func (s *PelicanGroupTestService) newResult(plan *PelicanGroupTestPlan, started,
 		result.PelicanConfig = &snapshot
 	}
 	return result
-}
-
-// pelicanFailedBeforeOutput reports an account-side failure with no model output, such as
-// an upstream HTTP error or a missing token. Output problems (empty, oversized, cut off
-// at max_tokens, refused) are the model's answer and do not trigger a retry on another
-// account.
-func pelicanFailedBeforeOutput(result *ScheduledTestResult) bool {
-	if result.Status == "success" || result.ResponseText != "" {
-		return false
-	}
-	switch result.ErrorMessage {
-	case pelicanErrEmptyOutput, pelicanErrCaptureLimit, pelicanErrHistoryLimit, pelicanErrMaxTokens:
-		return false
-	}
-	return !strings.HasPrefix(result.ErrorMessage, pelicanErrRefused)
 }
 
 func (s *PelicanGroupTestService) ListResults(ctx context.Context, planID int64, page, pageSize int) ([]*PelicanGroupTestResult, int64, error) {

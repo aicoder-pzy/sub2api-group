@@ -47,7 +47,7 @@ func TestCreativeGroupRunsShareQuestionAcrossSamplesFailoverAndGroups(t *testing
 		mu.Lock()
 		prompts = append(prompts, cfg.Prompt)
 		mu.Unlock()
-		if id == 11 {
+		if id == 99 {
 			return &ScheduledTestResult{Status: "failed", ErrorMessage: "HTTP 503"}, nil
 		}
 		_, checks, err := withPelicanQualityChecks(&PelicanTestConfig{PromptMode: pelicanRandomCreative, CreativeRound: cfg.CreativeRound, VerificationTasks: true})
@@ -83,9 +83,10 @@ func TestCreativeGroupRunsShareQuestionAcrossSamplesFailoverAndGroups(t *testing
 	other.ID, other.GroupID = 8, 5
 	other.PelicanConfig.PromptMode, other.PelicanConfig.VerificationTasks = pelicanRandomCreative, true
 	otherSvc, _ := newGroupTestService(newGroupTestRepoFake(), &groupTestRouterFake{steps: []routeStep{{account: account(14, "d")}}}, generate)
+	otherSvc.repo.(*groupTestRepoFake).traffic = []PelicanTrafficAccount{{AccountID: 14, LastSeenAt: groupTestNow}}
 	otherSvc.groups = groupTestGroupsFake{5: {ID: 5, Status: StatusActive}}
 	otherSvc.execute(other, groupTestNow.Add(10*time.Minute).Add(pelicanGroupTestLease))
-	require.Len(t, prompts, 4)
+	require.Len(t, prompts, 3)
 	for _, prompt := range prompts {
 		require.Equal(t, prompts[0], prompt)
 	}

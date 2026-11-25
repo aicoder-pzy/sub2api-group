@@ -110,6 +110,15 @@ func TestSmartChannelPelicanRouterPreservesPublicModelThroughFinalAdmission(t *t
 				rememberGroupModelSchedulingAccount(ctx, cache, &group.ID, upstream, 2)
 				_, err = router.route(probe, group, public, nil)
 				require.Error(t, err, "a stale switch must not spend tokens on the old primary")
+				// An older real session may still use account 1 after the primary
+				// changes to 2. Its intelligence check must neither borrow 2 nor rebind.
+				pinned := context.WithValue(ctx, qualitySchedulingProbeKey{}, true)
+				pinned = context.WithValue(pinned, pelicanDegradationTargetKey{}, int64(1))
+				route, err = router.route(pinned, group, public, nil)
+				require.NoError(t, err)
+				require.EqualValues(t, 1, route.account.ID)
+				route.release()
+				require.EqualValues(t, 2, groupModelSchedulingActiveAccount(ctx, cache, &group.ID, upstream))
 				rules.Rules[0].AccountIDs = []int64{}
 				require.NoError(t, settings.SetModelAccountRouting(ctx, group.ID, rules))
 				_, err = router.route(ctx, group, public, nil)
