@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
 
@@ -119,6 +120,18 @@ func TestSmartChannelPelicanRouterPreservesPublicModelThroughFinalAdmission(t *t
 				require.EqualValues(t, 1, route.account.ID)
 				route.release()
 				require.EqualValues(t, 2, groupModelSchedulingActiveAccount(ctx, cache, &group.ID, upstream))
+				// A plan-driven intelligence probe may select another eligible
+				// account, but it must leave the live group/model binding untouched.
+				scheduled := context.WithValue(ctx, qualitySchedulingProbeKey{}, &qualityProbeReservations{accounts: make(map[int64]bool)})
+				scheduled = context.WithValue(scheduled, qualitySchedulingReadOnlyKey{}, true)
+				scheduled = context.WithValue(scheduled, ctxkey.Group, group)
+				route, err = router.route(scheduled, group, public, nil)
+				require.NoError(t, err)
+				require.EqualValues(t, 1, route.account.ID)
+				route.release()
+				rememberGroupModelSchedulingAccount(scheduled, cache, &group.ID, upstream, 1)
+				confirmGroupModelSchedulingAccount(scheduled, upstream, 1)
+				require.EqualValues(t, 2, groupModelSchedulingActiveAccount(ctx, cache, &group.ID, upstream), "scheduled probe must not rewrite the user's current channel")
 				rules.Rules[0].AccountIDs = []int64{}
 				require.NoError(t, settings.SetModelAccountRouting(ctx, group.ID, rules))
 				_, err = router.route(ctx, group, public, nil)

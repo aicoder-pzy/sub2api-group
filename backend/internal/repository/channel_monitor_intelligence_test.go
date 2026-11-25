@@ -12,6 +12,10 @@ import (
 )
 
 func TestMonitorIntelligenceKeepsModelsAndMonitorsSeparate(t *testing.T) {
+	require.NotContains(t, channelMonitorIntelligenceSQL, "usage_logs", "scheduled plan status must not depend on real user traffic")
+	require.NotContains(t, channelMonitorIntelligenceSQL, "pelicanTrafficAccountsSQL")
+	require.Contains(t, channelMonitorIntelligenceSQL, "WHERE NOT COALESCE(x.confirmation_pending, false)", "an unconfirmed candy mismatch must preserve the last confirmed state")
+
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })

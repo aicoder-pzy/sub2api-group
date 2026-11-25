@@ -15,8 +15,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
-// Group intelligence checks follow accounts observed in real streaming traffic.
-// A pinned account's failure is never replaced by another account's answer.
+// Group intelligence checks follow the configured plan and use read-only
+// scheduler selection. A pinned account's failure is never replaced by another
+// account's answer.
 
 const (
 	// Bound selection retries if a concurrent real request changes the binding.
@@ -146,6 +147,8 @@ type PelicanTrafficAccount struct {
 	AccountName string
 	LastSeenAt  time.Time
 }
+
+type pelicanScheduledProbeKey struct{}
 
 // pelicanGroupRoute is the scheduler's pick for one sample. release frees the
 // concurrency slot held while the sample runs.
@@ -595,26 +598,19 @@ func (s *PelicanGroupTestService) runSamples(ctx context.Context, plan *PelicanG
 	if plan.PelicanConfig != nil && plan.PelicanConfig.ParallelCount > 1 {
 		count = plan.PelicanConfig.ParallelCount
 	}
-	targets, err := s.repo.ListTrafficAccounts(ctx, plan, s.now())
-	if err != nil || len(targets) == 0 {
-		logger.LegacyPrintf("service.pelican_group_test", "plan=%d skipped: no verified streaming account (error=%v)", plan.ID, err)
-		return nil
-	}
-	// Keep the configured sample budget. Accounts with the oldest check go first
-	// so separate active sessions are covered without multiplying paid probes.
+	// Run the configured sample count through the scheduler even without recent
+	// user traffic. Shared probe reservations let quality-aware schedulers spread
+	// parallel samples without writing a session binding or scheduling preference.
+	probeCtx := context.WithValue(ctx, pelicanScheduledProbeKey{}, true)
+	probeCtx = context.WithValue(probeCtx, qualitySchedulingProbeKey{}, &qualityProbeReservations{accounts: make(map[int64]bool)})
+	probeCtx = context.WithValue(probeCtx, qualitySchedulingReadOnlyKey{}, true)
 	results := make([]*PelicanGroupTestResult, count)
 	var wg sync.WaitGroup
 	for i := range results {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			target := targets[index%len(targets)]
-			sampleCtx := context.WithValue(ctx, pelicanDegradationTargetKey{}, target.AccountID)
-			sampleCtx = context.WithValue(sampleCtx, qualitySchedulingProbeKey{}, true)
-			results[index] = s.runSample(sampleCtx, plan, group)
-			if results[index] != nil {
-				results[index].AccountID, results[index].AccountName = target.AccountID, target.AccountName
-			}
+			results[index] = s.runSample(probeCtx, plan, group)
 		}(i)
 	}
 	wg.Wait()
@@ -632,16 +628,23 @@ func (s *PelicanGroupTestService) runSample(ctx context.Context, plan *PelicanGr
 	work, handling := ctx.Value(pelicanDegradationRunKey{}).(PelicanDegradationWork)
 	target, _ := ctx.Value(pelicanDegradationTargetKey{}).(int64)
 	if target == 0 && !handling {
-		if s.repo == nil {
-			return nil
+		if scheduled, _ := ctx.Value(pelicanScheduledProbeKey{}).(bool); scheduled {
+			if ctx.Value(qualitySchedulingProbeKey{}) == nil {
+				ctx = context.WithValue(ctx, qualitySchedulingProbeKey{}, &qualityProbeReservations{accounts: make(map[int64]bool)})
+			}
+			ctx = context.WithValue(ctx, qualitySchedulingReadOnlyKey{}, true)
+		} else {
+			if s.repo == nil {
+				return nil
+			}
+			accounts, err := s.repo.ListTrafficAccounts(ctx, plan, s.now())
+			if err != nil || len(accounts) == 0 {
+				return nil
+			}
+			target = accounts[0].AccountID
+			ctx = context.WithValue(ctx, pelicanDegradationTargetKey{}, target)
+			ctx = context.WithValue(ctx, qualitySchedulingProbeKey{}, true)
 		}
-		accounts, err := s.repo.ListTrafficAccounts(ctx, plan, s.now())
-		if err != nil || len(accounts) == 0 {
-			return nil
-		}
-		target = accounts[0].AccountID
-		ctx = context.WithValue(ctx, pelicanDegradationTargetKey{}, target)
-		ctx = context.WithValue(ctx, qualitySchedulingProbeKey{}, true)
 	}
 	started := s.now()
 	var costUSD float64

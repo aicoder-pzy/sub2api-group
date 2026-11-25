@@ -133,17 +133,29 @@ func TestFastestFailoverPelicanUsesLiveSchedulerPaths(t *testing.T) {
 					plan := groupTestPlan(3)
 					plan.GroupID, plan.ModelID = groupID, "claude-sonnet-4-5"
 					plan.PelicanConfig.ReasoningEffort = "medium"
-					tests, _ := newGroupTestService(newGroupTestRepoFake(plan),
+					repo := newGroupTestRepoFake(plan)
+					repo.traffic = nil
+					tests, _ := newGroupTestService(repo,
 						&gatewayPelicanGroupRouter{gateway: gateway, openai: openai, concurrency: concurrency},
-						answers(map[int64]ScheduledTestResult{2: {Status: "success", ResponseText: "<html>drawing</html>"}}))
-					tests.repo.(*groupTestRepoFake).traffic = []PelicanTrafficAccount{{AccountID: 2, LastSeenAt: groupTestNow}}
+						answers(map[int64]ScheduledTestResult{
+							1: {Status: "success", ResponseText: "<html>drawing</html>"},
+							2: {Status: "success", ResponseText: "<html>drawing</html>"},
+							3: {Status: "success", ResponseText: "<html>drawing</html>"},
+						}))
 					tests.groups = groupTestGroupsFake{groupID: group}
-					for _, result := range tests.runSamples(context.Background(), plan) {
-						require.EqualValues(t, 2, result.AccountID, "every routine sample tests the healthy primary, including parallel samples")
+					scheduledResults := tests.runSamples(context.Background(), plan)
+					require.Len(t, scheduledResults, 3, "scheduled sample count follows the plan without traffic evidence")
+					seen := map[int64]bool{}
+					for _, result := range scheduledResults {
+						require.Contains(t, []int64{1, 2, 3}, result.AccountID, "the selected account must belong to the configured model's group")
+						seen[result.AccountID] = true
 						require.Equal(t, "success", result.Status)
 					}
+					require.NotEmpty(t, seen)
+					require.EqualValues(t, 2, groupModelSchedulingActiveAccount(ctx, cache, &groupID, plan.ModelID), "scheduled probes must leave the live binding unchanged")
+					repo.traffic = []PelicanTrafficAccount{{AccountID: 2, LastSeenAt: groupTestNow}}
 					result := tests.runSample(context.Background(), plan, group)
-					require.EqualValues(t, 2, result.AccountID, "a single routine sample also follows the primary rather than rotating to an untested account")
+					require.EqualValues(t, 2, result.AccountID, "event-driven checks remain pinned to their real streaming account")
 					require.Equal(t, "success", result.Status)
 					require.EqualValues(t, 2, groupModelSchedulingActiveAccount(ctx, cache, &groupID, plan.ModelID))
 					pending.Degradation = nil

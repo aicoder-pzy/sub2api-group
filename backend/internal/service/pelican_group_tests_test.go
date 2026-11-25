@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,7 @@ type groupTestRepoFake struct {
 	nextID        int64
 	traffic       []PelicanTrafficAccount
 	trafficErr    error
+	trafficCalls  int
 }
 
 func newGroupTestRepoFake(plans ...*PelicanGroupTestPlan) *groupTestRepoFake {
@@ -46,6 +48,9 @@ func newGroupTestRepoFake(plans ...*PelicanGroupTestPlan) *groupTestRepoFake {
 }
 
 func (r *groupTestRepoFake) ListTrafficAccounts(context.Context, *PelicanGroupTestPlan, time.Time) ([]PelicanTrafficAccount, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.trafficCalls++
 	return r.traffic, r.trafficErr
 }
 
@@ -342,25 +347,43 @@ func TestPelicanGroupTestFollowsStreamingAccountWithoutFailover(t *testing.T) {
 	}
 }
 
-func TestPelicanGroupTestSkipsWithoutRealStreamingEvidence(t *testing.T) {
+func TestPelicanGroupTestRunsScheduledPlanWithoutRealStreamingEvidence(t *testing.T) {
 	for _, problem := range []error{nil, errors.New("evidence unavailable")} {
 		repo := newGroupTestRepoFake()
 		repo.traffic, repo.trafficErr = nil, problem
-		router := &groupTestRouterFake{}
-		svc, _ := newGroupTestService(repo, router, func(context.Context, int64, string, *PelicanTestConfig) (*ScheduledTestResult, error) {
-			t.Fatal("no paid call without evidence")
+		router := &groupTestRouterFake{steps: []routeStep{{account: account(11, "scheduled")}}}
+		svc, _ := newGroupTestService(repo, router, func(ctx context.Context, accountID int64, _ string, _ *PelicanTestConfig) (*ScheduledTestResult, error) {
+			require.EqualValues(t, 11, accountID)
+			require.True(t, qualityProbe(ctx))
+			require.True(t, ctx.Value(qualitySchedulingReadOnlyKey{}).(bool))
+			require.True(t, ctx.Value(pelicanScheduledProbeKey{}).(bool))
+			_, pinned := ctx.Value(pelicanDegradationTargetKey{}).(int64)
+			require.False(t, pinned, "the configured plan selects via the scheduler, without traffic pinning")
+			return &ScheduledTestResult{Status: "success", ResponseText: "21"}, nil
+		})
+		results := svc.runSamples(context.Background(), groupTestPlan(1))
+		require.Len(t, results, 1)
+		require.EqualValues(t, 11, results[0].AccountID)
+		require.Equal(t, 0, repo.trafficCalls, "scheduled intelligence must not query recent user traffic")
+		require.Empty(t, router.steps)
+
+		// Event-driven checks still require and stay pinned to real streaming evidence.
+		directRepo := newGroupTestRepoFake()
+		directRepo.traffic, directRepo.trafficErr = nil, problem
+		directRouter := &groupTestRouterFake{}
+		directSvc, _ := newGroupTestService(directRepo, directRouter, func(context.Context, int64, string, *PelicanTestConfig) (*ScheduledTestResult, error) {
+			t.Fatal("event-driven check ran without traffic evidence")
 			return nil, nil
 		})
-		require.Empty(t, svc.runSamples(context.Background(), groupTestPlan(1)))
-		require.Nil(t, svc.runSample(context.Background(), groupTestPlan(1), &Group{ID: 4}))
-		require.Empty(t, router.excluded)
+		require.Nil(t, directSvc.runSample(context.Background(), groupTestPlan(1), &Group{ID: 4}))
+		require.Empty(t, directRouter.excluded)
 	}
 }
 
-func TestPelicanGroupTestCoversActiveAccountsWithinSampleBudget(t *testing.T) {
+func TestPelicanGroupTestFollowsConfiguredSampleBudgetWithoutTraffic(t *testing.T) {
 	plan := groupTestPlan(2)
 	repo := newGroupTestRepoFake()
-	repo.traffic = []PelicanTrafficAccount{{AccountID: 11}, {AccountID: 12}, {AccountID: 13}}
+	repo.traffic, repo.trafficErr = nil, errors.New("no traffic database evidence")
 	router := &groupTestRouterFake{steps: []routeStep{{account: account(11, "a")}, {account: account(12, "b")}, {account: account(13, "c")}}}
 	svc, _ := newGroupTestService(repo, router, answers(map[int64]ScheduledTestResult{
 		11: {Status: "failed", ResponseText: "29", ErrorMessage: "answer_mismatch"},
@@ -368,10 +391,12 @@ func TestPelicanGroupTestCoversActiveAccountsWithinSampleBudget(t *testing.T) {
 	}))
 	results := svc.runSamples(context.Background(), plan)
 	require.Len(t, results, 2, "do not multiply the user's configured budget by the account count")
+	sort.Slice(results, func(i, j int) bool { return results[i].AccountID < results[j].AccountID })
 	require.EqualValues(t, 11, results[0].AccountID)
 	require.Equal(t, "failed", results[0].Status)
 	require.EqualValues(t, 12, results[1].AccountID)
 	require.Equal(t, "success", results[1].Status)
+	require.Equal(t, 0, repo.trafficCalls)
 	require.Len(t, router.steps, 1)
 }
 
