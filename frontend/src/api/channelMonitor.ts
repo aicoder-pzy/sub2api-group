@@ -9,6 +9,7 @@ import type { MonitorQuotaSnapshot, Provider, MonitorStatus } from './admin/chan
 export type { Provider, MonitorStatus } from './admin/channelMonitor'
 
 export interface UserMonitorExtraModel {
+  intelligence?: MonitorIntelligence
   model: string
   status: MonitorStatus | ''
   latency_ms: number | null

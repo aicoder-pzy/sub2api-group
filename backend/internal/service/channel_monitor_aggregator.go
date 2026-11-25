@@ -72,7 +72,11 @@ func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonito
 	views := make([]*UserMonitorView, 0, len(monitors))
 	for _, m := range monitors {
 		view := buildUserViewFromSummary(m, summaries[m.ID], timelineMap[m.ID])
-		view.Intelligence = intelligence[m.ID]
+		view.Intelligence = intelligence[m.ID][m.PrimaryModel]
+		for i := range view.ExtraModels {
+			extra := &view.ExtraModels[i]
+			extra.Intelligence = intelligence[m.ID][extra.Model]
+		}
 		views = append(views, view)
 	}
 	return views, nil

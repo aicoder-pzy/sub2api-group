@@ -43,7 +43,7 @@ func (s *ChannelMonitorService) ListUserIntelligence(ctx context.Context) ([]Mon
 	items := make([]MonitorIntelligenceView, 0, len(configured))
 	for _, monitor := range configured {
 		items = append(items, MonitorIntelligenceView{
-			ID: monitor.ID, Name: monitor.Name, PrimaryModel: monitor.PrimaryModel, Intelligence: intelligence[monitor.ID],
+			ID: monitor.ID, Name: monitor.Name, PrimaryModel: monitor.PrimaryModel, Intelligence: intelligence[monitor.ID][monitor.PrimaryModel],
 		})
 	}
 	return items, nil
@@ -69,17 +69,22 @@ func monitorIntelligenceGroup(id *int64) *int64 {
 	return nil
 }
 
-func (s *ChannelMonitorService) batchMonitorIntelligence(ctx context.Context, monitors []*ChannelMonitor) map[int64]*MonitorIntelligence {
-	summaries := make(map[int64]*MonitorIntelligence)
+func (s *ChannelMonitorService) batchMonitorIntelligence(ctx context.Context, monitors []*ChannelMonitor) map[int64]map[string]*MonitorIntelligence {
+	summaries := make(map[int64]map[string]*MonitorIntelligence)
 	ids := make([]int64, 0, len(monitors))
 	for _, monitor := range monitors {
 		if monitor.CheckMode == MonitorCheckModeQuota {
 			continue
 		}
+		state := "unknown"
 		if monitor.IntelligenceGroupID == nil {
-			summaries[monitor.ID] = &MonitorIntelligence{State: "unconfigured", History: []MonitorIntelligencePoint{}}
+			state = "unconfigured"
 		} else {
 			ids = append(ids, monitor.ID)
+		}
+		summaries[monitor.ID] = make(map[string]*MonitorIntelligence)
+		for _, model := range normalizeModels(append([]string{monitor.PrimaryModel}, monitor.ExtraModels...)) {
+			summaries[monitor.ID][model] = &MonitorIntelligence{State: state, History: []MonitorIntelligencePoint{}}
 		}
 	}
 	if len(ids) == 0 {
@@ -90,10 +95,10 @@ func (s *ChannelMonitorService) batchMonitorIntelligence(ctx context.Context, mo
 		slog.Warn("channel_monitor: unable to load intelligence results", "error", err)
 	}
 	for _, id := range ids {
-		if row := rows[id]; row != nil {
-			summaries[id] = row
-		} else {
-			summaries[id] = &MonitorIntelligence{State: "unknown", History: []MonitorIntelligencePoint{}}
+		for model := range summaries[id] {
+			if row := rows[id][model]; row != nil {
+				summaries[id][model] = row
+			}
 		}
 	}
 	return summaries

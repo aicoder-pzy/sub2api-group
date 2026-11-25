@@ -187,7 +187,8 @@ type ExtraModelStatus struct {
 // UserMonitorExtraModel contains one additional probe model's status and history.
 type UserMonitorExtraModel struct {
 	ExtraModelStatus
-	Timeline []UserMonitorTimelinePoint
+	Timeline     []UserMonitorTimelinePoint
+	Intelligence *MonitorIntelligence
 }
 
 // UserMonitorDetail 用户只读视图：监控详情（含全部模型 7d/15d/30d 可用率与平均延迟）。

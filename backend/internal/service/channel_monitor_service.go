@@ -19,7 +19,7 @@ import (
 // 入参/返回的指针类型均使用 service 包的 ChannelMonitor 模型，
 // repository 实现负责与 ent 模型互转，并保持 api_key_encrypted 字段为密文。
 type ChannelMonitorRepository interface {
-	ListMonitorIntelligence(ctx context.Context, ids []int64) (map[int64]*MonitorIntelligence, error)
+	ListMonitorIntelligence(ctx context.Context, ids []int64) (map[int64]map[string]*MonitorIntelligence, error)
 	// CRUD
 	Create(ctx context.Context, m *ChannelMonitor) error
 	GetByID(ctx context.Context, id int64) (*ChannelMonitor, error)

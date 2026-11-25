@@ -88,9 +88,10 @@
         />
 
         <MonitorIntelligenceSummary
-          v-if="item.intelligence"
-          :intelligence="item.intelligence"
-          :model="item.primary_model"
+          v-if="model.intelligence"
+          :key="model.model"
+          :intelligence="model.intelligence"
+          :model="model.model"
           class="mt-4 w-full border-t border-gray-200 pt-3 dark:border-dark-700"
         />
       </section>
@@ -159,6 +160,7 @@ const models = computed<UserMonitorExtraModel[]>(() => [
     latency_ms: props.item.primary_latency_ms,
     ping_latency_ms: props.item.primary_ping_latency_ms,
     timeline: props.item.timeline,
+    intelligence: props.item.intelligence,
   },
   ...(props.item.extra_models ?? []).filter(model => model.model && model.model !== props.item.primary_model),
 ])

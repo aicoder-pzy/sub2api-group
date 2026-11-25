@@ -72,6 +72,7 @@ type channelMonitorUserListItem struct {
 
 type channelMonitorUserExtraModel struct {
 	dto.ChannelMonitorExtraModelStatus
+	Intelligence   *service.MonitorIntelligence      `json:"intelligence,omitempty"`
 	PingLatencyMs  *int                              `json:"ping_latency_ms"`
 	Availability7d *float64                          `json:"availability_7d"`
 	Timeline       []channelMonitorUserTimelinePoint `json:"timeline"`
@@ -115,6 +116,7 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 			PingLatencyMs:  e.PingLatencyMs,
 			Availability7d: e.Availability7d,
 			Timeline:       userMonitorTimelineToResponse(e.Timeline),
+			Intelligence:   e.Intelligence,
 		})
 	}
 	item := channelMonitorUserListItem{
